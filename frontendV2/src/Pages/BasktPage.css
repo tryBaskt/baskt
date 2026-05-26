@@ -1,0 +1,89 @@
+.baskt-page {
+	display: grid;
+	gap: 1rem;
+}
+
+.baskt-back {
+	justify-self: start;
+	border: 1px solid rgba(115, 127, 139, 0.35);
+	background: #ffffff;
+	border-radius: 10px;
+	padding: 8px 12px;
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.baskt-back:hover {
+	border-color: rgba(90, 46, 217, 0.55);
+}
+
+.baskt-header h1 {
+	margin: 0;
+}
+
+.baskt-description {
+	margin: 0.4rem 0 0;
+	color: rgba(0, 0, 0, 0.68);
+}
+
+.baskt-dates {
+	display: grid;
+	gap: 0.4rem;
+	padding: 10px 12px;
+	border: 1px solid rgba(115, 127, 139, 0.2);
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.8);
+}
+
+.baskt-dates p {
+	margin: 0;
+}
+
+.baskt-positions h2 {
+	margin: 0;
+}
+
+.baskt-table-wrap {
+	margin-top: 0.5rem;
+	border: 1px solid rgba(115, 127, 139, 0.26);
+	border-radius: 12px;
+	overflow: auto;
+	background: #ffffff;
+}
+
+.baskt-table-wrap table {
+	width: 100%;
+	border-collapse: collapse;
+	min-width: 420px;
+}
+
+.baskt-table-wrap th,
+.baskt-table-wrap td {
+	text-align: left;
+	padding: 10px 12px;
+	border-bottom: 1px solid rgba(115, 127, 139, 0.18);
+}
+
+.baskt-table-wrap th {
+	font-size: 0.86rem;
+	color: rgba(0, 0, 0, 0.72);
+	background: rgba(237, 239, 244, 0.6);
+}
+
+.baskt-table-wrap tr:last-child td {
+	border-bottom: none;
+}
+
+.baskt-meta {
+	margin: 0;
+	color: rgba(0, 0, 0, 0.6);
+}
+
+.baskt-error {
+	margin: 0;
+	color: #8f1e1e;
+	background: rgba(176, 34, 34, 0.1);
+	border: 1px solid rgba(176, 34, 34, 0.24);
+	border-radius: 10px;
+	padding: 10px 12px;
+}

@@ -1,0 +1,354 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap");
+
+:root {
+  --bg-start: #f5f0ff;
+  --bg-end: #ebe3ff;
+  --ink: #1e2328;
+  --muted: #6a727b;
+  --card: rgba(255, 255, 255, 0.94);
+  --border: rgba(115, 127, 139, 0.25);
+  --accent: #6e3ff2;
+  --accent-strong: #5a2ed9;
+  --shadow: 0 22px 44px rgba(62, 33, 132, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 12% 16%, #ffffff 0%, transparent 38%),
+    radial-gradient(circle at 86% 82%, #d6c8ff 0%, transparent 44%),
+    linear-gradient(150deg, var(--bg-start), var(--bg-end));
+}
+
+.page-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.ambient-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, rgba(115, 127, 139, 0.11) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(115, 127, 139, 0.11) 1px, transparent 1px);
+  background-size: 36px 36px;
+  opacity: 0.72;
+  mask-image: radial-gradient(circle at center, black 62%, transparent 98%);
+  animation: drift 14s ease-in-out infinite alternate;
+}
+
+.login-card {
+  width: min(420px, 92vw);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(2px);
+  padding: 1.5rem;
+  z-index: 1;
+  animation: enter 500ms ease-out;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.69rem;
+  font-weight: 700;
+  color: #5a2ed9;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.42rem 0 0;
+}
+
+.title-logo {
+  width: 3.2rem;
+  height: 3.2rem;
+  flex-shrink: 0;
+}
+
+h1 {
+  font-family: "Manrope", sans-serif;
+  margin: 0;
+  font-size: clamp(2rem, 3.2vw, 2.28rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  color: #5a2ed9;
+}
+
+.subtitle {
+  margin: 0.7rem 0 1.2rem;
+  line-height: 1.45;
+  font-size: 0.93rem;
+  color: var(--muted);
+}
+
+.login-form {
+  display: grid;
+  gap: 0.52rem;
+}
+
+label {
+  margin-top: 0.44rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(115, 127, 139, 0.36);
+  padding: 0.74rem 0.86rem;
+  font: inherit;
+  font-size: 0.94rem;
+  background: rgba(255, 255, 255, 0.98);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(110, 63, 242, 0.2);
+}
+
+button {
+  margin-top: 0.95rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  font: 700 0.98rem "Manrope", sans-serif;
+  color: #fbf9ff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+.aux-row {
+  margin-top: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.aux-row a {
+  color: #8a6ff4;
+  font-weight: 600;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.status-message,
+.error-message {
+  margin: 0.25rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.status-message {
+  background: rgba(78, 140, 95, 0.11);
+  color: #2e6840;
+}
+
+.error-message {
+  background: rgba(176, 34, 34, 0.1);
+  color: #8f1e1e;
+}
+
+.link-button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8a6ff4;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.home-shell {
+  min-height: 100vh;
+  background: linear-gradient(150deg, #f5f0ff, #ebe3ff);
+}
+
+.home-layout {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+.home-sidebar {
+  background: #ffffff;
+  border-right: 1px solid rgba(115, 127, 139, 0.22);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.home-brand {
+  font: 800 1.2rem "Manrope", sans-serif;
+  color: #5a2ed9;
+  letter-spacing: 0.01em;
+}
+
+.home-nav {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.home-nav-button {
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+  padding: 0.78rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid #d9d4e9;
+  background: #ffffff;
+  color: #2a2f35;
+  font: 700 0.94rem "Manrope", sans-serif;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.home-nav-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #f2ecff;
+  color: #5a2ed9;
+  flex: 0 0 auto;
+}
+
+.home-nav-icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: currentColor;
+}
+
+.home-nav-button:hover {
+  background: #6e3ff2;
+  color: #ffffff;
+  border-color: #6e3ff2;
+}
+
+.home-nav-button:hover .home-nav-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.home-nav-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(110, 63, 242, 0.2);
+}
+
+.home-nav-button.is-active {
+  background: #6e3ff2;
+  color: #ffffff;
+  border-color: #6e3ff2;
+  box-shadow: 0 12px 24px rgba(90, 46, 217, 0.22);
+}
+
+.home-nav-button.is-active .home-nav-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.home-logout {
+  margin-top: auto;
+  border: 1px solid #d9d4e9;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #2a2f35;
+  padding: 0.72rem 0.9rem;
+  font: 600 0.9rem "Manrope", sans-serif;
+}
+
+.home-content {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-content h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.8vw, 2rem);
+  color: #2a2f35;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-12px, 8px);
+  }
+}
+
+@media (max-width: 560px) {
+  .login-card {
+    padding: 1.25rem;
+    border-radius: 18px;
+  }
+
+  .aux-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .home-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .home-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(115, 127, 139, 0.22);
+  }
+}
+
