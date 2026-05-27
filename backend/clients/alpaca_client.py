@@ -19,7 +19,7 @@ from alpaca.trading.models import Order
 import pandas as pd
 
 # Baskt imports
-from backend.domain.baskt import BasktPosition
+from domain.baskt import BasktPosition
 
 
 class AlpacaClientError(Exception):

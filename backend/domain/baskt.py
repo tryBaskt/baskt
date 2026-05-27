@@ -15,7 +15,7 @@ class BasktPosition:
     filled_avg_price: float 
     direction: int
 
-@dataclass
+@dataclass(frozen=True)
 class BasktAccount:
     """
     Baskt Account
@@ -24,6 +24,6 @@ class BasktAccount:
     alpaca_account_id: str
     alpaca_account_number: str
     email_address: str
-    cognito_confirmation_status: str | None = None
-    cognito_status: bool | None = None
-    alpaca_account_status: AccountStatus | None = None
+    cognito_confirmation_status: str 
+    cognito_enabled_status: bool 
+    alpaca_account_status: AccountStatus

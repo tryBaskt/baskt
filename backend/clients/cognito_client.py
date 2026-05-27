@@ -150,8 +150,6 @@ class CognitoClient:
                 Username=cognito_user_id,
             )
 
-            print("cognito user: ", response)
-
             attributes = {
                 attr.get("Name"): attr.get("Value")
                 for attr in response.get("UserAttributes", [])
@@ -159,9 +157,9 @@ class CognitoClient:
             }
 
             return {
-                "username": response.get("Username"),
-                "status": bool(response.get("Enabled", False)),
-                "user_status": response.get("UserStatus"),
+                "cognito_user_id": response.get("Username"),
+                "cognito_enabled_status": bool(response.get("Enabled", False)),
+                "cognito_confirmation_status": response.get("UserStatus"),
                 "created_at": response.get("UserCreateDate"),
                 "updated_at": response.get("UserLastModifiedDate"),
                 "attributes": attributes,

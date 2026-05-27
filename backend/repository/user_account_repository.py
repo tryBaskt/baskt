@@ -64,7 +64,7 @@ class UserAccountRepository:
                 )
             ) from e
         
-    def get_user_account_by_email_address(self, email_address: str) -> BasktAccount:
+    def get_user_account_by_email_address(self, email_address: str) -> Dict[str, str]:
         if not email_address:
             raise UserAccountInternalServerError("email_address is required.")
 
@@ -77,13 +77,9 @@ class UserAccountRepository:
 
             if (items is None) or ("email_address" not in items[0]):
                 raise UserAcountNotFoundError(message=f"No user account for email address '{email_address}'")
-            item = items[0]
-            return BasktAccount(
-                cognito_user_id=item["cognito_user_id"],
-                alpaca_account_id=item["alpaca_account_id"],
-                alpaca_account_number=item["alpaca_account_number"],
-                email_address=item["email_address"]
-            )
+            if len(items) > 1:
+                raise UserAccountInternalServerError(message=f"Multiple accounts under email '{email_address}'")
+            return items[0]
         except DynamoDBClientError as e:
             raise UserAccountBadGatewayError(
                 message=f"Failed querying user account by email_address '{email_address}': {e}."

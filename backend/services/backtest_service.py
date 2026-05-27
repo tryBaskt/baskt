@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
-from backend.domain.backtest import BacktestPosition
+from domain.backtest import BacktestPosition
 from clients.yfinance_client import YFinanceClient, YFinanceClientError
 
 

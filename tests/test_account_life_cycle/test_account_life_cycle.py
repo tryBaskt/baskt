@@ -55,14 +55,14 @@ def test_create_account(account_lifecycle_service: AccountLifecycleService):
 	password = uuid.uuid4().hex[:15]
 	password = "TEST_"+ password
 
-	baskt_account = account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
+	create_account_response = account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
 
-	assert baskt_account is not None
-	assert baskt_account.email_address == account_data["contact"]["email_address"]
-	baskt_account = account_lifecycle_service.get_baskt_account(email_address=baskt_account.email_address)
+	assert create_account_response is not None
+	assert create_account_response["email_address"] == account_data["contact"]["email_address"]
+	baskt_account = account_lifecycle_service.get_baskt_account(email_address=create_account_response["email_address"])
 
 	assert baskt_account.alpaca_account_status.name == "SUBMITTED"
-	assert baskt_account.cognito_status == True
+	assert baskt_account.cognito_enabled_status == True
 
 
 

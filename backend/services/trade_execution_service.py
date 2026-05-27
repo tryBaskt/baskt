@@ -6,7 +6,7 @@ from typing import List, Dict
 from fastapi import HTTPException
 from domain.portfolio_allocation import PortfolioAllocationPosition, PortfolioAllocationSnapshot, PortfolioAllocation
 from domain.model_portfolio import ModelPortfolioSnapshot, ModelPortfolioPosition, DeltaPosition
-from backend.domain.baskt import BasktPosition
+from domain.baskt import BasktPosition
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from clients.alpaca_client import AlpacaClient
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository

@@ -15,7 +15,7 @@ from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR, HTTP_502_BAD_GATEWA
 # Baskt imports
 from core.deps import get_alpaca_client, get_current_user
 from clients.alpaca_client import AlpacaClient, AlpacaClientError
-from backend.domain.baskt import BasktPosition
+from domain.baskt import BasktPosition
 
 router = APIRouter(tags=["alpaca"])
 

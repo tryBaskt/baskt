@@ -27,7 +27,7 @@ class AccountLifecycleService:
 		self.cognito_client = cognito_client
 		self.user_account_repository = user_account_repository
 
-	def create_baskt_account(self, account_data: Dict[str, Any], password: str | None = None) -> BasktAccount:
+	def create_baskt_account(self, account_data: Dict[str, Any], password: str | None = None) -> Dict[str, str]:
 		try:
 			alpaca_account_data = self.alpaca_broker_client.create_alpaca_account(account_data=account_data)
 			alpaca_account_id = alpaca_account_data["alpaca_account_id"]
@@ -40,7 +40,7 @@ class AccountLifecycleService:
 			) from err
 
 		try:
-			cognito_username = self.cognito_client.create_cognito_user(account_data=account_data, password=password)
+			cognito_user_id = self.cognito_client.create_cognito_user(account_data=account_data, password=password)
 		except CognitoClientError as err:
 			raise AccountLifecycleServiceError(
 				message=f"Alpaca account created, but Cognito user creation failed: {err}",
@@ -49,7 +49,7 @@ class AccountLifecycleService:
 
 		try:
 			self.user_account_repository.create_user_account(
-				cognito_user_id=cognito_username,
+				cognito_user_id=cognito_user_id,
 				alpaca_account_id=alpaca_account_id,
 				alpaca_account_number=alpaca_account_number,
 				account_data=account_data
@@ -70,21 +70,25 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_USER_ACCOUNT_PERSIST_FAILED",
 			) from err
 		
-		return BasktAccount(
-			cognito_user_id=cognito_username,
-			alpaca_account_id=alpaca_account_id,
-			alpaca_account_number=alpaca_account_number,
-			email_address=email_address
-        )
+		return {
+			"alpaca_account_id": alpaca_account_id,
+			"cognito_user_id": cognito_user_id,
+			"email_address": email_address
+		}
 	
 	def get_baskt_account(self, email_address: str) -> BasktAccount:
-		baskt_account = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
-		cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=baskt_account.cognito_user_id)
-		baskt_account.cognito_confirmation_status = cognito_role_dict["user_status"]
-		baskt_account.cognito_status = cognito_role_dict["status"]
-		alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=baskt_account.alpaca_account_id)
-		baskt_account.alpaca_account_status = alpaca_account.status
-		return baskt_account
+		user_account_dict = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
+		cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
+		alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=user_account_dict["alpaca_account_id"])
+		return BasktAccount(
+			cognito_user_id=cognito_role_dict["cognito_user_id"],
+			alpaca_account_id=str(alpaca_account.id),
+			alpaca_account_number=alpaca_account.account_number,
+			email_address=user_account_dict["email_address"],
+			cognito_confirmation_status=cognito_role_dict["cognito_confirmation_status"],
+			cognito_enabled_status=cognito_role_dict["cognito_enabled_status"],
+			alpaca_account_status=alpaca_account.status
+		)
 		
 
 	
