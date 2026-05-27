@@ -154,7 +154,7 @@ def get_portfolio_allocation_repository(
     alpaca_client: AlpacaClient = Depends(get_alpaca_client),
     portfolio_allocation_dynamodb_client: DynamoDBClient = Depends(get_portfolio_allocation_dynamodb_client),
 ) -> PortfolioAllocationRepository:
-    # Use the portfolio allocation table, which has keys (user_id, portfolio_id)
+    # Use the portfolio allocation table, which has keys (cognito_user_id, portfolio_id)
     return PortfolioAllocationRepository(alpaca_client=alpaca_client, dynamodb_client=portfolio_allocation_dynamodb_client)
 
 def get_order_repository(

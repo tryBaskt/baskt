@@ -24,7 +24,7 @@ class PortfolioTestUser:
         trade_execution_service: TradeExecutionService, 
         order_repository: OrderRepository,
         portfolio_allocation_repository: PortfolioAllocationRepository,
-        user_id: str,
+        cognito_user_id: str,
         alpaca_client: AlpacaClient,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
         model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
@@ -34,7 +34,7 @@ class PortfolioTestUser:
         self.trade_execution_service = trade_execution_service
         self.order_repository = order_repository
         self.portfolio_allocation_repository = portfolio_allocation_repository
-        self.user_id = user_id
+        self.cognito_user_id = cognito_user_id
         self.alpaca_client = alpaca_client
 
         self.update_times_by_owned_protfolios: Dict[str, List[str]] = {}
@@ -61,14 +61,14 @@ class PortfolioTestUser:
         # Arrange using provided inputs
         owner_id = str(uuid.uuid4())
         if owner:
-            owner_id = self.user_id
+            owner_id = self.cognito_user_id
 
         positions_request: List[ModelPortfolioPositionRequest] = [
             ModelPortfolioPositionRequest(symbol=s, target_weight=w, direction=d, leverage=l)
             for s, w, d, l in zip(symbols, target_weights, directions, leverages)
         ]
         portfolio_id = self.model_portfolio_repository.create_model_portfolio(
-            portfolio_owner_id=owner_id,
+            portfolio_owner_cognito_user_id=owner_id,
             portfolio_name=portfolio_name,
             positions_request=positions_request,
         )
@@ -91,13 +91,13 @@ class PortfolioTestUser:
         self,
         deposit_amount: float,
         portfolio_id: str,
-        portfolio_owner_id: str,
+        portfolio_owner_cognito_user_id: str,
     ):
         dep_orders = self.trade_execution_service.execute_deposit_to_portfolio(
         portfolio_id=portfolio_id,
-        portfolio_owner_id=portfolio_owner_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
         deposit_amount=deposit_amount,
-        user_id=self.user_id,
+        cognito_user_id=self.cognito_user_id,
         is_test=True
         )
         # Wait for orders to be filled
@@ -105,8 +105,8 @@ class PortfolioTestUser:
 
         # Realize filled orders
         self.trade_execution_service.realize_filled_orders(
-            user_id=self.user_id,
-            portfolio_owner_id=portfolio_owner_id,
+            cognito_user_id=self.cognito_user_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
         )
         self.portfolio_allocation_history_size+=1
@@ -147,7 +147,7 @@ class PortfolioTestUser:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(user_id=self.user_id,portfolio_id=portfolio_id)
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=self.cognito_user_id,portfolio_id=portfolio_id)
         assert allocation is not None and len(allocation.portfolio_allocation_history) == self.portfolio_allocation_history_size
         snapshot = allocation.portfolio_allocation_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -192,18 +192,18 @@ class PortfolioTestUser:
 
         # Validate user is in model portfolio's followers
         model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-        assert self.user_id in model_portfolio_followers
+        assert self.cognito_user_id in model_portfolio_followers
 
     def test_update_effect(
         self,
-        portfolio_owner_id: str,
+        portfolio_owner_cognito_user_id: str,
         portfolio_id: str,
         ud_orders: List
     ):
         # Realize filled orders
         self.trade_execution_service.realize_filled_orders(
-            user_id=self.user_id,
-            portfolio_owner_id=portfolio_owner_id,
+            cognito_user_id=self.cognito_user_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
         )
         self.portfolio_allocation_history_size+=1
@@ -239,7 +239,7 @@ class PortfolioTestUser:
 
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(user_id=self.user_id,portfolio_id=portfolio_id)
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=self.cognito_user_id,portfolio_id=portfolio_id)
         assert allocation is not None and len(allocation.portfolio_allocation_history) == self.portfolio_allocation_history_size
         snapshot = allocation.portfolio_allocation_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -288,7 +288,7 @@ class PortfolioTestUser:
 
     def test_update(
         self,
-        portfolio_owner_id: str,
+        portfolio_owner_cognito_user_id: str,
         portfolio_id: str,
         new_symbols: List[str],
         new_directions: List[int],
@@ -310,7 +310,7 @@ class PortfolioTestUser:
 
         updated_orders_dict = self.trade_execution_service.execute_update_in_portfolio(
             portfolio_id=portfolio_id, 
-            portfolio_owner_id=portfolio_owner_id, 
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
             is_test=True
         )
         self.update_times_by_owned_protfolios[portfolio_id].append(update_time)
@@ -323,13 +323,13 @@ class PortfolioTestUser:
 
     def test_withdraw(
         self,
-        portfolio_owner_id: str,
+        portfolio_owner_cognito_user_id: str,
         portfolio_id: str,
         withdraw_amount: float,
         slippage_correction: int = 1
     ):
         market_value = 0.0
-        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(user_id=self.user_id, portfolio_id=portfolio_id)
+        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=self.cognito_user_id, portfolio_id=portfolio_id)
         snapshot = portfolio_allocation.portfolio_allocation_history[-1]
         symbols = [position.symbol for position in snapshot.positions]
         quotes = self.alpaca_client.get_latest_price(symbols=symbols)
@@ -339,9 +339,9 @@ class PortfolioTestUser:
 
         wd_orders = self.trade_execution_service.execute_withdraw_from_portfolio(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             withdraw_amount=withdraw_amount,
-            user_id=self.user_id,
+            cognito_user_id=self.cognito_user_id,
             is_test=True
         )
         # Wait for orders to be filled
@@ -349,8 +349,8 @@ class PortfolioTestUser:
 
         # Realize filled orders
         self.trade_execution_service.realize_filled_orders(
-            user_id=self.user_id,
-            portfolio_owner_id=portfolio_owner_id,
+            cognito_user_id=self.cognito_user_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
         )
         self.portfolio_allocation_history_size+=1
@@ -384,7 +384,7 @@ class PortfolioTestUser:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(user_id=self.user_id,portfolio_id=portfolio_id)
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=self.cognito_user_id,portfolio_id=portfolio_id)
         assert allocation is not None and len(allocation.portfolio_allocation_history) == self.portfolio_allocation_history_size
         snapshot = allocation.portfolio_allocation_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -428,22 +428,22 @@ class PortfolioTestUser:
 
     def test_withdraw_all(
         self,
-        portfolio_owner_id: str,
+        portfolio_owner_cognito_user_id: str,
         portfolio_id: str,
     ):
 
         wd_orders = self.trade_execution_service.execute_withdraw_all_from_portfolio(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            user_id=self.user_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            cognito_user_id=self.cognito_user_id,
             is_test=True
         )
         time.sleep(2)
 
         # Realize filled orders
         self.trade_execution_service.realize_filled_orders(
-            user_id=self.user_id,
-            portfolio_owner_id=portfolio_owner_id,
+            cognito_user_id=self.cognito_user_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
         )
         self.portfolio_allocation_history_size+=1
@@ -477,7 +477,7 @@ class PortfolioTestUser:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(user_id=self.user_id,portfolio_id=portfolio_id)
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=self.cognito_user_id,portfolio_id=portfolio_id)
         assert allocation is not None and len(allocation.portfolio_allocation_history) == self.portfolio_allocation_history_size
         snapshot = allocation.portfolio_allocation_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -503,7 +503,7 @@ class PortfolioTestUser:
         except Exception:
             pass
         try:
-            self.portfolio_allocation_repository.delete_portfolio_allocation(user_id=self.user_id, portfolio_id=portfolio_id)
+            self.portfolio_allocation_repository.delete_portfolio_allocation(cognito_user_id=self.cognito_user_id, portfolio_id=portfolio_id)
         except Exception:
             pass
         try:
@@ -515,7 +515,7 @@ class PortfolioTestUser:
         except Exception:
             pass
         try:
-            self.model_portfolio_follower_repository.delete_model_portfolio_follower(user_id=self.user_id, portfolio_id=portfolio_id)
+            self.model_portfolio_follower_repository.delete_model_portfolio_follower(cognito_user_id=self.cognito_user_id, portfolio_id=portfolio_id)
         except Exception:
             pass
         try:
@@ -523,7 +523,7 @@ class PortfolioTestUser:
         except Exception:
             pass
         try:
-            self.user_trade_lock_repository.delete_lock(user_id=self.user_id)
+            self.user_trade_lock_repository.delete_lock(cognito_user_id=self.cognito_user_id)
         except Exception:
             pass
 
@@ -541,14 +541,14 @@ def test_basic_deposit(
     model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
     user_trade_lock_repository: UserTradeLockRepository
 ):
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     portfolio_id = None
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -562,7 +562,7 @@ def test_basic_deposit(
         directions = [1]
         target_weights = [1.00]
         leverages = [1.0] * len(symbols)
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -589,14 +589,14 @@ def test_multi_symbol_direction_switch(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test multiple symbols switching directions simultaneously (long -> short)"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
         # orders_db=orders_db,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -609,7 +609,7 @@ def test_multi_symbol_direction_switch(
         target_weights = [0.33, 0.33, 0.34]
         leverages = [1.0, 1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -621,7 +621,7 @@ def test_multi_symbol_direction_switch(
         test_user.test_deposit(
             deposit_amount=300.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Switch all positions from long to short
@@ -632,17 +632,17 @@ def test_multi_symbol_direction_switch(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
             new_target_weights=new_target_weights
         )
 
-        test_user.test_update_effect(portfolio_owner_id=portfolio_owner_id, portfolio_id=portfolio_id, ud_orders=updated_orders_dict[user_id])
+        test_user.test_update_effect(portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, portfolio_id=portfolio_id, ud_orders=updated_orders_dict[cognito_user_id])
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=50.00
         )
@@ -663,13 +663,13 @@ def test_full_pos_rev_deposit_update_withdraw(
     model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
     user_trade_lock_repository: UserTradeLockRepository
 ):
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -683,7 +683,7 @@ def test_full_pos_rev_deposit_update_withdraw(
         directions = [1]
         target_weights = [1.00]
         leverages = [1.0] * len(symbols)
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -694,7 +694,7 @@ def test_full_pos_rev_deposit_update_withdraw(
         test_user.test_deposit(
             deposit_amount= 150.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         new_symbols = ["AAPL"]
         new_directions = [-1]
@@ -702,7 +702,7 @@ def test_full_pos_rev_deposit_update_withdraw(
         new_target_weights = [1]
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -710,12 +710,12 @@ def test_full_pos_rev_deposit_update_withdraw(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
 
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=20.00
         )
@@ -738,14 +738,14 @@ def test_add_new_symbols_keep_existing(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test adding new symbols while keeping existing positions"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
         # orders_db=orders_db,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -758,7 +758,7 @@ def test_add_new_symbols_keep_existing(
         target_weights = [0.50, 0.50]
         leverages = [1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -770,7 +770,7 @@ def test_add_new_symbols_keep_existing(
         test_user.test_deposit(
             deposit_amount=500.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Add MSFT and TSLA while keeping AAPL and GOOG
@@ -781,7 +781,7 @@ def test_add_new_symbols_keep_existing(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -789,12 +789,12 @@ def test_add_new_symbols_keep_existing(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -816,13 +816,13 @@ def test_mixed_symbol_operations(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test removing some symbols, keeping others, and adding new ones (mixed operation)"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -835,7 +835,7 @@ def test_mixed_symbol_operations(
         target_weights = [0.25, 0.25, 0.25, 0.25]
         leverages = [1.0, 1.0, 1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -847,7 +847,7 @@ def test_mixed_symbol_operations(
         test_user.test_deposit(
             deposit_amount=600.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Remove GOOG and TSLA, keep AAPL and MSFT, add NVDA and META
@@ -858,7 +858,7 @@ def test_mixed_symbol_operations(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -866,12 +866,12 @@ def test_mixed_symbol_operations(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=150.00
         )
@@ -893,13 +893,13 @@ def test_rebalance_weights_only(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test rebalancing weights only (same symbols, different allocations)"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -912,7 +912,7 @@ def test_rebalance_weights_only(
         target_weights = [0.33, 0.33, 0.34]
         leverages = [1.0, 1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -924,7 +924,7 @@ def test_rebalance_weights_only(
         test_user.test_deposit(
             deposit_amount=450.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Same symbols and directions, only change weights
@@ -935,7 +935,7 @@ def test_rebalance_weights_only(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -943,12 +943,12 @@ def test_rebalance_weights_only(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -971,13 +971,13 @@ def test_change_everything_simultaneously(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test changing everything simultaneously (symbols + weights + directions + leverage)"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository = order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -990,7 +990,7 @@ def test_change_everything_simultaneously(
         target_weights = [0.60, 0.40]
         leverages = [1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -1002,7 +1002,7 @@ def test_change_everything_simultaneously(
         test_user.test_deposit(
             deposit_amount=550.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Change everything: different symbols, weights, directions, and leverage
@@ -1013,7 +1013,7 @@ def test_change_everything_simultaneously(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1021,12 +1021,12 @@ def test_change_everything_simultaneously(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=120.00
         )
@@ -1048,13 +1048,13 @@ def test_multiple_deposits_before_update(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test multiple deposits to same portfolio before any update"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1067,7 +1067,7 @@ def test_multiple_deposits_before_update(
         target_weights = [0.60, 0.40]
         leverages = [1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -1080,21 +1080,21 @@ def test_multiple_deposits_before_update(
         test_user.test_deposit(
             deposit_amount=200.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Second deposit
         test_user.test_deposit(
             deposit_amount=150.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Third deposit
         test_user.test_deposit(
             deposit_amount=250.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Now update after multiple deposits
@@ -1105,7 +1105,7 @@ def test_multiple_deposits_before_update(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1113,12 +1113,12 @@ def test_multiple_deposits_before_update(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -1140,13 +1140,13 @@ def test_deposit_after_partial_withdrawal(
     user_trade_lock_repository: UserTradeLockRepository
 ):
     """Test deposit after partial withdrawal (cash injection mid-lifecycle)"""
-    user_id = str(uuid.uuid4())
+    cognito_user_id = str(uuid.uuid4())
     test_user = PortfolioTestUser(
         model_portfolio_repository=model_portfolio_repository,
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=user_id,
+        cognito_user_id=cognito_user_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1159,7 +1159,7 @@ def test_deposit_after_partial_withdrawal(
         target_weights = [0.40, 0.40, 0.20]
         leverages = [1.0, 1.0, 1.0]
         
-        portfolio_id, portfolio_owner_id = test_user.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -1172,7 +1172,7 @@ def test_deposit_after_partial_withdrawal(
         test_user.test_deposit(
             deposit_amount=500.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # First update
@@ -1183,7 +1183,7 @@ def test_deposit_after_partial_withdrawal(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1191,13 +1191,13 @@ def test_deposit_after_partial_withdrawal(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         # Partial withdrawal
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=150.00
         )
@@ -1206,7 +1206,7 @@ def test_deposit_after_partial_withdrawal(
         test_user.test_deposit(
             deposit_amount=300.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         
         # Another update after cash injection
@@ -1217,7 +1217,7 @@ def test_deposit_after_partial_withdrawal(
         
         updated_orders_dict = test_user.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1225,13 +1225,13 @@ def test_deposit_after_partial_withdrawal(
         )
         test_user.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
-            ud_orders=updated_orders_dict[user_id]
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+            ud_orders=updated_orders_dict[cognito_user_id]
         )
         
         # Final withdrawal
         test_user.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=200.00
         )
@@ -1259,7 +1259,7 @@ def test_cross_user_basic_deposit(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1270,7 +1270,7 @@ def test_cross_user_basic_deposit(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1282,7 +1282,7 @@ def test_cross_user_basic_deposit(
         directions = [1]
         target_weights = [1.00]
         leverages = [1.0]
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -1294,7 +1294,7 @@ def test_cross_user_basic_deposit(
         test_user2.test_deposit(
             deposit_amount=150.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
     finally:
         test_user1.test_clean_up(
@@ -1323,7 +1323,7 @@ def test_cross_user_multi_symbol_direction_switch(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1334,7 +1334,7 @@ def test_cross_user_multi_symbol_direction_switch(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1346,7 +1346,7 @@ def test_cross_user_multi_symbol_direction_switch(
         directions = [1, 1, 1]
         target_weights = [0.33, 0.33, 0.34]
         leverages = [1.0, 1.0, 1.0]
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=symbols,
             directions=directions,
             target_weights=target_weights,
@@ -1358,7 +1358,7 @@ def test_cross_user_multi_symbol_direction_switch(
         test_user2.test_deposit(
             deposit_amount=300.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "GOOG", "MSFT"]
@@ -1368,7 +1368,7 @@ def test_cross_user_multi_symbol_direction_switch(
 
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1376,12 +1376,12 @@ def test_cross_user_multi_symbol_direction_switch(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=50.00
         )
@@ -1412,7 +1412,7 @@ def test_cross_user_full_pos_rev_deposit_update_withdraw(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1423,17 +1423,17 @@ def test_cross_user_full_pos_rev_deposit_update_withdraw(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-full-rev-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL"],
             directions=[1],
             target_weights=[1.00],
@@ -1444,7 +1444,7 @@ def test_cross_user_full_pos_rev_deposit_update_withdraw(
         test_user2.test_deposit(
             deposit_amount=150.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL"]
@@ -1453,7 +1453,7 @@ def test_cross_user_full_pos_rev_deposit_update_withdraw(
         new_target_weights=[1]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1461,12 +1461,12 @@ def test_cross_user_full_pos_rev_deposit_update_withdraw(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=20.00
         )
@@ -1497,7 +1497,7 @@ def test_cross_user_add_new_symbols_keep_existing(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1508,17 +1508,17 @@ def test_cross_user_add_new_symbols_keep_existing(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-add-symbols-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "GOOG"],
             directions=[1, 1],
             target_weights=[0.50, 0.50],
@@ -1530,7 +1530,7 @@ def test_cross_user_add_new_symbols_keep_existing(
         test_user2.test_deposit(
             deposit_amount=500.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "GOOG", "MSFT", "TSLA"]
@@ -1539,7 +1539,7 @@ def test_cross_user_add_new_symbols_keep_existing(
         new_leverages=[1.0, 1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1547,12 +1547,12 @@ def test_cross_user_add_new_symbols_keep_existing(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -1583,7 +1583,7 @@ def test_cross_user_mixed_symbol_operations(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1594,17 +1594,17 @@ def test_cross_user_mixed_symbol_operations(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-mixed-ops-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "GOOG", "MSFT", "TSLA"],
             directions=[1, 1, 1, -1],
             target_weights=[0.25, 0.25, 0.25, 0.25],
@@ -1616,7 +1616,7 @@ def test_cross_user_mixed_symbol_operations(
         test_user2.test_deposit(
             deposit_amount=600.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "MSFT", "NVDA", "META"]
@@ -1625,7 +1625,7 @@ def test_cross_user_mixed_symbol_operations(
         new_leverages=[1.0, 1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1633,12 +1633,12 @@ def test_cross_user_mixed_symbol_operations(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=150.00
         )
@@ -1669,7 +1669,7 @@ def test_cross_user_rebalance_weights_only(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1680,17 +1680,17 @@ def test_cross_user_rebalance_weights_only(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-rebalance-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "GOOG", "MSFT"],
             directions=[1, -1, 1],
             target_weights=[0.33, 0.33, 0.34],
@@ -1702,7 +1702,7 @@ def test_cross_user_rebalance_weights_only(
         test_user2.test_deposit(
             deposit_amount=450.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "GOOG", "MSFT"]
@@ -1711,7 +1711,7 @@ def test_cross_user_rebalance_weights_only(
         new_leverages=[1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1719,12 +1719,12 @@ def test_cross_user_rebalance_weights_only(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -1755,7 +1755,7 @@ def test_cross_user_change_everything_simultaneously(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1766,17 +1766,17 @@ def test_cross_user_change_everything_simultaneously(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-change-all-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "GOOG"],
             directions=[1, -1],
             target_weights=[0.60, 0.40],
@@ -1788,7 +1788,7 @@ def test_cross_user_change_everything_simultaneously(
         test_user2.test_deposit(
             deposit_amount=550.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["MSFT", "NVDA", "TSLA"]
@@ -1797,7 +1797,7 @@ def test_cross_user_change_everything_simultaneously(
         new_leverages=[1, 1, 1]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1805,12 +1805,12 @@ def test_cross_user_change_everything_simultaneously(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=120.00
         )
@@ -1841,7 +1841,7 @@ def test_cross_user_multiple_deposits_before_update(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1852,17 +1852,17 @@ def test_cross_user_multiple_deposits_before_update(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-multi-dep-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "GOOG"],
             directions=[1, -1],
             target_weights=[0.60, 0.40],
@@ -1874,17 +1874,17 @@ def test_cross_user_multiple_deposits_before_update(
         test_user2.test_deposit(
             deposit_amount=200.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         test_user2.test_deposit(
             deposit_amount=150.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
         test_user2.test_deposit(
             deposit_amount=250.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "GOOG", "MSFT"]
@@ -1893,7 +1893,7 @@ def test_cross_user_multiple_deposits_before_update(
         new_leverages=[1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1901,12 +1901,12 @@ def test_cross_user_multiple_deposits_before_update(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=100.00
         )
@@ -1937,7 +1937,7 @@ def test_cross_user_deposit_after_partial_withdrawal(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user1_id,
+        cognito_user_id=test_user1_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
@@ -1948,17 +1948,17 @@ def test_cross_user_deposit_after_partial_withdrawal(
         trade_execution_service=trade_execution_service,
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
-        user_id=test_user2_id,
+        cognito_user_id=test_user2_id,
         alpaca_client=alpaca_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         user_trade_lock_repository=user_trade_lock_repository
     )
     portfolio_id = None
-    portfolio_owner_id = None
+    portfolio_owner_cognito_user_id = None
     try:
         portfolio_name = f"pytest-cross-user-dep-after-wd-{uuid.uuid4()}"
-        portfolio_id, portfolio_owner_id = test_user1.test_create_portfolio(
+        portfolio_id, portfolio_owner_cognito_user_id = test_user1.test_create_portfolio(
             symbols=["AAPL", "MSFT", "GOOG"],
             directions=[1, 1, -1],
             target_weights=[0.40, 0.40, 0.20],
@@ -1970,7 +1970,7 @@ def test_cross_user_deposit_after_partial_withdrawal(
         test_user2.test_deposit(
             deposit_amount=500.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "MSFT", "GOOG", "TSLA"]
@@ -1979,7 +1979,7 @@ def test_cross_user_deposit_after_partial_withdrawal(
         new_leverages=[1.0, 1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -1987,12 +1987,12 @@ def test_cross_user_deposit_after_partial_withdrawal(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=150.00
         )
@@ -2000,7 +2000,7 @@ def test_cross_user_deposit_after_partial_withdrawal(
         test_user2.test_deposit(
             deposit_amount=300.00,
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
         )
 
         new_symbols=["AAPL", "MSFT", "NVDA"]
@@ -2009,7 +2009,7 @@ def test_cross_user_deposit_after_partial_withdrawal(
         new_leverages=[1.0, 1.0, 1.0]
         updated_orders_dict = test_user1.test_update(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             new_symbols=new_symbols,
             new_directions=new_directions,
             new_leverages=new_leverages,
@@ -2017,12 +2017,12 @@ def test_cross_user_deposit_after_partial_withdrawal(
         )
         test_user2.test_update_effect(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             ud_orders=updated_orders_dict[test_user2_id]
         )
 
         test_user2.test_withdraw(
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_id=portfolio_id,
             withdraw_amount=200.00
         )

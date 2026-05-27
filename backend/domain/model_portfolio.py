@@ -36,7 +36,7 @@ class ModelPortfolio:
     A model portfolio with metadata and position history.
     """
     portfolio_id: str
-    portfolio_owner_id: str
+    portfolio_owner_cognito_user_id: str
     portfolio_name: str
     position_history: List[ModelPortfolioSnapshot]
     created_at: datetime

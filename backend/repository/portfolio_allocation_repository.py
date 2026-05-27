@@ -114,12 +114,12 @@ class PortfolioAllocationRepository:
             quotes
         ]
 
-    def is_exists_portfolio_allocation_for_user(self, user_id: str, portfolio_id: str) -> bool:
+    def is_exists_portfolio_allocation_for_user(self, cognito_user_id: str, portfolio_id: str) -> bool:
         """
         Check whether a user has an allocation record for a portfolio.
 
         Args:
-            user_id: User identifier.
+            cognito_user_id: User identifier.
             portfolio_id: Portfolio identifier.
 
         Returns:
@@ -127,15 +127,15 @@ class PortfolioAllocationRepository:
 
         """
 
-        key = {"user_id": user_id, "portfolio_id": portfolio_id}
+        key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
         return self.portfolio_allocation_table_client.item_exists(key=key)
     
-    def get_portfolio_allocation_history(self, user_id: str, portfolio_id: str) -> List[PortfolioAllocationSnapshot]:
+    def get_portfolio_allocation_history(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationSnapshot]:
         """
         Retrieve all saved allocation snapshots for a user's portfolio.
 
         Args:
-            user_id: User identifier.
+            cognito_user_id: User identifier.
             portfolio_id: Portfolio identifier.
 
         Returns:
@@ -144,17 +144,17 @@ class PortfolioAllocationRepository:
         try:
             # Only fetch portfolio_allocation_history to reduce bandwidth
             item = self.portfolio_allocation_table_client.get_item(
-                key={"user_id": user_id, "portfolio_id": portfolio_id},
+                key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id},
                 projection_expression="portfolio_allocation_history"
             )
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading allocation history for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while loading allocation history for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
         
         if not item:
             raise PortfolioAllocationNotFoundError(
-                message=f"Portfolio allocation not found for user '{user_id}' and portfolio '{portfolio_id}'."
+                message=f"Portfolio allocation not found for user '{cognito_user_id}' and portfolio '{portfolio_id}'."
             )
         
         if "portfolio_allocation_history" not in item: return []
@@ -185,17 +185,17 @@ class PortfolioAllocationRepository:
                 ))
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(
-                message=f"Failed to parse allocation history for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Failed to parse allocation history for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
         
         return result
 
-    def get_n_last_portfolio_allocation_snapshots(self, user_id: str, portfolio_id: str, n: int) -> List[PortfolioAllocationSnapshot]:
+    def get_n_last_portfolio_allocation_snapshots(self, cognito_user_id: str, portfolio_id: str, n: int) -> List[PortfolioAllocationSnapshot]:
         """
         Retrieve the last n allocation snapshots for a user's portfolio.
 
         Args:
-            user_id: User identifier.
+            cognito_user_id: User identifier.
             portfolio_id: Portfolio identifier.
             n: Number of trailing snapshots to return.
 
@@ -208,7 +208,7 @@ class PortfolioAllocationRepository:
                 message=f"n argument '{n}' must be greater than 0."
             )
         
-        portfolio_allocation_history = self.get_portfolio_allocation_history(user_id=user_id, portfolio_id=portfolio_id)
+        portfolio_allocation_history = self.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         if n > len(portfolio_allocation_history):
             raise PortfolioAllocationUnprocessableEntityError(
                 message=f"n argument '{n}' must be less than or equal to the number of snapshots '{len(portfolio_allocation_history)}'."
@@ -218,11 +218,11 @@ class PortfolioAllocationRepository:
         return last_n_snapshots
 
     
-    def get_portfolio_allocation(self, user_id: str, portfolio_id: str) -> PortfolioAllocation:
+    def get_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str) -> PortfolioAllocation:
         """Load a full portfolio allocation aggregate for a user and portfolio.
 
         Args:
-            user_id: User identifier.
+            cognito_user_id: User identifier.
             portfolio_id: Portfolio identifier.
 
         Returns:
@@ -230,10 +230,10 @@ class PortfolioAllocationRepository:
         """
 
         try:
-            item = self.portfolio_allocation_table_client.get_item(key={"user_id": user_id, "portfolio_id": portfolio_id})
+            item = self.portfolio_allocation_table_client.get_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading portfolio allocation for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while loading portfolio allocation for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
 
         if not item:
@@ -241,7 +241,7 @@ class PortfolioAllocationRepository:
 
         return PortfolioAllocation(
             portfolio_id=item["portfolio_id"],
-            user_id=item["user_id"],
+            cognito_user_id=item["cognito_user_id"],
             portfolio_allocation_history=[
                 PortfolioAllocationSnapshot(
                     positions=[
@@ -272,7 +272,7 @@ class PortfolioAllocationRepository:
         """
 
         item = {
-            "user_id": portfolio_allocation.user_id,
+            "cognito_user_id": portfolio_allocation.cognito_user_id,
             "portfolio_id": portfolio_allocation.portfolio_id,
             "portfolio_allocation_history": [
                 {
@@ -297,13 +297,13 @@ class PortfolioAllocationRepository:
             self.portfolio_allocation_table_client.put_item(item=item)
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while persisting portfolio allocation for user '{portfolio_allocation.user_id}' and portfolio '{portfolio_allocation.portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while persisting portfolio allocation for user '{portfolio_allocation.cognito_user_id}' and portfolio '{portfolio_allocation.portfolio_id}': {e}."
             )
 
-    def delete_portfolio_allocation(self, user_id: str, portfolio_id: str):
+    def delete_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str):
         try:
-            self.portfolio_allocation_table_client.delete_item(key={"user_id": user_id, "portfolio_id": portfolio_id})
+            self.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while deleting portfolio allocation for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while deleting portfolio allocation for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )

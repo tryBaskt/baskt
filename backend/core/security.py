@@ -177,7 +177,7 @@ class CognitoTokenVerifier:
 
 def verify_jwt_token(token: str) -> str | None:
     """
-    Verify JWT token and return user_id (sub claim).
+    Verify JWT token and return cognito_user_id (sub claim).
     Used for WebSocket authentication.
     Returns None if token is invalid.
     """
@@ -186,6 +186,6 @@ def verify_jwt_token(token: str) -> str | None:
     try:
         verifier = get_token_verifier()
         claims = verifier.verify(token)
-        return claims.get("sub")  # 'sub' is the user_id in Cognito
+        return claims.get("sub")  # 'sub' is the cognito_user_id in Cognito
     except Exception:
         return None

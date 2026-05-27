@@ -102,6 +102,14 @@ class AccountLifecycleService:
 			)
 		
 		return baskt_account
+	
+	def is_baskt_account_active_by_cognito_user_id(self, cognito_user_id):
+		user_account_dict = self.user_account_repository.get_user_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
+		cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
+		alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=user_account_dict["alpaca_account_id"])
+		return cognito_role_dict["cognito_enabled_status"] and alpaca_account.status.name == "ACTIVE"
+		
+
 
 	def deactivate_baskt_account(self, email_address) -> bool:
 		"""

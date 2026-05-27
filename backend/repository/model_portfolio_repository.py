@@ -264,12 +264,12 @@ class ModelPortfolioRepository:
         ]
 
 
-    def create_model_portfolio(self, portfolio_owner_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time = None, description: str = None) -> str:
+    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time = None, description: str = None) -> str:
         """
         Create and persist a new model portfolio with an initial snapshot.
 
         Args:
-            portfolio_owner_id: Identifier of the portfolio owner.
+            portfolio_owner_cognito_user_id: Identifier of the portfolio owner.
             portfolio_name: Display name for the portfolio.
             positions: Initial target positions for the first snapshot.
             creation_time: Optional creation timestamp; defaults to now in UTC.
@@ -320,7 +320,7 @@ class ModelPortfolioRepository:
         snapshot = ModelPortfolioSnapshot(positions=model_portfolio_positions, timestamp=creation_time)
         portfolio = ModelPortfolio(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_name=portfolio_name,
             position_history=[snapshot],
             created_at=creation_time,
@@ -331,7 +331,7 @@ class ModelPortfolioRepository:
         # Write model portfolio object to dynamodb
         item = {
             "portfolio_id": portfolio.portfolio_id,
-            "portfolio_owner_id": portfolio.portfolio_owner_id,
+            "portfolio_owner_cognito_user_id": portfolio.portfolio_owner_cognito_user_id,
             "portfolio_name": portfolio.portfolio_name,
             "description": portfolio.description,
             "position_history": [
@@ -445,7 +445,7 @@ class ModelPortfolioRepository:
             updated_history = existing.position_history + [new_snapshot]
             portfolio = ModelPortfolio(
                 portfolio_id=portfolio_id,
-                portfolio_owner_id=existing.portfolio_owner_id,
+                portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
                 portfolio_name=existing.portfolio_name,  # Name cannot be changed
                 position_history=updated_history,
                 created_at=existing.created_at,
@@ -456,7 +456,7 @@ class ModelPortfolioRepository:
             # Write item to dynamodb
             item = {
                 "portfolio_id": portfolio.portfolio_id,
-                "portfolio_owner_id": portfolio.portfolio_owner_id,
+                "portfolio_owner_cognito_user_id": portfolio.portfolio_owner_cognito_user_id,
                 "portfolio_name": portfolio.portfolio_name,
                 "position_history": [
                     {
@@ -548,7 +548,7 @@ class ModelPortfolioRepository:
         # Create model portfolio object
         model_portfolio = ModelPortfolio(
             portfolio_id=item["portfolio_id"],
-            portfolio_owner_id=item["portfolio_owner_id"],
+            portfolio_owner_cognito_user_id=item["portfolio_owner_cognito_user_id"],
             portfolio_name=item["portfolio_name"],
             position_history=position_history,
             created_at=to_utc_from_iso(item["created_at"]),
@@ -559,12 +559,12 @@ class ModelPortfolioRepository:
         return model_portfolio
     
 
-    def list_user_model_portfolio_names(self, portfolio_owner_id: str) -> List[Dict]:
+    def list_user_model_portfolio_names(self, portfolio_owner_cognito_user_id: str) -> List[Dict]:
         """
         List portfolio IDs and names for one portfolio owner.
 
         Args:
-            portfolio_owner_id: Identifier of the portfolio owner.
+            portfolio_owner_cognito_user_id: Identifier of the portfolio owner.
 
         Returns:
             A list of dictionaries containing portfolio identifiers and names.
@@ -573,13 +573,13 @@ class ModelPortfolioRepository:
         # Get model portfolios by user
         try:
             items = self.dynamodb.query(
-                key_condition=Key("portfolio_owner_id").eq(portfolio_owner_id),
-                IndexName="portfolio-owner-id-index",
+                key_condition=Key("portfolio_owner_cognito_user_id").eq(portfolio_owner_cognito_user_id),
+                IndexName="portfolio_owner_cognito_user_id_index",
                 ProjectionExpression="portfolio_id, portfolio_name, description",
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while listing model portfolios for owner '{portfolio_owner_id}': {e}."
+                message=f"Upstream DynamoDB client failed while listing model portfolios for owner '{portfolio_owner_cognito_user_id}': {e}."
             )
 
         # Ensure user has model portfolios

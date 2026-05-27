@@ -29,8 +29,8 @@ configurations = {
     "sort_key_key_type": "RANGE",
     "gsi": [
         {
-            "gsi_name": "user_id-portfolio_id-index",
-            "gsi_partition_key": "user_id",
+            "gsi_name": "cognito_user_id_portfolio_id_index",
+            "gsi_partition_key": "cognito_user_id",
             "gsi_partition_key_type": "HASH",
             "gsi_sort_key": "portfolio_id",
             "gsi_sort_key_type": "RANGE",

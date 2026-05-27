@@ -59,9 +59,9 @@ class OrderRepository:
                 {
                     "transaction_id": str(order["transaction_id"]),
                     "order_id": str(order["order_id"]),
-                    "user_id": str(order["user_id"]),
+                    "cognito_user_id": str(order["cognito_user_id"]),
                     "portfolio_id": str(order["portfolio_id"]),
-                    "portfolio_owner_id": str(order["portfolio_owner_id"]),
+                    "portfolio_owner_cognito_user_id": str(order["portfolio_owner_cognito_user_id"]),
                     "created_at": to_utc_from_iso(order["created_at"]),
                     "updated_at": to_utc_from_iso(order["updated_at"]) if order["updated_at"] else None,
                     "filled_at": to_utc_from_iso(order["filled_at"]) if order["filled_at"] else None,
@@ -81,20 +81,20 @@ class OrderRepository:
             )
 
 
-    def put_orders(self, portfolio_id: str, user_id: str, portfolio_owner_id: str, transaction_id: str, orders: List[Order]):
+    def put_orders(self, portfolio_id: str, cognito_user_id: str, portfolio_owner_cognito_user_id: str, transaction_id: str, orders: List[Order]):
         if not portfolio_id:
             raise OrderUnprocessableEntityError("portfolio_id is required.")
-        if not user_id:
-            raise OrderUnprocessableEntityError("user_id is required.")
+        if not cognito_user_id:
+            raise OrderUnprocessableEntityError("cognito_user_id is required.")
         if not transaction_id:
             raise OrderUnprocessableEntityError("transaction_id is required.")
 
         items = [
             {"transaction_id": transaction_id,
              "order_id": str(order.id),
-             "user_id": user_id,
+             "cognito_user_id": cognito_user_id,
              "portfolio_id": portfolio_id,
-             "portfolio_owner_id": portfolio_owner_id,
+             "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
              "created_at": str(order.created_at.isoformat()),
              "updated_at": str(order.updated_at.isoformat()) if order.updated_at else None,
              "filled_at": str(order.filled_at.isoformat()) if order.filled_at else None,

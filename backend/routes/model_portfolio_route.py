@@ -53,7 +53,7 @@ def get_model_portfolio(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -63,7 +63,7 @@ def get_model_portfolio(
     
     return {
         "portfolio_id": model_portfolio.portfolio_id,
-        "portfolio_owner_id": model_portfolio.portfolio_owner_id,
+        "portfolio_owner_cognito_user_id": model_portfolio.portfolio_owner_cognito_user_id,
         "portfolio_name": model_portfolio.portfolio_name,
         "description": model_portfolio.description,
         "position_history": [
@@ -106,11 +106,11 @@ def create_model_portfolio(
         `{ "portfolio_id": "..." }`.
     """
 
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
 
     try:
         portfolio_id = service.create_model_portfolio(
-            portfolio_owner_id=user_id, 
+            portfolio_owner_cognito_user_id=cognito_user_id, 
             portfolio_name=request.name, 
             positions_request=request.positions,
             description=request.description
@@ -125,7 +125,7 @@ def create_model_portfolio(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -155,7 +155,7 @@ def update_model_portfolio(
         `{ "message": "Portfolio updated" }`.
     """
     # Check ownership
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
     try:
         portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
     except ModelPortfolioNotFoundError as e:
@@ -167,7 +167,7 @@ def update_model_portfolio(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -175,7 +175,7 @@ def update_model_portfolio(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
     
-    if portfolio.portfolio_owner_id != user["sub"]:
+    if portfolio.portfolio_owner_cognito_user_id != cognito_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     try:
@@ -192,7 +192,7 @@ def update_model_portfolio(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -216,9 +216,9 @@ def list_user_model_portfolios(
     Returns:
         List[Dict]: Collection of user portfolio summaries.
     """
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
     try:
-        portfolio_ids_names = service.list_user_model_portfolio_names(portfolio_owner_id=user_id)
+        portfolio_ids_names = service.list_user_model_portfolio_names(portfolio_owner_cognito_user_id=cognito_user_id)
         return portfolio_ids_names
     except ModelPortfolioNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -229,7 +229,7 @@ def list_user_model_portfolios(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -256,7 +256,7 @@ def delete_model_portfolio(
         Dict[str, str]: Success message in the form
         `{ "message": "Portfolio deleted" }`.
     """
-    user_id = user["sub"]  # Assuming Cognito sub as user_id
+    cognito_user_id = user["sub"]  # Assuming Cognito sub as cognito_user_id
     # First, get the portfolio to check ownership
     try:
         model_portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
@@ -269,7 +269,7 @@ def delete_model_portfolio(
     except ModelPortfolioTooManyRequestsError as e:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except ModelPortfolioInternalServerError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except ModelPortfolioBadGatewayError as e:
@@ -277,9 +277,9 @@ def delete_model_portfolio(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
     
-    if model_portfolio.portfolio_owner_id != user_id:
+    if model_portfolio.portfolio_owner_cognito_user_id != cognito_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    deleted = service.delete_model_portfolio(portfolio_id=portfolio_id, portfolio_owner_id=user_id)
+    deleted = service.delete_model_portfolio(portfolio_id=portfolio_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
     return {"message": "Portfolio deleted"}

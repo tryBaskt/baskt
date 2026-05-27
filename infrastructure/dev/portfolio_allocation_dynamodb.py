@@ -21,7 +21,7 @@ load_aws_env()
 configurations = {
     "table_name": "dev_portfolio_allocation_dynamodb",
     "region": "us-east-1",
-    "partition_key": "user_id",
+    "partition_key": "cognito_user_id",
     "partition_key_attribute_type": "S",
     "partition_key_key_type": "HASH",
     "sort_key": "portfolio_id",

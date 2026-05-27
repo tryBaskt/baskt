@@ -30,7 +30,7 @@ class PortfolioAllocationSnapshot:
 class PortfolioAllocation:
     portfolio_id: str
     portfolio_allocation_history: List[PortfolioAllocationSnapshot]
-    user_id: str
+    cognito_user_id: str
 
 
 

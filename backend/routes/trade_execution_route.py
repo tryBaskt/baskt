@@ -37,14 +37,14 @@ def deposit_into_portfolio(
         if amount <= 0:
             raise HTTPException(status_code=400, detail="'amount' must be > 0")
 
-        user_id = user["sub"]
-        portfolio_owner_id = request.get("portfolio_owner_id")
+        cognito_user_id = user["sub"]
+        portfolio_owner_cognito_user_id = request.get("portfolio_owner_cognito_user_id")
 
         order_ids = trade_execution_service.execute_deposit_to_portfolio(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             deposit_amount=amount,
-            user_id=user_id,
+            cognito_user_id=cognito_user_id,
         )
 
         logger.info(f"Deposit created orders: {order_ids}")
@@ -73,14 +73,14 @@ def withdraw_from_portfolio(
         if amount <= 0:
             raise HTTPException(status_code=400, detail="'amount' must be > 0")
 
-        user_id = user["sub"]
-        portfolio_owner_id = request.get("portfolio_owner_id")
+        cognito_user_id = user["sub"]
+        portfolio_owner_cognito_user_id = request.get("portfolio_owner_cognito_user_id")
 
         order_ids = trade_execution_service.execute_withdraw_from_portfolio(
             portfolio_id=portfolio_id,
-            portfolio_owner_id=portfolio_owner_id,
+            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             withdraw_amount=amount,
-            user_id=user_id,
+            cognito_user_id=cognito_user_id,
         )
 
         logger.info(f"Withdraw created orders: {order_ids}")
@@ -96,19 +96,19 @@ def refresh_orders(
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
     try:
-        portfolio_owner_id = request.get("portfolio_owner_id")
+        portfolio_owner_cognito_user_id = request.get("portfolio_owner_cognito_user_id")
         portfolio_id = request.get("portfolio_id")
 
-        if not portfolio_owner_id:
-            raise HTTPException(status_code=400, detail="Missing 'portfolio_owner_id' in request body")
+        if not portfolio_owner_cognito_user_id:
+            raise HTTPException(status_code=400, detail="Missing 'portfolio_owner_cognito_user_id' in request body")
         if not portfolio_id:
             raise HTTPException(status_code=400, detail="Missing 'portfolio_id' in request body")
 
         statuses = trade_execution_service.realize_filled_orders(
-            user_id=user_id,
-            portfolio_owner_id=str(portfolio_owner_id),
+            cognito_user_id=cognito_user_id,
+            portfolio_owner_cognito_user_id=str(portfolio_owner_cognito_user_id),
             portfolio_id=str(portfolio_id),
         )
         # Already normalized in service

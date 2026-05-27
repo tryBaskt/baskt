@@ -61,70 +61,70 @@ class ModelPortfolioFollowerRepository:
         self.dynamodb = dynamodb_client
         self.alpaca_client = alpaca_client
 
-    def is_model_portfolio_follower(self, user_id: str, portfolio_id: str) -> bool:
+    def is_model_portfolio_follower(self, cognito_user_id: str, portfolio_id: str) -> bool:
         """
         Check whether a user currently follows a specific model portfolio.
 
         Args:
-            user_id: Identifier of the follower user.
+            cognito_user_id: Identifier of the follower user.
             portfolio_id: Identifier of the model portfolio.
 
         Returns:
             bool: True when a follower record exists, otherwise False.
         """
-        if not user_id:
+        if not cognito_user_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
-                message="user_id is required."
+                message="cognito_user_id is required."
             )
         if not portfolio_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 message="portfolio_id is required."
             )
         try:
-            key = {"user_id": user_id, "portfolio_id": portfolio_id}
+            key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
             item = self.dynamodb.get_item(key=key)
             return item is not None
         except DynamoDBClientError as e:
             raise ModelPortfolioFollowerBadGatewayError(
-                message=f"Upstream DynamoDB client failed while checking follower relationship for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while checking follower relationship for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
 
-    def put_model_portfolio_follower(self, user_id: str, portfolio_id: str, portfolio_owner_id: str):
+    def put_model_portfolio_follower(self, cognito_user_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str):
         """
         Create a follower relation when one does not already exist.
 
         Args:
-            user_id: Identifier of the follower user.
+            cognito_user_id: Identifier of the follower user.
             portfolio_id: Identifier of the followed model portfolio.
-            portfolio_owner_id: Identifier of the portfolio owner.
+            portfolio_owner_cognito_user_id: Identifier of the portfolio owner.
 
         Returns:
             None.
         """
-        if not user_id:
+        if not cognito_user_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
-                message="user_id is required."
+                message="cognito_user_id is required."
             )
         if not portfolio_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 message="portfolio_id is required."
             )
-        if not portfolio_owner_id:
+        if not portfolio_owner_cognito_user_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
-                message="portfolio_owner_id is required."
+                message="portfolio_owner_cognito_user_id is required."
             )
         try:
-            if self.is_model_portfolio_follower(user_id=user_id, portfolio_id=portfolio_id):
+            if self.is_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return
             item = {
-                "user_id": user_id,
+                "cognito_user_id": cognito_user_id,
                 "portfolio_id": portfolio_id,
-                "portfolio_owner_id": portfolio_owner_id
+                "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id
             }
             self.dynamodb.put_item(item=item)
         except DynamoDBClientError as e:
             raise ModelPortfolioFollowerBadGatewayError(
-                message=f"Upstream DynamoDB client failed while creating follower relationship for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while creating follower relationship for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
 
     def get_model_portfolio_followers(self, portfolio_id: str) -> List[str]:
@@ -157,38 +157,38 @@ class ModelPortfolioFollowerRepository:
             )
         
         try:
-            return [item["user_id"] for item in items if "user_id" in item]
+            return [item["cognito_user_id"] for item in items if "cognito_user_id" in item]
         except Exception as e:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 message=f"Failed to parse followers for model portfolio '{portfolio_id}': {e}"
             )
 
-    def delete_model_portfolio_follower(self, user_id: str, portfolio_id: str) -> None:
+    def delete_model_portfolio_follower(self, cognito_user_id: str, portfolio_id: str) -> None:
         """
         Delete an existing follower relation between a user and a portfolio.
 
         Args:
-            user_id: Identifier of the follower user.
+            cognito_user_id: Identifier of the follower user.
             portfolio_id: Identifier of the followed model portfolio.
 
         Returns:
             None.
         """
-        if not user_id:
+        if not cognito_user_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
-                message="user_id is required."
+                message="cognito_user_id is required."
             )
         if not portfolio_id:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 message="portfolio_id is required."
             )
         try:
-            if not self.is_model_portfolio_follower(user_id=user_id, portfolio_id=portfolio_id):
+            if not self.is_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return
-            key = {"user_id": user_id, "portfolio_id": portfolio_id}
+            key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
             self.dynamodb.delete_item(key=key)
         except DynamoDBClientError as e:
             raise ModelPortfolioFollowerBadGatewayError(
-                message=f"Upstream DynamoDB client failed while deleting follower relationship for user '{user_id}' and portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while deleting follower relationship for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
             )
     

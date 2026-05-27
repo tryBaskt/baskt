@@ -64,6 +64,31 @@ class UserAccountRepository:
                 )
             ) from e
         
+    def get_user_account_by_cognito_user_id(self, cognito_user_id) -> Dict[str, str]:
+        if not cognito_user_id:
+            raise UserAccountInternalServerError("cognito_user_id is required.")
+
+        try:
+            items = self.client.query(
+                key_condition=Key("cognito_user_id").eq(cognito_user_id),
+                IndexName="cognito_user_id-index",
+                Limit=1,
+            )
+
+            if (items is None) or ("cognito_user_id" not in items[0]):
+                raise UserAcountNotFoundError(message=f"No user account for cognito_user_id '{cognito_user_id}'")
+            if len(items) > 1:
+                raise UserAccountInternalServerError(message=f"Multiple accounts under cognito_user_id '{cognito_user_id}'")
+            return items[0]
+        except DynamoDBClientError as e:
+            raise UserAccountBadGatewayError(
+                message=f"Failed querying user account by cognito_user_id '{cognito_user_id}': {e}."
+            ) from e
+        except Exception as e:
+            raise UserAccountInternalServerError(
+                message=f"Unexpected error querying user account by cognito_user_id '{cognito_user_id}': {e}."
+            ) from e
+        
     def get_user_account_by_email_address(self, email_address: str) -> Dict[str, str]:
         if not email_address:
             raise UserAccountInternalServerError("email_address is required.")

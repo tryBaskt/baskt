@@ -26,7 +26,7 @@ configurations = {
 	"partition_key_key_type": "HASH",
 	"gsi": [
         {
-            "gsi_name": "email_address-index",
+            "gsi_name": "email_address_index",
             "gsi_partition_key": "email_address",
 			"gsi_partition_key_attribute_type": "S",
             "gsi_partition_key_type": "HASH",
