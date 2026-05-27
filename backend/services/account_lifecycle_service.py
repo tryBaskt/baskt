@@ -15,6 +15,12 @@ class AccountLifecycleServiceError(Exception):
 		super().__init__(message)
 		self.code = code
 
+class AccountLifecycleServiceBasktAccountDisabled(AccountLifecycleServiceError):
+	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_BASKT_ACCOUNT_DISABLED_ERROR"):
+		super().__init__(message)
+		self.code = code
+
+
 
 class AccountLifecycleService:
 	def __init__(
@@ -80,7 +86,7 @@ class AccountLifecycleService:
 		user_account_dict = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
 		cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
 		alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=user_account_dict["alpaca_account_id"])
-		return BasktAccount(
+		baskt_account = BasktAccount(
 			cognito_user_id=cognito_role_dict["cognito_user_id"],
 			alpaca_account_id=str(alpaca_account.id),
 			alpaca_account_number=alpaca_account.account_number,
@@ -89,6 +95,26 @@ class AccountLifecycleService:
 			cognito_enabled_status=cognito_role_dict["cognito_enabled_status"],
 			alpaca_account_status=alpaca_account.status
 		)
+
+		if not (baskt_account.cognito_enabled_status and baskt_account.alpaca_account_status.name in ["ACTIVE", "SUBMITTED"]):
+			raise AccountLifecycleServiceBasktAccountDisabled(
+				message=f"Baskt account is disabled. Cognito user: {baskt_account.cognito_enabled_status}, Alpaca account: {baskt_account.alpaca_account_status.name}"
+			)
+		
+		return baskt_account
+
+	def deactivate_baskt_account(self, email_address) -> bool:
+		"""
+		Disables cognito user, 
+		"""
+		user_account_dict = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
+		return self.cognito_client.disable_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
+	
+
+
+
+
+
 		
 
 	

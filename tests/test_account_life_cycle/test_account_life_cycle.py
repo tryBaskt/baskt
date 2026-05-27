@@ -2,9 +2,9 @@ from datetime import datetime, timezone
 import uuid
 from time import sleep
 from backend.services.account_lifecycle_service import AccountLifecycleService
+import pytest
 
-
-def test_create_account(account_lifecycle_service: AccountLifecycleService):
+def test_create_deactivate_account(account_lifecycle_service: AccountLifecycleService):
 	unique_suffix = uuid.uuid4().hex[:8]
 	signed_at = datetime.now(timezone.utc).isoformat()
 
@@ -63,6 +63,14 @@ def test_create_account(account_lifecycle_service: AccountLifecycleService):
 
 	assert baskt_account.alpaca_account_status.name == "SUBMITTED"
 	assert baskt_account.cognito_enabled_status == True
+
+	sleep(120)
+
+	is_deactivated = account_lifecycle_service.deactivate_baskt_account(email_address=create_account_response["email_address"])
+	assert is_deactivated == True
+	with pytest.raises(Exception):
+		account_lifecycle_service.get_baskt_account(email_address=create_account_response["email_address"])
+
 
 
 
