@@ -17,7 +17,7 @@ from services.account_lifecycle_service import AccountLifecycleService
 import uuid
 from math import floor, ceil
 from clients.alpaca_broker_client import AlpacaBrokerClient
-
+from domain.baskt import BasktAccount
 MARGIN = 0.0007
 EPS = 1e-7
 LOCK_LEASE_SECONDS = 30
@@ -194,7 +194,7 @@ class TradeExecutionService:
             List[Order]: List of Alpaca Order objects that were executed
         """
         # Get all user's positions 
-        baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict()
+        baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id)
 
         sorted_delta_positions = self._sort_delta_positions(delta_positions=delta_positions, baskt_positions_dict = baskt_positions_dict) # curr_all_positions_dict=curr_all_positions_dict)
         # Execute the delta positions
@@ -235,9 +235,10 @@ class TradeExecutionService:
             transaction_id=transaction_id, 
             orders = order_results
         )
-        return order_results
-    
-
+        return {
+            "orders": order_results,
+            "transaction_id": transaction_id
+        }
 
 
     def execute_withdraw_all_from_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, cognito_user_id: str, is_test: bool = False) -> List[Order]:
@@ -257,7 +258,8 @@ class TradeExecutionService:
             List[Order]: List of Alpaca Order objects executed for the withdrawal
         """
 
-        self.account_lifecycle_service.is_baskt_account_active_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        alpaca_account_id = baskt_account.alpaca_account_id
 
         owner_token = str(uuid.uuid4())
 
@@ -299,6 +301,7 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
             )
 
@@ -331,7 +334,8 @@ class TradeExecutionService:
             ValueError: If withdraw amount exceeds portfolio value or no withdrawable positions found
         """
 
-        self.account_lifecycle_service.is_baskt_account_active_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        alpaca_account_id = baskt_account.alpaca_account_id
 
         owner_token = str(uuid.uuid4())
         acquired = self.user_trade_lock_repository.acquire_lock(
@@ -391,13 +395,14 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                alpaca_account_id=alpaca_account_id
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
         
 
-    def _execute_update_in_portfolio_helper(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, cognito_user_id: str, is_test: bool = False) -> List[Order]:
+    def _execute_update_in_portfolio_helper(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, cognito_user_id: str, follower_alpaca_account_id: str, is_test: bool = False) -> List[Order]:
 
         owner_token = str(uuid.uuid4())
         acquired = self.user_trade_lock_repository.acquire_lock(
@@ -534,6 +539,7 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
+                alpaca_account_id=follower_alpaca_account_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
             )
         finally:
@@ -559,14 +565,19 @@ class TradeExecutionService:
         Returns:
             List[Order]: List of Alpaca Order objects executed for the rebalance
         """
-        if not self.account_lifecycle_service.is_baskt_account_active_by_cognito_user_id(cognito_user_id=portfolio_owner_cognito_user_id): return 
+
+        portfolio_owner_baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=portfolio_owner_cognito_user_id)
 
         model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
         all_update_orders = {}
 
-        for follower_id in model_portfolio_followers:
-            if self.account_lifecycle_service.is_baskt_account_active_by_cognito_user_id(cognito_user_id=follower_id): continue
-            all_update_orders[follower_id] = self._execute_update_in_portfolio_helper(portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, cognito_user_id=follower_id, is_test=is_test)
+        for follower_cognito_user_id in model_portfolio_followers:
+            try:
+                follower_baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=follower_cognito_user_id)
+                follower_alpaca_account_id = follower_baskt_account.alpaca_account_id
+                all_update_orders[follower_cognito_user_id] = self._execute_update_in_portfolio_helper(portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, cognito_user_id=follower_cognito_user_id, follower_alpaca_account_id=follower_alpaca_account_id, is_test=is_test)
+            except Exception as e:
+                continue
 
         return all_update_orders
 
@@ -594,7 +605,8 @@ class TradeExecutionService:
             ValueError: If model portfolio is not found
         """
 
-        if not self.account_lifecycle_service.is_baskt_account_active_by_cognito_user_id(cognito_user_id=cognito_user_id): return 
+        baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        alpaca_account_id = baskt_account.alpaca_account_id
 
         owner_token = str(uuid.uuid4())
         acquired = self.user_trade_lock_repository.acquire_lock(
@@ -649,7 +661,8 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                alpaca_account_id=alpaca_account_id
             )
         
             # Add user as follower to model portfolio
@@ -723,7 +736,7 @@ class TradeExecutionService:
         }
         return curr_allocation_amount + order_filled_avg_price * flipped_qty
     
-    def realize_filled_orders(self, cognito_user_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str) -> int:
+    def realize_filled_orders(self, cognito_user_id: str, alpaca_account_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str) -> int:
         """
         Reconcile filled orders from Alpaca with the user's portfolio allocation in DynamoDB.
         
@@ -758,7 +771,7 @@ class TradeExecutionService:
         if len(unfilled_orders) == 0: return 0
         newly_filled_orders: List[Order] = []
         for unfilled_order in unfilled_orders:
-            order = self.alpaca_broker_client.get_order_by_id(unfilled_order["order_id"])
+            order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=unfilled_order["order_id"])
             if str(order.status.name) != "FILLED": continue
             newly_filled_orders.append(order)
 

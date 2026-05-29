@@ -15,12 +15,17 @@ from alpaca.trading.models import Asset
 from alpaca.trading.models import Order
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestQuoteRequest
+
+# Baskt imports
+from domain.baskt import BasktPosition
 
 
 class AlpacaBrokerClientError(Exception):
     """Raised when Alpaca Broker client operations fail."""
 
-    def __init__(self, message: str, code: str = "ALPACA_BROKER_CLIENT_ERROR"):
+    def __init__(self, message: str, code: str):
         super().__init__(message)
         self.code = code
 
@@ -44,6 +49,7 @@ class AlpacaBrokerClient:
             None.
         """
         self.client = BrokerClient(api_key=alpaca_broker_api_key, secret_key=alpaca_broker_api_secret)
+        self.data_client = StockHistoricalDataClient(api_key=alpaca_broker_api_key, secret_key=alpaca_broker_api_secret)
 
     def get_tradeable_fractionable_US_assets(self) -> List[Asset]:
         """
@@ -62,7 +68,7 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to fetch tradable, fractionable US Alpaca assets: {e}",
-                code="ALPACA_BROKER_GET_ASSETS_FAILED",
+                code="ALPACA_BROKER_GET_TRADEABLE_FRACTIONABLE_US_ASSETS_FAILED",
             )
 
         tradeable = []
@@ -164,7 +170,7 @@ class AlpacaBrokerClient:
             if not (alpaca_account_id and alpaca_account_id):
                 raise AlpacaBrokerClientError(
                     message=f"Failed to create Alpaca account for user '{email_address}'",
-                    code="ALPACA_BROKER_CREATE_ACCOUNT_FAILED"
+                    code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
                 )
             
             return {
@@ -176,16 +182,29 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to create Alpaca account: {e}",
-                code="ALPACA_BROKER_CREATE_ACCOUNT_FAILED",
+                code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
             )
         
     def get_alpaca_account_by_id(self, account_id) -> Account:
-        alpaca_account = self.client.get_account_by_id(account_id=account_id)
-        if not alpaca_account:
-            return None
-        
-        return alpaca_account
+        try:
+            return self.client.get_account_by_id(account_id=account_id)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get alpaca account by id for account id '{account_id}': {e}",
+                code="ALPACA_BROKER_GET_ALPACA_ACCOUNT__BY_ID_FAILED"
+            )
     
+    
+    def close_alpaca_account(self, account_id: str):
+        try:
+            self.client.close_account(account_id=account_id)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to close alpaca account for account id '{account_id}': {e}",
+                code="ALPACA_BROKER_CLOSE_ALPACA_ACCOUNT_FAILED"
+            )
+    
+
     def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id) -> Order:
         """
         Submit an order request to close an open position for a symbol.
@@ -202,7 +221,7 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to close Alpaca position '{symbol}' for alpaca account {alpaca_account_id} and cognito_user_id {cognito_user_id}: {e}",
-                code="ALPACA_CLOSE_POSITION_FAILED",
+                code="ALPACA_BROKER_EXECUTE_CLOSE_POSITION_FAILED",
             )
 
 
@@ -231,7 +250,7 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to submit buy order for '{symbol}' (account {alpaca_account_id}, cognito_user_id {cognito_user_id}): {e}",
-                code="ALPACA_BUY_ORDER_FAILED",
+                code="ALPACA_BROKER_EXECUTE_QUANTITY_BUY_FAILED",
             )
 
 
@@ -321,6 +340,52 @@ class AlpacaBrokerClient:
                 message=f"Failed to submit sell order for '{symbol}' (account {alpaca_account_id}, cognito_user_id {cognito_user_id}): {e}",
                 code="ALPACA_SELL_ORDER_FAILED",
             )
+        
+    def get_latest_price(self, symbols: List[str]) -> Dict[str, float]:
+        """
+        Fetch latest trade prices for each requested symbol.
+
+        Args:
+            symbols: List of ticker symbols.
+
+        Returns:
+            Dict[str, Optional[float]]: Mapping of symbol to latest price.
+        """
+        try:
+            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
+            quotes = self.data_client.get_stock_latest_trade(request)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to fetch latest prices for symbols {symbols}: {e}",
+                code="ALPACA_GET_LATEST_PRICE_FAILED",
+            )
+        result = {}
+        for symbol in symbols:
+            if symbol not in quotes:
+                raise AlpacaBrokerClientError(
+                    message=f"Latest price missing for symbol '{symbol}'",
+                    code="ALPACA_MISSING_LATEST_PRICE",
+                )
+            result[symbol] = quotes[symbol].price 
+
+        return result
+    
+
+    def get_baskt_positions_dict(self, alpaca_account_id: str) -> Dict[str, BasktPosition]:
+        positions = self.client.get_all_positions_for_account(account_id=alpaca_account_id)
+        return {
+            position.symbol: BasktPosition(
+                symbol=position.symbol, 
+                filled_avg_price=position.avg_entry_price, 
+                filled_quantity=position.qty,
+                direction=1 if position.side.name == "LONG" else -1
+            )
+            for position in positions
+        }
+    
+    def get_order_by_id(self, alpaca_account_id: str, order_id: str):
+        return self.client.get_order_for_account_by_id(account_id=alpaca_account_id, order_id=order_id)
+
 
 
 

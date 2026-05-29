@@ -19,7 +19,7 @@ from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockUnprocessableEntityError,
 )
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
-from clients.alpaca_client import AlpacaClient, AlpacaClientError
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
 from schema.model_portfolio_request import ModelPortfolioPositionRequest
 
@@ -81,9 +81,9 @@ class ModelPortfolioRepository:
     Service for managing model portfolios in DynamoDB.
     """
 
-    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_client: AlpacaClient, model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository):
+    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient, model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository):
         self.dynamodb = dynamodb_client
-        self.alpaca_client = alpaca_client
+        self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
 
     def _wait_until_portfolio_update_lock_is_released(self, portfolio_id: str) -> None:
@@ -225,8 +225,8 @@ class ModelPortfolioRepository:
         curr_positions = model_portfolio_snapshot.positions
         symbols = [pos.symbol for pos in curr_positions]
         try:
-            quotes = self.alpaca_client.get_latest_price(symbols=symbols)
-        except AlpacaClientError as e:
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        except AlpacaBrokerClientError as e:
             raise ModelPortfolioBadGatewayError(
                 message=f"Upstream Alpaca client failed while fetching latest prices to calculate current position weights: {e}."
             )
@@ -289,8 +289,8 @@ class ModelPortfolioRepository:
         # Get model_filled_avg_price and model_filled_quantity
         symbols = [pos.symbol for pos in positions_request]
         try:
-            quotes = self.alpaca_client.get_latest_price(symbols=symbols)
-        except AlpacaClientError as e:
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        except AlpacaBrokerClientError as e:
             raise ModelPortfolioBadGatewayError(
                 message=f"Upstream Alpaca client failed while fetching latest prices for model portfolio '{portfolio_id}' during creation: {e}."
             )
@@ -413,8 +413,8 @@ class ModelPortfolioRepository:
             # Get latest prices
             symbols = [pos.symbol for pos in positions_request]
             try:
-                quotes = self.alpaca_client.get_latest_price(symbols=symbols)
-            except AlpacaClientError as e:
+                quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+            except AlpacaBrokerClientError as e:
                 raise ModelPortfolioBadGatewayError(
                     message=f"Upstream Alpaca client failed while fetching latest prices for model portfolio '{portfolio_id}' during update: {e}."
                 )

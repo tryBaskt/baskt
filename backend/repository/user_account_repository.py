@@ -9,7 +9,6 @@ from boto3.dynamodb.conditions import Key
 
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
-from domain.baskt import BasktAccount
 
 class UserAccountInternalServerError(Exception):
     def __init__(self, message: str):
@@ -71,7 +70,7 @@ class UserAccountRepository:
         try:
             items = self.client.query(
                 key_condition=Key("cognito_user_id").eq(cognito_user_id),
-                IndexName="cognito_user_id-index",
+                IndexName="cognito_user_id_index",
                 Limit=1,
             )
 
@@ -96,7 +95,7 @@ class UserAccountRepository:
         try:
             items = self.client.query(
                 key_condition=Key("email_address").eq(email_address),
-                IndexName="email_address-index",
+                IndexName="email_address_index",
                 Limit=1,
             )
 

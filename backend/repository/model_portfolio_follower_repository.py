@@ -7,8 +7,8 @@ from boto3.dynamodb.conditions import Key
 
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
-from clients.alpaca_client import AlpacaClient
-
+# from clients.alpaca_client import AlpacaClient
+from clients.alpaca_broker_client import AlpacaBrokerClient
 
 class ModelPortfolioFollowerInternalServerError(Exception):
     def __init__(self, message: str):
@@ -47,19 +47,19 @@ class ModelPortfolioFollowerRepository:
     Service for managing model portfolios in DynamoDB.
     """
 
-    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_client: AlpacaClient):
+    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient):
         """
         Initialize follower repository dependencies.
 
         Args:
             dynamodb_client: DynamoDB client wrapper for follower persistence.
-            alpaca_client: Alpaca client dependency (reserved for related workflows).
+            alpaca_broker_client: Alpaca client dependency (reserved for related workflows).
 
         Returns:
             None.
         """
         self.dynamodb = dynamodb_client
-        self.alpaca_client = alpaca_client
+        self.alpaca_broker_client = alpaca_broker_client
 
     def is_model_portfolio_follower(self, cognito_user_id: str, portfolio_id: str) -> bool:
         """
@@ -144,7 +144,7 @@ class ModelPortfolioFollowerRepository:
         try:
             items = self.dynamodb.query(
                 key_condition=Key("portfolio_id").eq(portfolio_id),
-                IndexName="portfolio_id-index",
+                IndexName="portfolio_id_index",
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioFollowerBadGatewayError(

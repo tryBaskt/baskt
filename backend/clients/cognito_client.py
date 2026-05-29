@@ -174,21 +174,20 @@ class CognitoClient:
             ) from err
         
     def disable_cognito_user(self, cognito_user_id):
-        response = self.cognito_client.admin_disable_user(
-            UserPoolId=self.user_pool_id,
-            Username=cognito_user_id
-        )
-        response_metadata = response["ResponseMetadata"]
-        http_status_code = response_metadata["HTTPStatusCode"]
-        return http_status_code==200
-
-    def delete_cognito_user(self, cognito_user_id):
-        response = self.cognito_client.admin_delete_user(
-            UserPoolId=self.user_pool_id,
-            Username=cognito_user_id
-        )
-        response_metadata = response["ResponseMetadata"]
-        http_status_code = response_metadata["HTTPStatusCode"]
-        return http_status_code==200
-
+        try:
+            response = self.cognito_client.admin_disable_user(
+                UserPoolId=self.user_pool_id,
+                Username=cognito_user_id
+            )
+            response_metadata = response["ResponseMetadata"]
+            http_status_code = response_metadata["HTTPStatusCode"]
+            return http_status_code == 200
+        except ClientError as err:
+            error_code = err.response.get("Error", {}).get("Code")
+            if error_code == "UserNotFoundException":
+                return False
+            raise CognitoClientError(
+                message=f"Failed to disable Cognito user '{cognito_user_id}': {err}",
+                code="COGNITO_DISABLE_USER_FAILED",
+            ) from err
 

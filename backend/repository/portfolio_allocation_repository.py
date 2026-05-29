@@ -9,7 +9,8 @@ from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 # Baskt imports
 from domain.portfolio_allocation import PortfolioAllocationPosition, PortfolioAllocationSnapshot, PortfolioAllocation
-from clients.alpaca_client import AlpacaClient, AlpacaClientError
+# from clients.alpaca_client import AlpacaClient, AlpacaClientError
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
 
 
@@ -46,10 +47,10 @@ class PortfolioAllocationUnprocessableEntityError(PortfolioAllocationInternalSer
 
 class PortfolioAllocationRepository:
     def __init__(self,
-            alpaca_client: AlpacaClient,
+            alpaca_broker_client: AlpacaBrokerClient,
             dynamodb_client: DynamoDBClient
     ):
-        self.alpaca_client = alpaca_client
+        self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_table_client = dynamodb_client
 
     def calculate_positions_current_value(self, portfolio_allocation_snapshot: PortfolioAllocationSnapshot) -> List[Dict[str, float], float, Dict[str, float]]:
@@ -66,8 +67,8 @@ class PortfolioAllocationRepository:
         curr_positions = portfolio_allocation_snapshot.positions
         symbols = [pos.symbol for pos in curr_positions]
         try:
-            quotes = self.alpaca_client.get_latest_price(symbols=symbols)
-        except AlpacaClientError as e:
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        except AlpacaBrokerClientError as e:
             raise PortfolioAllocationBadGatewayError(
                 message=f"Upstream Alpaca client failed while fetching latest prices for portfolio allocation: {e}."
             )

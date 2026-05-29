@@ -9,7 +9,8 @@ from boto3.dynamodb.conditions import Key, Attr
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 from alpaca.trading.models import Order
-from clients.alpaca_client import AlpacaClient
+#from clients.alpaca_client import AlpacaClient
+from clients.alpaca_broker_client import AlpacaBrokerClient
 from core.timeutils import to_utc_from_iso
 
 
@@ -47,10 +48,10 @@ class OrderNotFoundError(OrderInternalServerError):
 class OrderRepository:
     def __init__(
             self,
-            alpaca_client: AlpacaClient,
+            alpaca_broker_client: AlpacaBrokerClient,
             dynamodb_client: DynamoDBClient
         ):
-        self.alpaca_client = alpaca_client
+        self.alpaca_broker_client = alpaca_broker_client
         self.order_table_client = dynamodb_client
 
     def _norm_data_types(self, orders: List[Dict[str, Any]]):
@@ -136,10 +137,16 @@ class OrderRepository:
             )
         return self._norm_data_types(orders=orders)
     
-    def get_orders_by_portfolio(self, portfolio_id: str) -> List[Dict]:
+    def get_orders_by_portfolio(self, cognito_user_id: str, portfolio_id: str) -> List[Dict]:
+        if not cognito_user_id:
+            raise OrderUnprocessableEntityError("cognito_user_id is required.")
+        if not portfolio_id:
+            raise OrderUnprocessableEntityError("portfolio_id is required.")
+        
         try:
-            orders = self.order_table_client.scan(
-                filter_expression=Attr("portfolio_id").eq(str(portfolio_id))
+            orders = self.order_table_client.query(
+                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)) & Key("portfolio_id").eq(str(portfolio_id)),
+                IndexName="cognito_user_id_portfolio_id_index"
             )
         except DynamoDBClientError as e:
             raise OrderBadGatewayError(
@@ -150,7 +157,6 @@ class OrderRepository:
             raise OrderNotFoundError(
                 message=f"Orders not found for portfolio '{portfolio_id}'."
             )
-
         return self._norm_data_types(orders=orders)
     
     def get_unfilled_orders_by_transaction(self, transaction_id: str):
@@ -161,56 +167,39 @@ class OrderRepository:
     
 
     
-    def delete_orders_by_portfolio_id(self, portfolio_id: str):
+    def delete_orders_by_portfolio_id(self, cognito_user_id: str, portfolio_id: str):
+        if not cognito_user_id:
+            raise OrderUnprocessableEntityError("cognito_user_id is required.")
         if not portfolio_id:
             raise OrderUnprocessableEntityError("portfolio_id is required.")
-
-        to_delete: List[Dict[str, str]] = []
-        scan_kwargs: Dict[str, Any] = {}
-
-        # Full table scan because portfolio_id is a non-key attribute in this table design.
+        
         try:
-            while True:
-                response = self.order_table_client.table.scan(**scan_kwargs)
-                items = response.get("Items", [])
-
-                for item in items:
-                    if str(item.get("portfolio_id", "")) != str(portfolio_id):
-                        continue
-
-                    transaction_id = item.get("transaction_id")
-                    order_id = item.get("order_id")
-                    if transaction_id is None or order_id is None:
-                        continue
-
-                    to_delete.append(
-                        {
-                            "transaction_id": str(transaction_id),
-                            "order_id": str(order_id),
-                        }
-                    )
-
-                last_evaluated_key = response.get("LastEvaluatedKey")
-                if not last_evaluated_key:
-                    break
-                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+            orders = self.order_table_client.query(
+                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)) & Key("portfolio_id").eq(str(portfolio_id)),
+                IndexName="cognito_user_id_portfolio_id_index"
+            )
         except DynamoDBClientError as e:
             raise OrderBadGatewayError(
-                message=f"Upstream DynamoDB client failed while scanning orders for portfolio '{portfolio_id}': {e}."
+                message=f"Upstream DynamoDB client failed while querying orders for portfolio '{portfolio_id}': {e}."
             )
 
-        if not to_delete:
+        if not orders:
             return 0
 
         try:
             with self.order_table_client.table.batch_writer() as batch:
-                for key in to_delete:
-                    batch.delete_item(Key=key)
+                for order in orders:
+                    batch.delete_item(
+                        Key={
+                            "transaction_id": order["transaction_id"],
+                            "order_id": order["order_id"]
+                        }
+                    )
         except DynamoDBClientError as e:
             raise OrderBadGatewayError(
                 message=f"Upstream DynamoDB client failed while deleting orders for portfolio '{portfolio_id}': {e}."
             )
 
-        return len(to_delete)
+        return len(orders)
         
         
