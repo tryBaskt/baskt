@@ -7,7 +7,6 @@ import pytest
 from backend.domain.model_portfolio import ModelPortfolioPosition
 from backend.repository.model_portfolio_repository import ModelPortfolioRepository
 from backend.services.trade_execution_service import TradeExecutionService
-from backend.clients.alpaca_client import AlpacaClient
 from backend.repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from backend.domain.baskt import BasktPosition
 from backend.repository.order_repository import OrderRepository

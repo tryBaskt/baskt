@@ -11,9 +11,9 @@ from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 
 class ModelPortfolioUpdateLockInternalServerError(Exception):
-	def __init__(self, message: str):
+	def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_UPDATE_LOCK_INTERNAL_SERVER_ERROR"):
 		"""
-		Initialize a lock repository error with a message and optional code.
+		Initialize a model portfolio update lock repository exception.
 
 		Args:
 			message: Human-readable error description.
@@ -23,28 +23,51 @@ class ModelPortfolioUpdateLockInternalServerError(Exception):
 			None.
 		"""
 		super().__init__(message)
-		self.code = "MODEL_PORTFOLIO_UPDATE_LOCK_INTERNAL_SERVER_ERROR"
+		self.code = code
 
 
 class ModelPortfolioUpdateLockBadGatewayError(ModelPortfolioUpdateLockInternalServerError):
-	def __init__(self, message: str):
-		super().__init__(message=message)
-		self.code = "MODEL_PORTFOLIO_UPDATE_LOCK_BAD_GATEWAY"
+	def __init__(self, operation: str, portfolio_id: str, *, source: str = "DynamoDB", cause: Exception | None = None):
+		"""
+		Initialize an upstream dependency failure for lock operations.
+
+		Args:
+			operation: Description of the lock operation that failed.
+			portfolio_id: Model portfolio ID involved in the failure.
+			source: Upstream dependency that failed.
+			cause: Optional upstream exception that caused the failure.
+
+		Returns:
+			None.
+
+		Raises:
+			No exceptions are intentionally raised by this method.
+		"""
+		message = f"Upstream {source} client failed while {operation} for portfolio '{portfolio_id}'"
+		if cause:
+			message = f"{message}: {cause}"
+		super().__init__(message=message, code="MODEL_PORTFOLIO_UPDATE_LOCK_BAD_GATEWAY")
 
 
 class ModelPortfolioUpdateLockUnprocessableEntityError(ModelPortfolioUpdateLockInternalServerError):
-	def __init__(self, message: str):
+	def __init__(self, field_name: str, constraint: str = "is required"):
 		"""
 		Initialize an unprocessable error for model portfolio lock.
 
 		Args:
-			message: Validation failure details.
+			field_name: Required or constrained field name.
+			constraint: Validation requirement that the field failed.
 
 		Returns:
 			None.
+
+		Raises:
+			No exceptions are intentionally raised by this method.
 		"""
-		super().__init__(message=message)
-		self.code = "MODEL_PORTFOLIO_UPDATE_LOCK_UNPROCESSABLE_ERROR"
+		super().__init__(
+			message=f"{field_name} {constraint}",
+			code="MODEL_PORTFOLIO_UPDATE_LOCK_UNPROCESSABLE_ERROR",
+		)
 
 
 class ModelPortfolioUpdateLockRepository:
@@ -65,6 +88,9 @@ class ModelPortfolioUpdateLockRepository:
 
 		Returns:
 			None.
+
+		Raises:
+			No exceptions are intentionally raised by this method.
 		"""
 		self.lock_table_client = dynamodb_client
 
@@ -79,13 +105,17 @@ class ModelPortfolioUpdateLockRepository:
 
 		Returns:
 			None.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If portfolio_id or
+			owner_token is missing, or lease_seconds is not greater than zero.
 		"""
 		if not portfolio_id:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError("portfolio_id is required")
+			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="portfolio_id")
 		if not owner_token:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError("owner_token is required")
+			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="owner_token")
 		if lease_seconds is not None and lease_seconds <= 0:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError("lease_seconds must be > 0")
+			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="lease_seconds", constraint="must be > 0")
 
 	def get_lock(self, portfolio_id: str) -> Optional[Dict[str, Any]]:
 		"""
@@ -96,15 +126,23 @@ class ModelPortfolioUpdateLockRepository:
 
 		Returns:
 			Optional[Dict[str, Any]]: Lock item when present, otherwise None.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If portfolio_id is
+			missing.
+			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
+			loading the lock.
 		"""
 		if not portfolio_id:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError("portfolio_id is required")
+			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="portfolio_id")
 		try:
 			return self.lock_table_client.get_item(key={"portfolio_id": str(portfolio_id)})
 		except DynamoDBClientError as e:
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB client failed while loading lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="loading lock",
+				portfolio_id=portfolio_id,
+				cause=e,
+			) from e
 
 	def acquire_lock(self, portfolio_id: str, owner_token: str, lease_seconds: int = 30) -> bool:
 		"""
@@ -116,7 +154,15 @@ class ModelPortfolioUpdateLockRepository:
 			lease_seconds: Lease duration in seconds.
 
 		Returns:
-			True if acquired, False if another active owner holds the lock.
+			bool: True if acquired, False if another active owner holds the lock.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
+			invalid.
+			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
+			acquiring the lock.
+			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
+			occurs.
 		"""
 		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token, lease_seconds=lease_seconds)
 
@@ -142,15 +188,17 @@ class ModelPortfolioUpdateLockRepository:
 			if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
 				return False
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB botocore client failed while acquiring lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="acquiring lock",
+				portfolio_id=portfolio_id,
+				source="DynamoDB botocore",
+				cause=e,
+			) from e
 		except Exception as e:
 			raise ModelPortfolioUpdateLockInternalServerError(
 				message=f"Unexpected error acquiring lock for portfolio '{portfolio_id}': {e}"
-			)
+			) from e
 
 	def renew_lock(self, portfolio_id: str, owner_token: str, lease_seconds: int = 30) -> bool:
-		"TODO: Fix update_item"
 		"""
 		Extend an active lock lease owned by owner_token.
 
@@ -160,7 +208,15 @@ class ModelPortfolioUpdateLockRepository:
 			lease_seconds: New lease duration in seconds.
 
 		Returns:
-			True if renewed, False if lock is not owned by owner_token.
+			bool: True if renewed, False if lock is not owned by owner_token.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
+			invalid.
+			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
+			renewing the lock.
+			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
+			occurs.
 		"""
 		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token, lease_seconds=lease_seconds)
 
@@ -183,15 +239,17 @@ class ModelPortfolioUpdateLockRepository:
 			if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
 				return False
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB botocore client failed while renewing lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="renewing lock",
+				portfolio_id=portfolio_id,
+				source="DynamoDB botocore",
+				cause=e,
+			) from e
 		except Exception as e:
 			raise ModelPortfolioUpdateLockInternalServerError(
 				message=f"Unexpected error renewing lock for portfolio '{portfolio_id}': {e}",
-			)
+			) from e
 
 	def release_lock(self, portfolio_id: str, owner_token: str) -> bool:
-		"TODO: delete item fix"
 		"""
 		Release a lock only if it is currently owned by owner_token.
 
@@ -200,7 +258,16 @@ class ModelPortfolioUpdateLockRepository:
 			owner_token: Opaque token that must match current lock owner.
 
 		Returns:
-			True if released, False if lock is missing or owned by someone else.
+			bool: True if released, False if lock is missing or owned by someone
+			else.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
+			invalid.
+			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
+			releasing the lock.
+			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
+			occurs.
 		"""
 		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token)
 
@@ -215,12 +282,15 @@ class ModelPortfolioUpdateLockRepository:
 			if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
 				return False
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB botocore client failed while releasing lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="releasing lock",
+				portfolio_id=portfolio_id,
+				source="DynamoDB botocore",
+				cause=e,
+			) from e
 		except Exception as e:
 			raise ModelPortfolioUpdateLockInternalServerError(
 				message=f"Unexpected error releasing lock for portfolio '{portfolio_id}': {e}",
-			)
+			) from e
 
 	def delete_lock(self, portfolio_id: str) -> bool:
 		"""
@@ -230,23 +300,36 @@ class ModelPortfolioUpdateLockRepository:
 			portfolio_id: Identifier of the portfolio lock to delete.
 
 		Returns:
-			True if delete call succeeds.
+			bool: True if delete call succeeds.
+
+		Raises:
+			ModelPortfolioUpdateLockUnprocessableEntityError: If portfolio_id is
+			missing.
+			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
+			deleting the lock.
+			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
+			occurs.
 		"""
 		if not portfolio_id:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError("portfolio_id is required")
+			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="portfolio_id")
 
 		try:
 			self.lock_table_client.delete_item(key={"portfolio_id": str(portfolio_id)})
 			return True
 		except DynamoDBClientError as e:
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB client failed while deleting lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="deleting lock",
+				portfolio_id=portfolio_id,
+				cause=e,
+			) from e
 		except ClientError as e:
 			raise ModelPortfolioUpdateLockBadGatewayError(
-				message=f"Upstream DynamoDB botocore client failed while deleting lock for portfolio '{portfolio_id}': {e}.",
-			)
+				operation="deleting lock",
+				portfolio_id=portfolio_id,
+				source="DynamoDB botocore",
+				cause=e,
+			) from e
 		except Exception as e:
 			raise ModelPortfolioUpdateLockInternalServerError(
 				message=f"Unexpected error deleting lock for portfolio '{portfolio_id}': {e}",
-			)
+			) from e

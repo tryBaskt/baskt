@@ -2,20 +2,81 @@
 
 from __future__ import annotations
 
-import secrets
 from typing import Any, Dict
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError, ParamValidationError
     
 
 class CognitoClientError(Exception):
     """Raised when Cognito client operations fail."""
 
     def __init__(self, message: str, code: str = "COGNITO_CLIENT_ERROR"):
+        """
+        Initialize a Cognito client exception with a message and code.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable application error code identifying the failed operation.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(message)
         self.code = code
 
+
+class CognitoClientUserAlreadyExists(CognitoClientError):
+    """Raised when a Cognito user already exists for the requested identifier."""
+
+    def __init__(self, identifier: str, identifier_type: str):
+        """
+        Initialize a duplicate Cognito user exception.
+
+        Args:
+            identifier: Email address or Cognito user ID that matched an
+                existing user.
+            identifier_type: Type of identifier passed in, such as
+                "email_address" or "cognito_user_id".
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        super().__init__(
+            message=f"Cognito user already exists for {identifier_type} '{identifier}'",
+            code="COGNITO_USER_ALREADY_EXISTS",
+        )
+
+
+class CognitoClientCognitoUserNotFound(CognitoClientError):
+    """Raised when a Cognito user is not found."""
+
+    def __init__(self, identifier: str, identifier_type: str):
+        """
+        Initialize a missing Cognito user exception.
+
+        Args:
+            identifier: Email address or Cognito user ID used to look up the
+                missing user.
+            identifier_type: Type of identifier passed in, such as
+                "email_address" or "cognito_user_id".
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        super().__init__(
+            message=f"Cognito user not found for {identifier_type} '{identifier}'",
+            code="COGNITO_USER_NOT_FOUND",
+        )
 
 class CognitoClient:
     """
@@ -31,6 +92,22 @@ class CognitoClient:
         user_pool_id: str,
         app_client_id: str,
     ) -> None:
+        """
+        Initialize the Cognito client wrapper.
+
+        Args:
+            env: Runtime environment name, such as "dev".
+            region: AWS region where the Cognito user pool is hosted.
+            user_pool_id: Cognito user pool ID.
+            app_client_id: Cognito app client ID associated with this service.
+
+        Returns:
+            None.
+
+        Raises:
+            Any exception raised by boto3.client if the Cognito Identity
+            Provider client cannot be initialized.
+        """
         self.env = env
         self.region = region
         self.user_pool_id = user_pool_id
@@ -41,6 +118,17 @@ class CognitoClient:
         """
         Return whether a Cognito user exists and, when present, the enable and
         confirmation status.
+
+        Args:
+            email_address: Email address used as the Cognito username.
+
+        Returns:
+            Dict[str, Any]: User existence payload with exists, enabled, and
+            confirmation_status fields.
+
+        Raises:
+            CognitoClientError: If Cognito fails while checking user existence
+            or the request cannot be sent.
         """
         try:
             response = self.cognito_client.admin_get_user(
@@ -61,44 +149,54 @@ class CognitoClient:
                 }
 
             raise CognitoClientError(
-                message=f"Failed checking Cognito user existence: {err}",
-                code="COGNITO_GET_USER_FAILED",
+                message=f"Failed to get user existence status for email address '{email_address}': {err}",
+                code="COGNITO_GET_USER_EXISTENCE_STATUS_FAILED",
+            ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to get user existence status for email address '{email_address}': {err}",
+                code="COGNITO_GET_USER_EXISTENCE_STATUS_FAILED",
             ) from err
 
 
     def create_cognito_user(self, account_data: Dict[str, Any], password: str | None = None) -> str:
         """
-        Create user in AWS Cognito
+        Create a user in AWS Cognito.
+
+        Args:
+            account_data: Account payload containing contact.email_address and
+                identity.given_name/family_name.
+            password: Optional password used when creating a dev Cognito user.
+
+        Returns:
+            str: Cognito username, currently the user's email address.
+
+        Raises:
+            CognitoClientError: If required account data is missing, the
+            current environment is unsupported for user creation, Cognito fails
+            while creating the user, or the request cannot be sent.
+            CognitoClientUserAlreadyExists: If a user already exists with the
+            requested email address.
         """
-        contact_data: Dict[str, str] = account_data["contact"]
-        identity_data: Dict[str, str] = account_data["identity"]
-
-        email_address = contact_data["email_address"]
-
-        user_attributes = [
-            {"Name": "email", "Value": email_address},
-            {"Name": "email_verified", "Value": "true"},
-            {"Name": "given_name", "Value": identity_data["given_name"]},
-            {"Name": "family_name", "Value": identity_data["family_name"]},
-        ]
-
-        # Make this operation idempotent for retries from API clients.
         try:
-            self.cognito_client.admin_get_user(
-                UserPoolId=self.user_pool_id,
-                Username=email_address,
-            )
-            return email_address
-        except ClientError as err:
-            if err.response.get("Error", {}).get("Code") != "UserNotFoundException":
-                raise CognitoClientError(
-                    message=f"Failed checking Cognito user existence: {err}",
-                    code="COGNITO_GET_USER_FAILED",
-                ) from err
-            
+            contact_data: Dict[str, str] = account_data["contact"]
+            identity_data: Dict[str, str] = account_data["identity"]
+
+            email_address = contact_data["email_address"]
+
+            user_attributes = [
+                {"Name": "email", "Value": email_address},
+                {"Name": "email_verified", "Value": "true"},
+                {"Name": "given_name", "Value": identity_data["given_name"]},
+                {"Name": "family_name", "Value": identity_data["family_name"]},
+            ]
+        except KeyError as err:
+            raise CognitoClientError(
+                message=f"Missing required account data for Cognito user creation: {err}",
+                code="COGNITO_CREATE_USER_INVALID_ACCOUNT_DATA",
+            ) from err
 
         if self.env.lower() == "dev":
-
             try:
                 self.cognito_client.admin_create_user(
                     UserPoolId=self.user_pool_id,
@@ -129,20 +227,43 @@ class CognitoClient:
                 return email_address
             except ClientError as err:
                 if err.response.get("Error", {}).get("Code") == "UsernameExistsException":
-                    return email_address
+                    raise CognitoClientUserAlreadyExists(
+                        identifier=email_address,
+                        identifier_type="email_address",
+                    ) from err
 
                 raise CognitoClientError(
-                    message=f"Failed to create Cognito user: {err}",
+                    message=f"Failed to create cognito user: {err}",
                     code="COGNITO_CREATE_USER_FAILED",
                 ) from err
+            except (BotoCoreError, ParamValidationError) as err:
+                raise CognitoClientError(
+                    message=f"Failed to create cognito user: {err}",
+                    code="COGNITO_CREATE_USER_FAILED",
+                ) from err
+
+        raise CognitoClientError(
+            message=f"Cognito user creation is not supported for environment '{self.env}'",
+            code="COGNITO_CREATE_USER_UNSUPPORTED_ENV",
+        )
             
 
-    def get_cognito_user(self, cognito_user_id: str) -> Dict[str, Any] | None:
+    def get_cognito_user(self, cognito_user_id: str) -> Dict[str, Any]:
         """
         Fetch Cognito user data by Cognito username/user id.
 
+        Args:
+            cognito_user_id: Cognito username/user ID to fetch.
+
         Returns:
-            A normalized user payload when found, otherwise None.
+            Dict[str, Any]: Normalized Cognito user payload with user ID,
+            enabled status, confirmation status, timestamps, and attributes.
+
+        Raises:
+            CognitoClientCognitoUserNotFound: If the Cognito user does not
+            exist.
+            CognitoClientError: If Cognito fails while fetching the user or the
+            request cannot be sent.
         """
         try:
             response = self.cognito_client.admin_get_user(
@@ -166,14 +287,37 @@ class CognitoClient:
             }
         except ClientError as err:
             if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
-                return None
+                raise CognitoClientCognitoUserNotFound(
+                    identifier=cognito_user_id,
+                    identifier_type="cognito_user_id",
+                ) from err
 
             raise CognitoClientError(
-                message=f"Failed fetching Cognito user '{cognito_user_id}': {err}",
-                code="COGNITO_GET_USER_FAILED",
+                message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
+                code="COGNITO_GET_COGNITO_USER_FAILED",
+            ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
+                code="COGNITO_GET_COGNITO_USER_FAILED",
             ) from err
         
-    def disable_cognito_user(self, cognito_user_id):
+    def disable_cognito_user(self, cognito_user_id: str) -> bool:
+        """
+        Disable a Cognito user.
+
+        Args:
+            cognito_user_id: Cognito username/user ID to disable.
+
+        Returns:
+            bool: True when Cognito returns HTTP 200, otherwise False.
+
+        Raises:
+            CognitoClientCognitoUserNotFound: If the Cognito user does not
+            exist.
+            CognitoClientError: If Cognito fails while disabling the user, the
+            response is malformed, or the request cannot be sent.
+        """
         try:
             response = self.cognito_client.admin_disable_user(
                 UserPoolId=self.user_pool_id,
@@ -185,9 +329,16 @@ class CognitoClient:
         except ClientError as err:
             error_code = err.response.get("Error", {}).get("Code")
             if error_code == "UserNotFoundException":
-                return False
+                raise CognitoClientCognitoUserNotFound(
+                    identifier=cognito_user_id,
+                    identifier_type="cognito_user_id",
+                ) from err
             raise CognitoClientError(
                 message=f"Failed to disable Cognito user '{cognito_user_id}': {err}",
                 code="COGNITO_DISABLE_USER_FAILED",
             ) from err
-
+        except (BotoCoreError, KeyError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to disable Cognito user '{cognito_user_id}': {err}",
+                code="COGNITO_DISABLE_USER_FAILED",
+            ) from err

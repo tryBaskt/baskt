@@ -27,49 +27,188 @@ LOCK_LEASE_SECONDS = 30
 READ_LOCK_POLL_SECONDS = 0.25
 
 class ModelPortfolioInternalServerError(Exception):
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.code = "MODEL_PORTFOLIO_INTERNAL_SERVER_ERROR"
+    def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_INTERNAL_SERVER_ERROR"):
+        """
+        Initialize a model portfolio repository exception.
 
+        Args:
+            message: Human-readable error details.
+            code: Stable application error code identifying the failed operation.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        super().__init__(message)
+        self.code = code
 
 
 class ModelPortfolioBadGatewayError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        source: str,
+        operation: str,
+        *,
+        portfolio_id: str | None = None,
+        owner_cognito_user_id: str | None = None,
+        cause: Exception | None = None,
+    ):
+        """
+        Initialize an upstream dependency failure for model portfolio operations.
+
+        Args:
+            source: Upstream dependency that failed, such as "DynamoDB" or
+                "Alpaca".
+            operation: Description of the operation that failed.
+            portfolio_id: Optional model portfolio ID involved in the failure.
+            owner_cognito_user_id: Optional owner Cognito user ID involved in
+                the failure.
+            cause: Optional upstream exception that caused the failure.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        context = []
+        if portfolio_id:
+            context.append(f"model portfolio '{portfolio_id}'")
+        if owner_cognito_user_id:
+            context.append(f"owner '{owner_cognito_user_id}'")
+
+        message = f"Upstream {source} client failed while {operation}"
+        if context:
+            message = f"{message} for {', '.join(context)}"
+        if cause:
+            message = f"{message}: {cause}"
+
         super().__init__(
             message=message,
             code="MODEL_PORTFOLIO_UPSTREAM_ERROR",
         )
 
 class ModelPortfolioNotFoundError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(self, portfolio_id: str):
+        """
+        Initialize a missing model portfolio exception.
+
+        Args:
+            portfolio_id: Model portfolio ID that was not found.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(
-            message=message,
+            message=f"Model portfolio '{portfolio_id}' not found.",
             code="MODEL_PORTFOLIO_NOT_FOUND_ERROR",
         )
 
 class ModelPortfolioUnprocessableEntityError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        operation: str,
+        *,
+        portfolio_id: str | None = None,
+        cause: Exception | None = None,
+    ):
+        """
+        Initialize an invalid stored model portfolio data exception.
+
+        Args:
+            operation: Description of the parse or processing operation that
+                failed.
+            portfolio_id: Optional model portfolio ID involved in the failure.
+            cause: Optional exception that caused the processing failure.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        message = f"Failed to {operation}"
+        if portfolio_id:
+            message = f"{message} for model portfolio '{portfolio_id}'"
+        if cause:
+            message = f"{message}: {cause}"
+
         super().__init__(
             message=message,
             code="MODEL_PORTFOLIO_ENTITY_UNPROCESSABLE_ERROR",
         )
 
 class ModelPortfolioTooManyRequestsError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(self, retry_after_seconds: int):
+        """
+        Initialize a model portfolio update cooldown exception.
+
+        Args:
+            retry_after_seconds: Number of seconds the caller should wait
+                before retrying the update.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(
-            message=message,
+            message=f"Updates allowed once per minute. Retry after {retry_after_seconds} seconds.",
             code="MODEL_PORTFOLIO_TOO_MANY_UPDATES_ERROR",
         )
 
 class ModelPortfolioPositionHistoryNotFoundError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(self, portfolio_id: str):
+        """
+        Initialize a missing position history exception.
+
+        Args:
+            portfolio_id: Model portfolio ID whose position history was not
+                found.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(
-            message=message,
+            message=f"Position history not found for model portfolio '{portfolio_id}'.",
             code="MODEL_PORTFOLIO_POSITION_HISTORY_NOT_FOUND",
         )
 
 class ModelPortfolioLockedError(ModelPortfolioInternalServerError):
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        portfolio_id: str,
+        operation: str,
+        *,
+        cause: Exception | None = None,
+    ):
+        """
+        Initialize a model portfolio update lock exception.
+
+        Args:
+            portfolio_id: Model portfolio ID involved in the lock failure.
+            operation: Lock operation or state that failed.
+            cause: Optional lock repository exception that caused the failure.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        message = f"Failed to {operation} for model portfolio '{portfolio_id}'"
+        if cause:
+            message = f"{message}: {cause}"
+
         super().__init__(
             message=message,
             code="MODEL_PORTFOLIO_UPDATE_LOCK_ERROR",
@@ -82,6 +221,23 @@ class ModelPortfolioRepository:
     """
 
     def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient, model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository):
+        """
+        Initialize model portfolio repository dependencies.
+
+        Args:
+            dynamodb_client: DynamoDB client wrapper for model portfolio
+                persistence.
+            alpaca_broker_client: Alpaca broker client used for latest market
+                prices.
+            model_portfolio_update_lock_repository: Repository used to
+                coordinate model portfolio update locks.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         self.dynamodb = dynamodb_client
         self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
@@ -90,18 +246,25 @@ class ModelPortfolioRepository:
         """
         Block reads while an active update lock exists for the portfolio.
 
-        Args: 
-            portfolio_id: portfolio id we try to read / write to
+        Args:
+            portfolio_id: Model portfolio ID to wait on before reading or
+                writing.
 
         Returns:
-            None
+            None.
+
+        Raises:
+            ModelPortfolioLockedError: If the update lock repository fails
+            while checking the portfolio lock.
         """
         while True:
             try:
                 lock = self.model_portfolio_update_lock_repository.get_lock(portfolio_id=portfolio_id)
             except (ModelPortfolioUpdateLockInternalServerError, ModelPortfolioUpdateLockUnprocessableEntityError) as e:
                 raise ModelPortfolioLockedError(
-                    message=f"Failed to check update lock for model portfolio '{portfolio_id}': {e}."
+                    portfolio_id=portfolio_id,
+                    operation="check update lock",
+                    cause=e,
                 ) from e
             if not lock:
                 return
@@ -122,7 +285,18 @@ class ModelPortfolioRepository:
             portfolio_id: Identifier of the portfolio.
 
         Returns:
-            A list of historical portfolio snapshots.
+            List[ModelPortfolioSnapshot]: Historical portfolio snapshots in
+            stored order.
+
+        Raises:
+            ModelPortfolioLockedError: If lock state cannot be checked.
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading
+            position history.
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioPositionHistoryNotFoundError: If the stored item does
+            not include position_history.
+            ModelPortfolioUnprocessableEntityError: If stored position history
+            cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)
@@ -136,17 +310,20 @@ class ModelPortfolioRepository:
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading position history for model portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="loading position history",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
 
         # Ensure item is not None and has portfolio_history
         if not item:
             raise ModelPortfolioNotFoundError(
-                message=f"Model portfolio '{portfolio_id}' not found."
+                portfolio_id=portfolio_id
             )
         if "position_history" not in item:
             raise ModelPortfolioPositionHistoryNotFoundError(
-                message=f"Position history not found for model portfolio '{portfolio_id}'."
+                portfolio_id=portfolio_id
             )
 
         # Create position history
@@ -168,8 +345,10 @@ class ModelPortfolioRepository:
                 ]
             except Exception as e:
                 raise ModelPortfolioUnprocessableEntityError(
-                    message=f"Failed to parse position history for model portfolio '{portfolio_id}': {e}."
-                )
+                    operation="parse position history",
+                    portfolio_id=portfolio_id,
+                    cause=e,
+                ) from e
 
             timestamp = to_utc_from_iso(snap["timestamp"])
             
@@ -191,7 +370,20 @@ class ModelPortfolioRepository:
             n: Number of recent snapshots to return.
 
         Returns:
-            A list with the last n snapshots in chronological order.
+            List[ModelPortfolioSnapshot]: Last n snapshots in chronological
+            order.
+
+        Raises:
+            ModelPortfolioLockedError: If lock state cannot be checked.
+            ValueError: If n is less than or equal to zero or greater than the
+            number of stored snapshots.
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading
+            position history.
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioPositionHistoryNotFoundError: If position history is
+            missing.
+            ModelPortfolioUnprocessableEntityError: If stored position history
+            cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)
@@ -218,7 +410,16 @@ class ModelPortfolioRepository:
             model_portfolio_snapshot: Snapshot containing modeled position quantities.
 
         Returns:
-            A mapping of symbol to current normalized weight.
+            List[Dict[str, float] | float]: Current normalized weights by
+            symbol, total portfolio value, and latest quotes. When total value
+            is zero, returns equivalent zero-weight values with total value and
+            quotes.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If Alpaca fails while fetching
+            latest prices.
+            ModelPortfolioInternalServerError: If a latest price is missing for
+            a symbol in the snapshot.
         """
 
         # Get current positions latest prices
@@ -228,8 +429,10 @@ class ModelPortfolioRepository:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
         except AlpacaBrokerClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream Alpaca client failed while fetching latest prices to calculate current position weights: {e}."
-            )
+                source="Alpaca",
+                operation="fetching latest prices to calculate current position weights",
+                cause=e,
+            ) from e
 
         # Create current position weight dict
         position_values: Dict[str, float] = {}
@@ -271,12 +474,18 @@ class ModelPortfolioRepository:
         Args:
             portfolio_owner_cognito_user_id: Identifier of the portfolio owner.
             portfolio_name: Display name for the portfolio.
-            positions: Initial target positions for the first snapshot.
+            positions_request: Initial target positions for the first snapshot.
             creation_time: Optional creation timestamp; defaults to now in UTC.
             description: Optional free-text description.
 
         Returns:
-            The generated portfolio identifier.
+            str: Generated model portfolio ID.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If Alpaca fails while fetching latest
+            prices or DynamoDB fails while persisting the portfolio.
+            ModelPortfolioInternalServerError: If a latest price is missing for
+            a requested position symbol.
         """
 
         # Generate new portfolio id
@@ -292,8 +501,11 @@ class ModelPortfolioRepository:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
         except AlpacaBrokerClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream Alpaca client failed while fetching latest prices for model portfolio '{portfolio_id}' during creation: {e}."
-            )
+                source="Alpaca",
+                operation="fetching latest prices during creation",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         
         # Create model portfolio positions
         model_portfolio_positions: List[ModelPortfolioPosition] = []
@@ -359,8 +571,11 @@ class ModelPortfolioRepository:
             self.dynamodb.put_item(item)
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while persisting model portfolio '{portfolio_id}' during creation: {e}."
-            )
+                source="DynamoDB",
+                operation="persisting during creation",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         return portfolio_id
 
 
@@ -370,11 +585,25 @@ class ModelPortfolioRepository:
 
         Args:
             portfolio_id: Identifier of the portfolio.
-            positions: Updated positions to store as a new snapshot.
+            positions_request: Updated positions to store as a new snapshot.
             update_time: Optional update timestamp; defaults to now in UTC.
+            description: Optional updated free-text description.
 
         Returns:
-            True if the portfolio is updated, otherwise False.
+            bool: True if the portfolio is updated, otherwise False.
+
+        Raises:
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioLockedError: If the portfolio lock cannot be acquired,
+            is already held, or cannot be released.
+            ModelPortfolioTooManyRequestsError: If the portfolio was updated
+            less than one minute ago.
+            ModelPortfolioBadGatewayError: If Alpaca fails while fetching latest
+            prices or DynamoDB fails while persisting the update.
+            ModelPortfolioInternalServerError: If a latest price is missing for
+            a requested position symbol.
+            ModelPortfolioUnprocessableEntityError: If the stored portfolio
+            data cannot be parsed.
         """
         # Ensure portfolio does exist
         existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
@@ -391,11 +620,14 @@ class ModelPortfolioRepository:
             )
         except (ModelPortfolioUpdateLockInternalServerError, ModelPortfolioUpdateLockUnprocessableEntityError) as e:
             raise ModelPortfolioLockedError(
-                message=f"Failed to acquire update lock for model portfolio '{portfolio_id}': {e}."
+                portfolio_id=portfolio_id,
+                operation="acquire update lock",
+                cause=e,
             ) from e
         if not lock_acquired:
             raise ModelPortfolioLockedError(
-                message=f"Model portfolio '{portfolio_id}' is locked for update."
+                portfolio_id=portfolio_id,
+                operation="acquire update lock because portfolio is locked",
             )
 
         try:
@@ -407,7 +639,7 @@ class ModelPortfolioRepository:
             elapsed = (update_time - last_updated).total_seconds()
             if elapsed < 60:
                 raise ModelPortfolioTooManyRequestsError(
-                    message=f"Updates allowed once per minute. Retry after {int(60 - elapsed)} seconds."
+                    retry_after_seconds=int(60 - elapsed)
                 )
             
             # Get latest prices
@@ -416,8 +648,11 @@ class ModelPortfolioRepository:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
             except AlpacaBrokerClientError as e:
                 raise ModelPortfolioBadGatewayError(
-                    message=f"Upstream Alpaca client failed while fetching latest prices for model portfolio '{portfolio_id}' during update: {e}."
-                )
+                    source="Alpaca",
+                    operation="fetching latest prices during update",
+                    portfolio_id=portfolio_id,
+                    cause=e,
+                ) from e
             
             # Build model portfolio positions
             model_portfolio_positions: List[ModelPortfolioPosition] = []
@@ -484,8 +719,11 @@ class ModelPortfolioRepository:
                 self.dynamodb.put_item(item)
             except DynamoDBClientError as e:
                 raise ModelPortfolioBadGatewayError(
-                    message=f"Upstream DynamoDB client failed while persisting model portfolio '{portfolio_id}' during update: {e}."
-                )
+                    source="DynamoDB",
+                    operation="persisting during update",
+                    portfolio_id=portfolio_id,
+                    cause=e,
+                ) from e
             return True
         finally:
             # Release lock
@@ -493,19 +731,29 @@ class ModelPortfolioRepository:
                 self.model_portfolio_update_lock_repository.release_lock(portfolio_id=portfolio_id, owner_token=owner_token)
             except (ModelPortfolioUpdateLockInternalServerError, ModelPortfolioUpdateLockUnprocessableEntityError) as e:
                 raise ModelPortfolioLockedError(
-                    message=f"Failed to release update lock for model portfolio '{portfolio_id}': {e}."
+                    portfolio_id=portfolio_id,
+                    operation="release update lock",
+                    cause=e,
                 ) from e
 
 
     def get_model_portfolio(self, portfolio_id: str) -> Optional[ModelPortfolio]:
         """
-        Load a model portfolio by owner and portfolio identifiers.
+        Load a model portfolio by portfolio ID.
 
         Args:
             portfolio_id: Identifier of the portfolio.
 
         Returns:
-            The loaded model portfolio when found.
+            Optional[ModelPortfolio]: Loaded model portfolio.
+
+        Raises:
+            ModelPortfolioLockedError: If lock state cannot be checked.
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading the
+            portfolio.
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If stored position history
+            cannot be parsed.
         """
 
         # Wait for update (if applicable)
@@ -516,11 +764,14 @@ class ModelPortfolioRepository:
             item = self.dynamodb.get_item(key={"portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading model portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="loading",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         if not item:
             raise ModelPortfolioNotFoundError(
-                message=f"Model portfolio '{portfolio_id}' not found."
+                portfolio_id=portfolio_id
             )
 
         # Create model portfolio object
@@ -542,8 +793,10 @@ class ModelPortfolioRepository:
                 position_history.append(ModelPortfolioSnapshot(positions=positions, timestamp=timestamp))
         except Exception as e:
             raise ModelPortfolioUnprocessableEntityError(
-                message=f"Failed to parse stored position history for model portfolio '{portfolio_id}': {e}.",
-            )
+                operation="parse stored position history",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
 
         # Create model portfolio object
         model_portfolio = ModelPortfolio(
@@ -567,7 +820,12 @@ class ModelPortfolioRepository:
             portfolio_owner_cognito_user_id: Identifier of the portfolio owner.
 
         Returns:
-            A list of dictionaries containing portfolio identifiers and names.
+            List[Dict]: Portfolio metadata dictionaries containing portfolio_id,
+            portfolio_name, and description.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If DynamoDB fails while listing model
+            portfolios for the owner.
         """
 
         # Get model portfolios by user
@@ -579,8 +837,11 @@ class ModelPortfolioRepository:
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while listing model portfolios for owner '{portfolio_owner_cognito_user_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="listing model portfolios",
+                owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                cause=e,
+            ) from e
 
         # Ensure user has model portfolios
         if not items:
@@ -600,13 +861,21 @@ class ModelPortfolioRepository:
 
     def delete_model_portfolio(self, portfolio_id: str) -> bool:
         """
-        Delete a model portfolio by owner and portfolio identifiers.
+        Delete a model portfolio by portfolio ID.
 
         Args:
             portfolio_id: Identifier of the portfolio.
 
         Returns:
-            True if the portfolio is deleted, otherwise False.
+            bool: True if the portfolio is deleted, otherwise False.
+
+        Raises:
+            ModelPortfolioLockedError: If lock state cannot be checked.
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading or
+            deleting the portfolio.
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If stored portfolio data
+            cannot be parsed.
         """
         # Check if portfolio exists and belongs to user
         portfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
@@ -618,7 +887,9 @@ class ModelPortfolioRepository:
             self.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
-                message=f"Upstream DynamoDB client failed while deleting model portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="deleting",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         return True
-

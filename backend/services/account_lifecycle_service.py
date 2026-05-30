@@ -3,6 +3,11 @@
 # Python imports
 from __future__ import annotations
 from typing import Any, Dict
+from uuid import UUID
+
+# Alpaca imports
+from alpaca.broker.enums import BankAccountType, FeePaymentMethod, TransferDirection, TransferTiming
+from alpaca.broker.models import ACHRelationship, Transfer
 
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
@@ -81,12 +86,108 @@ class AccountLifecycleService:
 			"cognito_user_id": cognito_user_id,
 			"email_address": email_address
 		}
+
+	def create_ach_relationship(
+		self,
+		*,
+		alpaca_account_id: str,
+		account_owner_name: str,
+		bank_account_type: BankAccountType | str,
+		bank_account_number: str,
+		bank_routing_number: str,
+		nickname: str | None = None,
+		cognito_user_id: str | None = None,
+	) -> ACHRelationship | Dict[str, Any]:
+		"""
+		Create an ACH bank relationship for an Alpaca broker account.
+
+		Args:
+			alpaca_account_id: Alpaca broker account ID that owns the ACH
+				relationship.
+			account_owner_name: Legal name of the external bank account owner.
+			bank_account_type: External bank account type.
+			bank_account_number: External bank account number.
+			bank_routing_number: External bank routing number.
+			nickname: Optional nickname for the ACH relationship.
+			cognito_user_id: Optional Cognito user ID used for error context.
+
+		Returns:
+			ACHRelationship | Dict[str, Any]: Alpaca ACH relationship response.
+
+		Raises:
+			AccountLifecycleServiceError: If Alpaca fails to create the ACH
+			relationship.
+		"""
+		try:
+			return self.alpaca_broker_client.create_ach_relationship(
+				alpaca_account_id=alpaca_account_id,
+				account_owner_name=account_owner_name,
+				bank_account_type=bank_account_type,
+				bank_account_number=bank_account_number,
+				bank_routing_number=bank_routing_number,
+				nickname=nickname,
+				cognito_user_id=cognito_user_id,
+			)
+		except AlpacaBrokerClientError as err:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to create ACH relationship for Alpaca account '{alpaca_account_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_CREATE_ACH_RELATIONSHIP_FAILED",
+			) from err
+
+	def create_ach_transfer_request(
+		self,
+		*,
+		alpaca_account_id: str,
+		relationship_id: str | UUID,
+		amount: str | float,
+		direction: TransferDirection | str = TransferDirection.INCOMING,
+		timing: TransferTiming | str = TransferTiming.IMMEDIATE,
+		fee_payment_method: FeePaymentMethod | str | None = None,
+		cognito_user_id: str | None = None,
+	) -> Transfer | Dict[str, Any]:
+		"""
+		Create an ACH transfer request for an Alpaca broker account.
+
+		Args:
+			alpaca_account_id: Alpaca broker account ID that owns the transfer.
+			relationship_id: ACH relationship ID to use for the transfer.
+			amount: Transfer amount.
+			direction: Transfer direction.
+			timing: Transfer timing.
+			fee_payment_method: Optional fee payment method.
+			cognito_user_id: Optional Cognito user ID used for error context.
+
+		Returns:
+			Transfer | Dict[str, Any]: Alpaca ACH transfer response.
+
+		Raises:
+			AccountLifecycleServiceError: If Alpaca fails to create the ACH
+			transfer request.
+		"""
+		try:
+			return self.alpaca_broker_client.create_ach_transfer(
+				alpaca_account_id=alpaca_account_id,
+				relationship_id=relationship_id,
+				amount=amount,
+				direction=direction,
+				timing=timing,
+				fee_payment_method=fee_payment_method,
+				cognito_user_id=cognito_user_id,
+			)
+		except AlpacaBrokerClientError as err:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to create ACH transfer request for Alpaca account '{alpaca_account_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_CREATE_ACH_TRANSFER_REQUEST_FAILED",
+			) from err
 	
 	def get_baskt_account_by_email_address(self, email_address: str, active_only: bool = True) -> BasktAccount:
 		try:
 			user_account_dict = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
 			cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
-			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=user_account_dict["alpaca_account_id"])
+			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(
+				account_id=user_account_dict["alpaca_account_id"],
+				cognito_user_id=user_account_dict["cognito_user_id"],
+			)
 		except Exception as e:
 			raise AccountLifecycleServiceError(
 				message=f"Failed to get Baskt account for email address '{email_address}': {e}",
@@ -115,7 +216,10 @@ class AccountLifecycleService:
 		try:
 			user_account_dict = self.user_account_repository.get_user_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
 			cognito_role_dict = self.cognito_client.get_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
-			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(account_id=user_account_dict["alpaca_account_id"])
+			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(
+				account_id=user_account_dict["alpaca_account_id"],
+				cognito_user_id=user_account_dict["cognito_user_id"],
+			)
 		except Exception as e:
 			raise AccountLifecycleServiceError(
 				message=f"Failed to get Baskt account for cognito user id '{cognito_user_id}': {e}",
@@ -146,7 +250,10 @@ class AccountLifecycleService:
 		try:
 			user_account_dict = self.user_account_repository.get_user_account_by_email_address(email_address=email_address)
 			self.cognito_client.disable_cognito_user(cognito_user_id=user_account_dict["cognito_user_id"])
-			self.alpaca_broker_client.close_alpaca_account(account_id=user_account_dict["alpaca_account_id"])
+			self.alpaca_broker_client.close_alpaca_account(
+				account_id=user_account_dict["alpaca_account_id"],
+				cognito_user_id=user_account_dict["cognito_user_id"],
+			)
 			return True
 		except Exception:
 			raise AccountLifecycleServiceError(

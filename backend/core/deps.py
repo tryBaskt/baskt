@@ -13,7 +13,6 @@ from core.config import Settings, get_settings
 from core.security import CognitoTokenVerifier
 from clients.yfinance_client import YFinanceClient
 from services.backtest_service import BacktestService
-# from clients.alpaca_client import AlpacaClient
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.cognito_client import CognitoClient
@@ -113,11 +112,6 @@ def get_model_portfolio_update_lock_dynamodb_client() -> DynamoDBClient:
 def get_yfinance_client() -> YFinanceClient:
     return YFinanceClient()
 
-# @lru_cache
-# def get_alpaca_client() -> AlpacaClient:
-#     s = get_settings()
-#     return AlpacaClient(alpaca_api_key=s.alpaca_api_key,alpaca_api_secret=s.alpaca_api_secret)
-
 @lru_cache
 def get_alpaca_broker_client() -> AlpacaBrokerClient:
     s = get_settings()
@@ -165,10 +159,10 @@ def get_order_repository(
     return OrderRepository(alpaca_broker_client=alpaca_broker_client, dynamodb_client=order_dynamodb_client)
 
 def get_model_portfolio_follower_repository(
-    model_protfolio_follower_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_follower_dynamodb_client),
+    model_portfolio_follower_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_follower_dynamodb_client),
     alpaca_broker_client: DynamoDBClient = Depends(get_alpaca_broker_client)
 ) -> ModelPortfolioFollowerRepository:
-    return ModelPortfolioFollowerRepository(dynamodb_client=model_protfolio_follower_dynamodb_client, alpaca_broker_client=alpaca_broker_client)
+    return ModelPortfolioFollowerRepository(dynamodb_client=model_portfolio_follower_dynamodb_client, alpaca_broker_client=alpaca_broker_client)
 
 def get_user_trade_lock_repository(
     user_trade_lock_dynamodb_client: DynamoDBClient = Depends(get_user_trade_lock_dynamodb_client)
@@ -187,23 +181,6 @@ def get_user_account_repository(
 def get_backtest_service(yfinance_client: YFinanceClient = Depends(get_yfinance_client)) -> BacktestService:
     return BacktestService(yfinance_client=yfinance_client)
 
-def get_trade_execution_service(
-    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
-    order_repository: OrderRepository = Depends(get_order_repository),
-    model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
-    user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
-) -> TradeExecutionService:
-    return TradeExecutionService(
-        alpaca_broker_client=alpaca_broker_client,
-        model_portfolio_repository=model_portfolio_repository,
-        portfolio_allocation_repository=portfolio_allocation_repository,
-        order_repository=order_repository,
-        model_portfolio_follower_repository=model_portfolio_follower_repository,
-        user_trade_lock_repository=user_trade_lock_repository,
-    )
-
 def get_account_lifecycle_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     cognito_client: CognitoClient = Depends(get_cognito_client),
@@ -213,6 +190,25 @@ def get_account_lifecycle_service(
         alpaca_broker_client=alpaca_broker_client,
         cognito_client=cognito_client,
         user_account_repository=user_account_repository,
+    )
+
+def get_trade_execution_service(
+    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    order_repository: OrderRepository = Depends(get_order_repository),
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
+    user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
+    account_lifecycle_service: AccountLifecycleService = Depends(get_account_lifecycle_service)
+) -> TradeExecutionService:
+    return TradeExecutionService(
+        alpaca_broker_client=alpaca_broker_client,
+        model_portfolio_repository=model_portfolio_repository,
+        portfolio_allocation_repository=portfolio_allocation_repository,
+        order_repository=order_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        user_trade_lock_repository=user_trade_lock_repository,
+        account_lifecycle_service=account_lifecycle_service
     )
 
 

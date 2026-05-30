@@ -173,7 +173,7 @@ class TradeExecutionService:
             cognito_user_id: str, 
             alpaca_account_id: str,
             portfolio_owner_cognito_user_id: str
-        ):
+        ) -> Dict[str, List[Order] | str]:
         """
         Helper function to execute a list of delta positions (buy/sell orders).
         

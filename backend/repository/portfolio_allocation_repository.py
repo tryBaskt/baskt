@@ -9,19 +9,66 @@ from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 # Baskt imports
 from domain.portfolio_allocation import PortfolioAllocationPosition, PortfolioAllocationSnapshot, PortfolioAllocation
-# from clients.alpaca_client import AlpacaClient, AlpacaClientError
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
 
 
 class PortfolioAllocationInternalServerError(Exception):
-    def __init__(self, message: str):
+    def __init__(self, message: str, code: str = "PORTFOLIO_ALLOCATION_INTERNAL_SERVER_ERROR"):
+        """
+        Initialize a portfolio allocation repository exception.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable application error code identifying the failed operation.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(message)
-        self.code = "PORTFOLIO_ALLOCATION_INTERNAL_SERVER_ERROR"
+        self.code = code
 
 
 class PortfolioAllocationBadGatewayError(PortfolioAllocationInternalServerError):
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        source: str,
+        operation: str,
+        *,
+        cognito_user_id: str | None = None,
+        portfolio_id: str | None = None,
+        cause: Exception | None = None,
+    ):
+        """
+        Initialize an upstream dependency failure for allocation operations.
+
+        Args:
+            source: Upstream dependency that failed, such as "DynamoDB" or
+                "Alpaca".
+            operation: Description of the allocation operation that failed.
+            cognito_user_id: Optional Cognito user ID involved in the failure.
+            portfolio_id: Optional portfolio ID involved in the failure.
+            cause: Optional upstream exception that caused the failure.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        context = []
+        if cognito_user_id:
+            context.append(f"user '{cognito_user_id}'")
+        if portfolio_id:
+            context.append(f"portfolio '{portfolio_id}'")
+        message = f"Upstream {source} client failed while {operation}"
+        if context:
+            message = f"{message} for {', '.join(context)}"
+        if cause:
+            message = f"{message}: {cause}"
         super().__init__(
             message=message,
             code="PORTFOLIO_ALLOCATION_BAD_GATEWAY"
@@ -29,15 +76,69 @@ class PortfolioAllocationBadGatewayError(PortfolioAllocationInternalServerError)
 
 
 class PortfolioAllocationNotFoundError(PortfolioAllocationInternalServerError):
-    def __init__(self, message: str):
+    def __init__(self, cognito_user_id: str, portfolio_id: str):
+        """
+        Initialize a missing portfolio allocation exception.
+
+        Args:
+            cognito_user_id: Cognito user ID whose allocation was not found.
+            portfolio_id: Portfolio ID whose allocation was not found.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         super().__init__(
-            message=message,
+            message=f"Portfolio allocation not found for user '{cognito_user_id}' and portfolio '{portfolio_id}'.",
             code="PORTFOLIO_ALLOCATION_NOT_FOUND",
         )
 
 
 class PortfolioAllocationUnprocessableEntityError(PortfolioAllocationInternalServerError):
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        operation: str | None = None,
+        *,
+        field_name: str | None = None,
+        cognito_user_id: str | None = None,
+        portfolio_id: str | None = None,
+        symbol: str | None = None,
+        cause: Exception | None = None,
+    ):
+        """
+        Initialize an invalid allocation request or parse failure exception.
+
+        Args:
+            operation: Optional operation that failed to process valid data.
+            field_name: Optional required field name that was missing.
+            cognito_user_id: Optional Cognito user ID involved in the failure.
+            portfolio_id: Optional portfolio ID involved in the failure.
+            symbol: Optional symbol involved in the failure.
+            cause: Optional exception that caused the processing failure.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        if field_name:
+            message = f"{field_name} is required."
+        else:
+            message = f"Failed to {operation}"
+            context = []
+            if cognito_user_id:
+                context.append(f"user '{cognito_user_id}'")
+            if portfolio_id:
+                context.append(f"portfolio '{portfolio_id}'")
+            if symbol:
+                context.append(f"symbol '{symbol}'")
+            if context:
+                message = f"{message} for {', '.join(context)}"
+            if cause:
+                message = f"{message}: {cause}"
         super().__init__(
             message=message,
             code="PORTFOLIO_ALLOCATION_UNPROCESSABLE_ENTITY",
@@ -50,6 +151,19 @@ class PortfolioAllocationRepository:
             alpaca_broker_client: AlpacaBrokerClient,
             dynamodb_client: DynamoDBClient
     ):
+        """
+        Initialize portfolio allocation repository dependencies.
+
+        Args:
+            alpaca_broker_client: Alpaca broker client used for latest prices.
+            dynamodb_client: DynamoDB client wrapper for allocation persistence.
+
+        Returns:
+            None.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_table_client = dynamodb_client
 
@@ -61,7 +175,14 @@ class PortfolioAllocationRepository:
             portfolio_allocation_snapshot: Snapshot containing historical position state.
 
         Returns:
-            A mapping of symbol to its value.
+            List[Dict[str, float], float, Dict[str, float]]: Position values by
+            symbol, total allocation value, and latest quotes.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If Alpaca fails while fetching
+            latest prices.
+            PortfolioAllocationUnprocessableEntityError: If a latest price is
+            missing for a position symbol.
         """
 
         curr_positions = portfolio_allocation_snapshot.positions
@@ -70,15 +191,18 @@ class PortfolioAllocationRepository:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
         except AlpacaBrokerClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream Alpaca client failed while fetching latest prices for portfolio allocation: {e}."
-            )
+                source="Alpaca",
+                operation="fetching latest prices for portfolio allocation",
+                cause=e,
+            ) from e
 
         position_values: Dict[str, float] = {}
         for position in curr_positions:
             current_price = quotes.get(position.symbol)
             if current_price is None:
                 raise PortfolioAllocationUnprocessableEntityError(
-                    message=f"Missing latest price for symbol '{position.symbol}' while calculating allocation values."
+                    operation="calculate allocation values",
+                    symbol=position.symbol,
                 )
             filled_quantity = float(position.filled_quantity)
             entry_price = float(position.filled_avg_price)
@@ -98,7 +222,14 @@ class PortfolioAllocationRepository:
             portfolio_allocation_snapshot: Snapshot containing historical position state.
 
         Returns:
-            A mapping of symbol to normalized current portfolio weight.
+            List[Dict[str, float], float, Dict[str, float]]: Normalized current
+            weights by symbol, total allocation value, and latest quotes.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If Alpaca fails while fetching
+            latest prices.
+            PortfolioAllocationUnprocessableEntityError: If a latest price is
+            missing for a position symbol.
         """
 
         position_values, total_portfolio_allocation_value, quotes = self.calculate_positions_current_value(portfolio_allocation_snapshot=portfolio_allocation_snapshot)
@@ -124,8 +255,11 @@ class PortfolioAllocationRepository:
             portfolio_id: Portfolio identifier.
 
         Returns:
-            True if an allocation record exists, otherwise False.
+            bool: True if an allocation record exists, otherwise False.
 
+        Raises:
+            DynamoDBClientError: If DynamoDB fails while checking item
+            existence.
         """
 
         key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
@@ -140,7 +274,16 @@ class PortfolioAllocationRepository:
             portfolio_id: Portfolio identifier.
 
         Returns:
-            A list of allocation snapshots in stored order.
+            List[PortfolioAllocationSnapshot]: Allocation snapshots in stored
+            order.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
+            allocation history.
+            PortfolioAllocationNotFoundError: If the allocation record does not
+            exist.
+            PortfolioAllocationUnprocessableEntityError: If stored allocation
+            history cannot be parsed.
         """
         try:
             # Only fetch portfolio_allocation_history to reduce bandwidth
@@ -150,12 +293,17 @@ class PortfolioAllocationRepository:
             )
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading allocation history for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="loading allocation history",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         
         if not item:
             raise PortfolioAllocationNotFoundError(
-                message=f"Portfolio allocation not found for user '{cognito_user_id}' and portfolio '{portfolio_id}'."
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
             )
         
         if "portfolio_allocation_history" not in item: return []
@@ -186,8 +334,11 @@ class PortfolioAllocationRepository:
                 ))
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(
-                message=f"Failed to parse allocation history for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
-            )
+                operation="parse allocation history",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
         
         return result
 
@@ -201,18 +352,27 @@ class PortfolioAllocationRepository:
             n: Number of trailing snapshots to return.
 
         Returns:
-            A list containing the most recent n snapshots.
+            List[PortfolioAllocationSnapshot]: Most recent n allocation
+            snapshots.
+
+        Raises:
+            PortfolioAllocationUnprocessableEntityError: If n is out of range
+            or stored allocation history cannot be parsed.
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
+            allocation history.
+            PortfolioAllocationNotFoundError: If the allocation record does not
+            exist.
         """
         
         if n <= 0:
             raise PortfolioAllocationUnprocessableEntityError(
-                message=f"n argument '{n}' must be greater than 0."
+                operation=f"validate n argument '{n}' greater than 0"
             )
         
         portfolio_allocation_history = self.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         if n > len(portfolio_allocation_history):
             raise PortfolioAllocationUnprocessableEntityError(
-                message=f"n argument '{n}' must be less than or equal to the number of snapshots '{len(portfolio_allocation_history)}'."
+                operation=f"validate n argument '{n}' less than or equal to the number of snapshots '{len(portfolio_allocation_history)}'"
             )
         last_n_snapshots = portfolio_allocation_history[-n:]
 
@@ -227,15 +387,24 @@ class PortfolioAllocationRepository:
             portfolio_id: Portfolio identifier.
 
         Returns:
-            The portfolio allocation object if found, otherwise None.
+            PortfolioAllocation: Portfolio allocation object if found,
+            otherwise None.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
+            the allocation.
         """
 
         try:
             item = self.portfolio_allocation_table_client.get_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while loading portfolio allocation for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="loading portfolio allocation",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
 
         if not item:
             return None
@@ -270,6 +439,10 @@ class PortfolioAllocationRepository:
 
         Returns:
             None.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while
+            persisting the allocation.
         """
 
         item = {
@@ -298,13 +471,35 @@ class PortfolioAllocationRepository:
             self.portfolio_allocation_table_client.put_item(item=item)
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while persisting portfolio allocation for user '{portfolio_allocation.cognito_user_id}' and portfolio '{portfolio_allocation.portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="persisting portfolio allocation",
+                cognito_user_id=portfolio_allocation.cognito_user_id,
+                portfolio_id=portfolio_allocation.portfolio_id,
+                cause=e,
+            ) from e
 
-    def delete_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str):
+    def delete_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str) -> None:
+        """
+        Delete a portfolio allocation record.
+
+        Args:
+            cognito_user_id: Cognito user ID that owns the allocation.
+            portfolio_id: Portfolio ID whose allocation should be deleted.
+
+        Returns:
+            None.
+
+        Raises:
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while deleting
+            the allocation.
+        """
         try:
             self.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
-                message=f"Upstream DynamoDB client failed while deleting portfolio allocation for user '{cognito_user_id}' and portfolio '{portfolio_id}': {e}."
-            )
+                source="DynamoDB",
+                operation="deleting portfolio allocation",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
