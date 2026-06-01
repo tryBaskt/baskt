@@ -117,7 +117,8 @@ def get_alpaca_broker_client() -> AlpacaBrokerClient:
     s = get_settings()
     return AlpacaBrokerClient(
         alpaca_broker_api_key=s.alpaca_broker_api_key,
-        alpaca_broker_api_secret=s.alpaca_broker_api_secret
+        alpaca_broker_api_secret=s.alpaca_broker_api_secret,
+        alpaca_env=s.alpaca_env
     )
 
 @lru_cache
@@ -138,12 +139,24 @@ def get_model_portfolio_update_lock_repository(
 ) -> ModelPortfolioUpdateLockRepository:
     return ModelPortfolioUpdateLockRepository(dynamodb_client = model_portfolio_update_lock_dynamodb_client)
 
+def get_model_portfolio_follower_repository(
+    model_portfolio_follower_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_follower_dynamodb_client),
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client)
+) -> ModelPortfolioFollowerRepository:
+    return ModelPortfolioFollowerRepository(dynamodb_client=model_portfolio_follower_dynamodb_client, alpaca_broker_client=alpaca_broker_client)
+
 def get_model_portfolio_repository(
     dynamodb: DynamoDBClient = Depends(get_model_portfolio_dynamodb_client),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository = Depends(get_model_portfolio_update_lock_repository)
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository = Depends(get_model_portfolio_update_lock_repository),
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
 ) -> ModelPortfolioRepository:
-    return ModelPortfolioRepository(dynamodb_client=dynamodb, alpaca_broker_client=alpaca_broker_client, model_portfolio_update_lock_repository=model_portfolio_update_lock_repository)
+    return ModelPortfolioRepository(
+        dynamodb_client=dynamodb,
+        alpaca_broker_client=alpaca_broker_client,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+    )
 
 def get_portfolio_allocation_repository(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
@@ -157,12 +170,6 @@ def get_order_repository(
     order_dynamodb_client: DynamoDBClient = Depends(get_order_dynamodb_client),
 ) -> OrderRepository:
     return OrderRepository(alpaca_broker_client=alpaca_broker_client, dynamodb_client=order_dynamodb_client)
-
-def get_model_portfolio_follower_repository(
-    model_portfolio_follower_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_follower_dynamodb_client),
-    alpaca_broker_client: DynamoDBClient = Depends(get_alpaca_broker_client)
-) -> ModelPortfolioFollowerRepository:
-    return ModelPortfolioFollowerRepository(dynamodb_client=model_portfolio_follower_dynamodb_client, alpaca_broker_client=alpaca_broker_client)
 
 def get_user_trade_lock_repository(
     user_trade_lock_dynamodb_client: DynamoDBClient = Depends(get_user_trade_lock_dynamodb_client)

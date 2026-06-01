@@ -13,13 +13,13 @@ from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from alpaca.trading.models import Order
-from services.account_lifecycle_service import AccountLifecycleService
+from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceError
 import uuid
 from math import floor, ceil
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from domain.baskt import BasktAccount
 MARGIN = 0.0007
-EPS = 1e-7
+EPS = 1e-6
 LOCK_LEASE_SECONDS = 30
 
 class TradeExecutionService:
@@ -194,7 +194,7 @@ class TradeExecutionService:
             List[Order]: List of Alpaca Order objects that were executed
         """
         # Get all user's positions 
-        baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id)
+        baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
         sorted_delta_positions = self._sort_delta_positions(delta_positions=delta_positions, baskt_positions_dict = baskt_positions_dict) # curr_all_positions_dict=curr_all_positions_dict)
         # Execute the delta positions
@@ -235,10 +235,7 @@ class TradeExecutionService:
             transaction_id=transaction_id, 
             orders = order_results
         )
-        return {
-            "orders": order_results,
-            "transaction_id": transaction_id
-        }
+        return order_results
 
 
     def execute_withdraw_all_from_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, cognito_user_id: str, is_test: bool = False) -> List[Order]:
@@ -575,14 +572,17 @@ class TradeExecutionService:
             try:
                 follower_baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=follower_cognito_user_id)
                 follower_alpaca_account_id = follower_baskt_account.alpaca_account_id
+                print(follower_cognito_user_id, follower_alpaca_account_id)
                 all_update_orders[follower_cognito_user_id] = self._execute_update_in_portfolio_helper(portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, cognito_user_id=follower_cognito_user_id, follower_alpaca_account_id=follower_alpaca_account_id, is_test=is_test)
             except Exception as e:
+                print(e)
                 continue
 
+        print(f"all_update_orders: ", all_update_orders)
         return all_update_orders
 
     
-    def execute_deposit_to_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, deposit_amount: float, cognito_user_id: str, is_test: bool = False) -> List[Order] | None:
+    def execute_deposit_to_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, deposit_amount: float, cognito_user_id: str, is_test: bool = False) -> List[Order]:
         """
         Deposit a specified dollar amount into a user's portfolio allocation.
         
@@ -669,6 +669,7 @@ class TradeExecutionService:
             self.model_portfolio_follower_repository.put_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id)
 
             return orders
+        
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
 
@@ -771,7 +772,7 @@ class TradeExecutionService:
         if len(unfilled_orders) == 0: return 0
         newly_filled_orders: List[Order] = []
         for unfilled_order in unfilled_orders:
-            order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=unfilled_order["order_id"])
+            order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=unfilled_order["order_id"], cognito_user_id=cognito_user_id)
             if str(order.status.name) != "FILLED": continue
             newly_filled_orders.append(order)
 

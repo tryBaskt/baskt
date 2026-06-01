@@ -274,31 +274,3 @@ class UserTradeLockRepository:
 				cause=e,
 			) from e
 		
-	def delete_lock(self, cognito_user_id: str) -> bool:
-		"""
-		Delete a lock record by cognito_user_id without ownership checks.
-
-		Args:
-			cognito_user_id: Cognito user ID whose lock should be deleted.
-
-		Returns:
-			bool: True if delete call succeeds.
-
-		Raises:
-			UserTradeLockUnprocessableEntityError: If cognito_user_id is missing.
-			UserTradeLockBadGatewayError: If DynamoDB fails while deleting the
-			lock.
-		"""
-		if not cognito_user_id:
-			raise UserTradeLockUnprocessableEntityError(field_name="cognito_user_id")
-
-		try:
-			self.lock_table_client.delete_item(key={"cognito_user_id": str(cognito_user_id)})
-			return True
-		except ClientError as e:
-			raise UserTradeLockBadGatewayError(
-				operation="deleting lock",
-				cognito_user_id=cognito_user_id,
-				cause=e,
-			) from e
-

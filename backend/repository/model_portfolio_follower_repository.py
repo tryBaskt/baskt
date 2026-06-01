@@ -323,4 +323,3 @@ class ModelPortfolioFollowerRepository:
                 portfolio_id=portfolio_id,
                 cause=e,
             ) from e
-    

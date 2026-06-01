@@ -80,7 +80,7 @@ export default function BasktPage({ selectedBaskt, onBack }) {
 			setErrorMessage("");
 
 			try {
-				const response = await fetch(`${API_BASE_URL}/portfolios/${selectedBaskt.portfolioId}`, {
+				const response = await fetch(`${API_BASE_URL}/model-portfolios/${selectedBaskt.portfolioId}`, {
 					method: "GET",
 					headers: {
 						...(token ? { Authorization: `Bearer ${token}` } : {}),

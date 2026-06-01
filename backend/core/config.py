@@ -22,11 +22,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        protected_namespaces=("settings_",),
     )
 
     # ---------- App ----------
     app_name: str = "portfolio-backend"
     env: str = Field(default="dev", description="dev|test|stage|prod")
+    alpaca_env: str = Field(default="sandbox", description="sandbox|live")
 
     # Read as a string to avoid JSON parsing edge-cases for list fields in env vars.
     # Accepts:
@@ -89,8 +91,10 @@ class Settings(BaseSettings):
     prod_alpaca_api_secret: Optional[str] = Field(default=None, alias="PROD_ALPACA_API_SECRET")
 
     # ----------- Alpaca Broker -------------
-    dev_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="DEV_ALPACA_BROKER_API_KEY")
-    dev_alpaca_broker_api_secret: Optional[str] = Field(default=None, alias="DEV_ALPACA_BROKER_API_SECRET")
+    sandbox_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="SANDBOX_ALPACA_BROKER_API_KEY")
+    sandbox_alpaca_broker_api_secret: Optional[str] = Field(default=None, alias="SANDBOX_ALPACA_BROKER_API_SECRET")
+    live_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="LIVE_ALPACA_BROKER_API_KEY")
+    live_alpaca_broker_api_secret: Optional[str] = Field(default=None, alias="LIVE_ALPACA_BROKER_API_SECRET")
 
     # # ---------- Orders-DB RDS -----------
     # orders_db_write_host: str = Field(alias="ORDERS_DB_WRITE_HOST")
@@ -114,6 +118,14 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return ",".join(str(x) for x in v)
         return str(v)
+
+    @field_validator("alpaca_env", mode="before")
+    @classmethod
+    def _validate_alpaca_env(cls, v: Any) -> str:
+        alpaca_env = str(v or "sandbox").strip().lower()
+        if alpaca_env not in {"sandbox", "live"}:
+            raise ValueError("ALPACA_ENV must be either 'sandbox' or 'live'")
+        return alpaca_env
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -204,29 +216,33 @@ class Settings(BaseSettings):
     @property
     def alpaca_broker_api_key(self) -> str:
         """
-        Returns the Alpaca Broker API key for the current environment.
-        Looks up the key for the current environment (e.g., DEV_ALPACA_BROKER_API_KEY when env=dev).
+        Returns the Alpaca Broker API key for ALPACA_ENV.
+
+        Looks up SANDBOX_ALPACA_BROKER_API_KEY when alpaca_env=sandbox and
+        LIVE_ALPACA_BROKER_API_KEY when alpaca_env=live.
         """
-        env_specific_key = getattr(self, f"{self.env.lower()}_alpaca_broker_api_key", None)
+        env_specific_key = getattr(self, f"{self.alpaca_env.lower()}_alpaca_broker_api_key", None)
         if env_specific_key:
             return env_specific_key
         raise ValueError(
-            f"Alpaca Broker API key not configured for environment '{self.env}'. "
-            f"Set {self.env.upper()}_ALPACA_BROKER_API_KEY in your .env file"
+            f"Alpaca Broker API key not configured for ALPACA_ENV='{self.alpaca_env}'. "
+            f"Set {self.alpaca_env.upper()}_ALPACA_BROKER_API_KEY in your .env file"
         )
 
     @property
     def alpaca_broker_api_secret(self) -> str:
         """
-        Returns the Alpaca Broker API secret for the current environment.
-        Looks up the secret for the current environment (e.g., DEV_ALPACA_BROKER_API_SECRET when env=dev).
+        Returns the Alpaca Broker API secret for ALPACA_ENV.
+
+        Looks up SANDBOX_ALPACA_BROKER_API_SECRET when alpaca_env=sandbox and
+        LIVE_ALPACA_BROKER_API_SECRET when alpaca_env=live.
         """
-        env_specific_secret = getattr(self, f"{self.env.lower()}_alpaca_broker_api_secret", None)
+        env_specific_secret = getattr(self, f"{self.alpaca_env.lower()}_alpaca_broker_api_secret", None)
         if env_specific_secret:
             return env_specific_secret
         raise ValueError(
-            f"Alpaca Broker API secret not configured for environment '{self.env}'. "
-            f"Set {self.env.upper()}_ALPACA_BROKER_API_SECRET in your .env file"
+            f"Alpaca Broker API secret not configured for ALPACA_ENV='{self.alpaca_env}'. "
+            f"Set {self.alpaca_env.upper()}_ALPACA_BROKER_API_SECRET in your .env file"
         )
     
     @property

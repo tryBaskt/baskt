@@ -187,31 +187,26 @@ class UserAccountRepository:
             raise UserAccountInternalServerError(field_name="cognito_user_id")
 
         try:
-            items = self.client.query(
-                key_condition=Key("cognito_user_id").eq(cognito_user_id),
-                IndexName="cognito_user_id_index",
-                Limit=1,
-            )
+            item = self.client.get_item(key={"cognito_user_id": cognito_user_id})
 
-            if (items is None) or ("cognito_user_id" not in items[0]):
-                raise UserAcountNotFoundError(identifier=cognito_user_id, identifier_type="cognito_user_id")
-            if len(items) > 1:
-                raise UserAccountInternalServerError(
-                    operation="querying user account",
+            if item is None or "cognito_user_id" not in item:
+                raise UserAcountNotFoundError(
                     identifier=cognito_user_id,
                     identifier_type="cognito_user_id",
                 )
-            return items[0]
+            return item
+        except UserAcountNotFoundError:
+            raise
         except DynamoDBClientError as e:
             raise UserAccountBadGatewayError(
-                operation="querying user account",
+                operation="getting user account",
                 identifier=cognito_user_id,
                 identifier_type="cognito_user_id",
                 cause=e,
             ) from e
         except Exception as e:
             raise UserAccountInternalServerError(
-                message=f"Unexpected error querying user account by cognito_user_id '{cognito_user_id}': {e}."
+                message=f"Unexpected error getting user account by cognito_user_id '{cognito_user_id}': {e}."
             ) from e
         
     def get_user_account_by_email_address(self, email_address: str) -> Dict[str, str]:
@@ -249,6 +244,8 @@ class UserAccountRepository:
                     identifier_type="email_address",
                 )
             return items[0]
+        except UserAcountNotFoundError:
+            raise
         except DynamoDBClientError as e:
             raise UserAccountBadGatewayError(
                 operation="querying user account",

@@ -35,7 +35,7 @@ export default function MyBasktsPage({ onOpenBaskt }) {
 			setErrorMessage("");
 
 			try {
-				const response = await fetch(`${API_BASE_URL}/portfolios`, {
+				const response = await fetch(`${API_BASE_URL}/model-portfolios`, {
 					method: "GET",
 					headers: {
 						...(token ? { Authorization: `Bearer ${token}` } : {}),

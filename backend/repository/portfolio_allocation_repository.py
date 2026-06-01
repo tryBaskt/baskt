@@ -477,29 +477,3 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_allocation.portfolio_id,
                 cause=e,
             ) from e
-
-    def delete_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str) -> None:
-        """
-        Delete a portfolio allocation record.
-
-        Args:
-            cognito_user_id: Cognito user ID that owns the allocation.
-            portfolio_id: Portfolio ID whose allocation should be deleted.
-
-        Returns:
-            None.
-
-        Raises:
-            PortfolioAllocationBadGatewayError: If DynamoDB fails while deleting
-            the allocation.
-        """
-        try:
-            self.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
-        except DynamoDBClientError as e:
-            raise PortfolioAllocationBadGatewayError(
-                source="DynamoDB",
-                operation="deleting portfolio allocation",
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
-                cause=e,
-            ) from e

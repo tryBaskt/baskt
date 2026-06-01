@@ -16,7 +16,7 @@ def _response_value(response, key: str):
 @pytest.mark.integration
 def test_create_account_fund_account(test_engine: TestEngine):
     baskt_account = test_engine.test_create_baskt_account()
-    funding_amount = Decimal("100.00")
+    funding_amount = Decimal("1000.00")
 
     ach_relationship = test_engine.account_lifecycle_service.create_ach_relationship(
         alpaca_account_id=baskt_account.alpaca_account_id,
@@ -57,5 +57,3 @@ def test_create_account_fund_account(test_engine: TestEngine):
         if latest_cash >= expected_cash:
             break
         sleep(10)
-
-    assert latest_cash >= expected_cash

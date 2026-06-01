@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import get_settings
 from routes.backtest_route import router as backtest_router
-from routes.alpaca_route import router as alpaca_router
+from backend.routes.alpaca_broker_route import router as alpaca_router
 from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
 

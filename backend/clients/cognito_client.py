@@ -169,7 +169,7 @@ class CognitoClient:
             password: Optional password used when creating a dev Cognito user.
 
         Returns:
-            str: Cognito username, currently the user's email address.
+            str: Cognito user ID/sub.
 
         Raises:
             CognitoClientError: If required account data is missing, the
@@ -224,7 +224,14 @@ class CognitoClient:
                     Username=email_address,
                 )
 
-                return email_address
+                cognito_user = self.get_cognito_user(cognito_user_id=email_address)
+                cognito_user_id = cognito_user.get("attributes", {}).get("sub")
+                if not cognito_user_id:
+                    raise CognitoClientError(
+                        message=f"Cognito user '{email_address}' was created but no sub attribute was returned.",
+                        code="COGNITO_CREATE_USER_SUB_MISSING",
+                    )
+                return cognito_user_id
             except ClientError as err:
                 if err.response.get("Error", {}).get("Code") == "UsernameExistsException":
                     raise CognitoClientUserAlreadyExists(

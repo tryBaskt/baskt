@@ -8,12 +8,11 @@ from uuid import UUID
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
 from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest
-from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod
-from alpaca.broker.models import Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer
+from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType
+from alpaca.broker.models import Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer, TradeAccount
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.models import Asset
-from alpaca.trading.models import Order
+from alpaca.trading.models import Asset, Order, AccountConfiguration
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
@@ -51,6 +50,7 @@ class AlpacaBrokerClient:
         *,
         alpaca_broker_api_key: str,
         alpaca_broker_api_secret: str,
+        alpaca_env: str
     ) -> None:
         """
         Initialize trading and market-data clients for Alpaca.
@@ -67,8 +67,17 @@ class AlpacaBrokerClient:
             StockHistoricalDataClient constructors if the clients cannot be
             initialized.
         """
-        self.client = BrokerClient(api_key=alpaca_broker_api_key, secret_key=alpaca_broker_api_secret)
-        self.data_client = StockHistoricalDataClient(api_key=alpaca_broker_api_key, secret_key=alpaca_broker_api_secret, sandbox = True)
+        is_sandbox = alpaca_env.lower() == "sandbox"
+        self.client = BrokerClient(
+            api_key=alpaca_broker_api_key,
+            secret_key=alpaca_broker_api_secret,
+            sandbox=is_sandbox,
+        )
+        self.data_client = StockHistoricalDataClient(
+            api_key=alpaca_broker_api_key,
+            secret_key=alpaca_broker_api_secret,
+            sandbox=is_sandbox,
+        )
 
     def get_tradeable_fractionable_US_assets(self) -> List[Asset]:
         """
@@ -201,7 +210,7 @@ class AlpacaBrokerClient:
             )
             alpaca_account = self.client.create_account(request)
             alpaca_account_id = str(getattr(alpaca_account, "id", None))
-            alpaca_account_number = str(getattr(alpaca_account, "number", None))
+            alpaca_account_number = str(getattr(alpaca_account, "account_number", None))
 
             if not (alpaca_account_id and alpaca_account_id):
                 raise AlpacaBrokerClientError(
@@ -266,6 +275,20 @@ class AlpacaBrokerClient:
             raise AlpacaBrokerClientError(
                 message=f"Failed to close alpaca account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CLOSE_ALPACA_ACCOUNT_FAILED"
+            )
+        
+    def get_alpaca_trade_account_by_id(self, account_id: str, cognito_user_id: str) -> TradeAccount:
+        """
+        Get the trade broker account
+        """
+
+        try:
+            trade_account = self.client.get_trade_account_by_id(account_id=account_id)
+            return trade_account
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get alpaca trade account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_GET_TRADE_ACCOUNT_FAILED"
             )
 
     def create_ach_relationship(
@@ -433,6 +456,32 @@ class AlpacaBrokerClient:
             raise AlpacaBrokerClientError(
                 message=f"Failed to close Alpaca position '{symbol}' for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
                 code="ALPACA_BROKER_EXECUTE_CLOSE_POSITION_FAILED",
+            )
+        
+
+    def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id) -> Order:
+        """
+        Submit an order request to close all open positions for a broker account.
+
+        Args:
+            alpaca_account_id: Alpaca broker account ID that owns the position.
+            cognito_user_id: Cognito user ID used for error context.
+
+        Returns:
+            Order: Alpaca order response for the close-position request.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the close-position
+            request, the position does not exist or is inaccessible, the
+            network request fails, or any unexpected error occurs.
+        """
+
+        try:
+            return self.client.close_all_positions_for_account(account_id=alpaca_account_id)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to close all open positions for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
+                code="ALPACA_BROKER_EXECUTE_CLOSE_ALL_POSITION_FAILED",
             )
 
 
@@ -632,8 +681,8 @@ class AlpacaBrokerClient:
         return {
             position.symbol: BasktPosition(
                 symbol=position.symbol, 
-                filled_avg_price=position.avg_entry_price, 
-                filled_quantity=position.qty,
+                filled_avg_price=float(position.avg_entry_price), 
+                filled_quantity=float(position.qty),
                 direction=1 if position.side.name == "LONG" else -1
             )
             for position in positions

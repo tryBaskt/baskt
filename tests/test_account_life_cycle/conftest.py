@@ -51,7 +51,7 @@ def cognito_client() -> CognitoClient:
 ########################################
 @pytest.fixture(scope="session")
 def model_portfolio_follower_repository() -> ModelPortfolioFollowerRepository:
-    model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_dynamodb_client()
+    model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_follower_dynamodb_client()
     alpaca_broker_client = app_deps.get_alpaca_broker_client()
     return app_deps.get_model_portfolio_follower_repository(
         model_portfolio_follower_dynamodb_client=model_portfolio_follower_dynamodb_client,
@@ -162,6 +162,10 @@ def trade_execution_service() -> TradeExecutionService:
     model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_follower_dynamodb_client()
     app_deps.get_user_trade_lock_dynamodb_client.cache_clear()
     user_trade_lock_dynamodb_client = app_deps.get_user_trade_lock_dynamodb_client()
+    app_deps.get_user_account_dynamodb_client.cache_clear()
+    user_account_dynamodb_client = app_deps.get_user_account_dynamodb_client()
+    app_deps.get_cognito_client.cache_clear()
+    cognito_client = app_deps.get_cognito_client()
 
     model_portfolio_update_lock_repository = app_deps.get_model_portfolio_update_lock_repository(
         model_portfolio_update_lock_dynamodb_client=app_deps.get_model_portfolio_update_lock_dynamodb_client()
@@ -185,6 +189,9 @@ def trade_execution_service() -> TradeExecutionService:
     )
     user_trade_lock_repository = app_deps.get_user_trade_lock_repository(
         user_trade_lock_dynamodb_client=user_trade_lock_dynamodb_client
+    )
+    user_account_repository = app_deps.get_user_account_repository(
+        user_account_dynamodb_client=user_account_dynamodb_client
     )
     account_lifecycle_service = app_deps.get_account_lifecycle_service(
         alpaca_broker_client=alpaca_broker_client,
@@ -399,7 +406,7 @@ class TestEngine:
 
 
         # match portfolio_allocation to alpaca
-        baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id)
+        baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
         baskt_symbols_sorted = sorted([symbol for symbol in baskt_positions_dict])
         assert symbols_snapshot_sorted == baskt_symbols_sorted
         alpaca_filled_amount = 0.0
@@ -453,4 +460,3 @@ def test_engine(
         portfolio_allocation_repository=portfolio_allocation_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository
     )
-

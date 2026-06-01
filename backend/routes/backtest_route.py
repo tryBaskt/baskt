@@ -4,7 +4,7 @@
 from __future__ import annotations
 from datetime import date
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,10 +19,34 @@ from services.backtest_service import (BacktestService,
                                         
 
 
-router = APIRouter(tags=["backtest"])
+router = APIRouter(prefix="/backtests", tags=["backtests"])
 
 
-@router.get("/backtest")
+BACKTEST_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
+    (ValueError, status.HTTP_400_BAD_REQUEST),
+    (json.JSONDecodeError, status.HTTP_400_BAD_REQUEST),
+    (BacktestServiceValidationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    (BacktestServiceDataError, status.HTTP_502_BAD_GATEWAY),
+    (BacktestServiceCalculationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    (BacktestServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+)
+
+
+def _raise_backtest_http_exception(err: Exception) -> None:
+    if isinstance(err, HTTPException):
+        raise err
+
+    for exception_type, status_code in BACKTEST_ERROR_STATUS_MAP:
+        if isinstance(err, exception_type):
+            raise HTTPException(status_code=status_code, detail=str(err)) from err
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Unexpected backtest error: {err}",
+    ) from err
+
+
+@router.get("/model-portfolio-performance")
 def backtest(
     start_date: date,
     end_date: date,
@@ -62,18 +86,8 @@ def backtest(
             end_date=end_date.isoformat(),
             positions_conf=positions_conf
         )
-    except (ValueError, json.JSONDecodeError) as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=str(e))
-    except BacktestServiceValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,detail=str(e))
-    except BacktestServiceDataError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,detail=str(e))
-    except BacktestServiceCalculationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,detail=str(e))
-    except BacktestServiceError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail=f"Unexpected backtest error: {e}")
+        _raise_backtest_http_exception(e)
 
     return {
         "dates": result["dates"],

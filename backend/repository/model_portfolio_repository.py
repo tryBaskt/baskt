@@ -14,9 +14,16 @@ from boto3.dynamodb.conditions import Key
 # Baskt imports 
 from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot, ModelPortfolioPosition
 from repository.model_portfolio_update_lock_repository import (
+    ModelPortfolioUpdateLockBadGatewayError,
     ModelPortfolioUpdateLockRepository,
     ModelPortfolioUpdateLockInternalServerError,
     ModelPortfolioUpdateLockUnprocessableEntityError,
+)
+from repository.model_portfolio_follower_repository import (
+    ModelPortfolioFollowerBadGatewayError,
+    ModelPortfolioFollowerInternalServerError,
+    ModelPortfolioFollowerRepository,
+    ModelPortfolioFollowerUnprocessableEntityError,
 )
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
@@ -220,7 +227,13 @@ class ModelPortfolioRepository:
     Service for managing model portfolios in DynamoDB.
     """
 
-    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient, model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository):
+    def __init__(
+        self,
+        dynamodb_client: DynamoDBClient,
+        alpaca_broker_client: AlpacaBrokerClient,
+        model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+        model_portfolio_follower_repository: ModelPortfolioFollowerRepository | None = None,
+    ):
         """
         Initialize model portfolio repository dependencies.
 
@@ -231,6 +244,8 @@ class ModelPortfolioRepository:
                 prices.
             model_portfolio_update_lock_repository: Repository used to
                 coordinate model portfolio update locks.
+            model_portfolio_follower_repository: Optional repository used to
+                clean up follower records when deleting model portfolios.
 
         Returns:
             None.
@@ -241,6 +256,7 @@ class ModelPortfolioRepository:
         self.dynamodb = dynamodb_client
         self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
+        self.model_portfolio_follower_repository = model_portfolio_follower_repository
 
     def _wait_until_portfolio_update_lock_is_released(self, portfolio_id: str) -> None:
         """
@@ -857,39 +873,3 @@ class ModelPortfolioRepository:
             for item in items
         ]
         return portfolio_ids_names
-
-
-    def delete_model_portfolio(self, portfolio_id: str) -> bool:
-        """
-        Delete a model portfolio by portfolio ID.
-
-        Args:
-            portfolio_id: Identifier of the portfolio.
-
-        Returns:
-            bool: True if the portfolio is deleted, otherwise False.
-
-        Raises:
-            ModelPortfolioLockedError: If lock state cannot be checked.
-            ModelPortfolioBadGatewayError: If DynamoDB fails while loading or
-            deleting the portfolio.
-            ModelPortfolioNotFoundError: If the model portfolio does not exist.
-            ModelPortfolioUnprocessableEntityError: If stored portfolio data
-            cannot be parsed.
-        """
-        # Check if portfolio exists and belongs to user
-        portfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
-        if not portfolio:
-            return False
-        
-        # Delete the item
-        try:
-            self.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
-        except DynamoDBClientError as e:
-            raise ModelPortfolioBadGatewayError(
-                source="DynamoDB",
-                operation="deleting",
-                portfolio_id=portfolio_id,
-                cause=e,
-            ) from e
-        return True

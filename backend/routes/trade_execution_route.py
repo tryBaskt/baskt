@@ -13,30 +13,45 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.deps import get_current_user, get_trade_execution_service
 from services.trade_execution_service import TradeExecutionService
 
-router = APIRouter()
+router = APIRouter(prefix="/trade-execution", tags=["trade-execution"])
 logger = logging.getLogger("uvicorn.error")
 
 
-@router.post("/deposit-portfolio/{portfolio_id}")
+def _raise_trade_execution_http_exception(err: Exception) -> None:
+    if isinstance(err, HTTPException):
+        raise err
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Unexpected trade execution error: {err}",
+    ) from err
+
+
+def _get_positive_amount(request: Dict[str, Any]) -> float:
+    amount_raw = request.get("amount")
+    if amount_raw is None:
+        raise HTTPException(status_code=400, detail="Missing 'amount' in request body")
+
+    try:
+        amount = float(amount_raw)
+    except Exception as err:
+        raise HTTPException(status_code=400, detail="'amount' must be a number") from err
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="'amount' must be > 0")
+
+    return amount
+
+
+@router.post("/portfolios/{portfolio_id}/deposits")
 def deposit_into_portfolio(
     portfolio_id: str,
     request: Dict[str, Any],
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    
-
     try:
-        amount_raw = request.get("amount")
-        if amount_raw is None:
-            raise HTTPException(status_code=400, detail="Missing 'amount' in request body")
-        try:
-            amount = float(amount_raw)
-        except Exception:
-            raise HTTPException(status_code=400, detail="'amount' must be a number")
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="'amount' must be > 0")
-
+        amount = _get_positive_amount(request)
         cognito_user_id = user["sub"]
         portfolio_owner_cognito_user_id = request.get("portfolio_owner_cognito_user_id")
 
@@ -50,11 +65,11 @@ def deposit_into_portfolio(
         logger.info(f"Deposit created orders: {order_ids}")
         return {"success": True, "order_ids": order_ids}
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Unexpected trade execution error: {str(e)}")
+        _raise_trade_execution_http_exception(e)
 
 
 
-@router.post("/withdraw-portfolio/{portfolio_id}")
+@router.post("/portfolios/{portfolio_id}/withdrawals")
 def withdraw_from_portfolio(
     portfolio_id: str,
     request: Dict[str, Any],
@@ -63,16 +78,7 @@ def withdraw_from_portfolio(
 ) -> Dict[str, Any]:
     """Withdraw funds from a portfolio proportional to latest snapshot allocations."""
     try:
-        amount_raw = request.get("amount")
-        if amount_raw is None:
-            raise HTTPException(status_code=400, detail="Missing 'amount' in request body")
-        try:
-            amount = float(amount_raw)
-        except Exception:
-            raise HTTPException(status_code=400, detail="'amount' must be a number")
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="'amount' must be > 0")
-
+        amount = _get_positive_amount(request)
         cognito_user_id = user["sub"]
         portfolio_owner_cognito_user_id = request.get("portfolio_owner_cognito_user_id")
 
@@ -86,11 +92,11 @@ def withdraw_from_portfolio(
         logger.info(f"Withdraw created orders: {order_ids}")
         return {"success": True, "order_ids": order_ids}
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Unexpected trade execution error: {str(e)}")
+        _raise_trade_execution_http_exception(e)
     
 
 
-@router.get("/refresh-orders")
+@router.post("/orders/refresh")
 def refresh_orders(
     request: Dict[str, Any],
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
@@ -114,5 +120,4 @@ def refresh_orders(
         # Already normalized in service
         return {"orders": statuses or []}
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Unexpected trade execution error: {str(e)}")
-
+        _raise_trade_execution_http_exception(e)
