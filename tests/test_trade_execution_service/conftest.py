@@ -24,7 +24,6 @@ from backend.services.trade_execution_service import TradeExecutionService
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.domain.baskt import BasktPosition, BasktAccount
 from time import sleep
-import uuid
 from datetime import datetime, timezone, timedelta
 from backend.schema.model_portfolio_request import ModelPortfolioPositionRequest
 from collections import defaultdict
@@ -235,69 +234,6 @@ class TestEngine:
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
-
-    # def test_create_baskt_account(self):
-    #     unique_suffix = uuid.uuid4().hex[:8]
-    #     signed_at = datetime.now(timezone.utc).isoformat()
-
-    #     account_data = {
-    #         "contact": {
-    #             "email_address": f"baskt_testuser_{unique_suffix}@example.com",
-    #             "phone_number": "+15555551234",
-    #             "street_address": ["123 Market St"],
-    #             "unit": "9A",
-    #             "city": "San Francisco",
-    #             "state": "CA",
-    #             "postal_code": "94105",
-    #             "country": "USA",
-    #         },
-    #         "identity": {
-    #             "given_name": "Jane",
-    #             "middle_name": "Q",
-    #             "family_name": "Tester",
-    #             "date_of_birth": "1990-01-01",
-    #             "tax_id": "999-99-1234",
-    #             "tax_id_type": "USA_SSN",
-    #             "country_of_citizenship": "USA",
-    #             "country_of_birth": "USA",
-    #             "country_of_tax_residence": "USA",
-    #             "funding_source": ["employment_income"],
-    #             "annual_income_min": 50000,
-    #             "annual_income_max": 120000,
-    #             "liquid_net_worth_min": 10000,
-    #             "liquid_net_worth_max": 50000,
-    #             "total_net_worth_min": 50000,
-    #             "total_net_worth_max": 200000,
-    #         },
-    #         "disclosures": {
-    #             "is_control_person": False,
-    #             "is_affiliated_exchange_or_finra": False,
-    #             "is_politically_exposed": False,
-    #             "immediate_family_exposed": False,
-    #         },
-    #         "agreements": [
-    #             {
-    #                 "agreement": "customer_agreement",
-    #                 "signed_at": signed_at,
-    #                 "ip_address": "127.0.0.1",
-    #             }
-    #         ],
-    #     }
-
-    #     password = uuid.uuid4().hex[:15]
-    #     password = "TEST_"+ password
-
-    #     create_account_response = self.account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
-
-    #     assert create_account_response is not None
-    #     assert create_account_response["email_address"] == account_data["contact"]["email_address"]
-    #     baskt_account = self.account_lifecycle_service.get_baskt_account_by_email_address(email_address=create_account_response["email_address"])
-    #     sleep(120)
-    #     baskt_account.alpaca_account_status == "ACTIVE"
-    #     baskt_account.cognito_enabled_status == True
-
-    #     self.baskt_account_portfolio_positions[baskt_account.cognito_user_id] = {}
-    #     return baskt_account
     
     def test_create_portfolio(
         self,
