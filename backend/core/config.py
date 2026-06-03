@@ -96,13 +96,6 @@ class Settings(BaseSettings):
     live_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="LIVE_ALPACA_BROKER_API_KEY")
     live_alpaca_broker_api_secret: Optional[str] = Field(default=None, alias="LIVE_ALPACA_BROKER_API_SECRET")
 
-    # # ---------- Orders-DB RDS -----------
-    # orders_db_write_host: str = Field(alias="ORDERS_DB_WRITE_HOST")
-    # orders_db_write_port: str = Field(alias="ORDERS_DB_WRITE_PORT")
-    # orders_db_write_database: str = Field(alias="ORDERS_DB_WRITE_DATABASE")
-    # orders_db_write_user: str = Field(alias="ORDERS_DB_WRITE_USER")
-    # orders_db_write_password: str = Field(alias="ORDERS_DB_WRITE_PASSWORD")
-
     # ---------- Validators / derived values ----------
     @field_validator("cors_origins", mode="before")
     @classmethod

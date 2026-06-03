@@ -344,8 +344,8 @@ export default function ContactPage({
         </div>
 
         <div className="signup-actions">
-          <button type="button" className="secondary-button" onClick={onBackToLogin}>
-            Back
+          <button type="button" className="secondary-button login-return-button" onClick={onBackToLogin}>
+            Back to Login
           </button>
           <button type="submit">Continue</button>
         </div>

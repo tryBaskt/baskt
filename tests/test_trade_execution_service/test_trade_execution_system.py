@@ -6,13 +6,7 @@ from conftest import TestEngine
 
 from backend.domain.baskt import BasktAccount
 
-"""
-$10000 - {account_id: 27b7f59d-8f35-4330-93f7-45d5d0db57a5, email_address: baskt_testuser_160fb99f@example.com}
-$100 - {account_id: 22b3e5ec-d4ae-48ea-a071-1f89b5c5640e, email_address: baskt_testuser_4f751c38@example.com}
-$0 - {account_id: 9e67bd91-098b-41b8-9ea3-4e8b8b487b5c, email_address: baskt_testuser_b4f6bfa6@example.com}
-"""
-
-FUNDED_ACCOUNT_EMAIL = "baskt_testuser_160fb99f@example.com"
+FUNDED_ACCOUNT_EMAIL = "baskt_testuser_46ec47e2@example.com"
 
 
 def _get_funded_baskt_account(test_engine: TestEngine):

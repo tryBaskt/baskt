@@ -127,6 +127,7 @@ export default function IdentityPage({
   initialIdentity,
   onIdentitySubmit,
   onBackToContact,
+  onBackToLogin,
   statusMessage,
   errorMessage,
 }) {
@@ -572,6 +573,9 @@ export default function IdentityPage({
         </div>
 
         <div className="signup-actions">
+          <button type="button" className="secondary-button login-return-button" onClick={onBackToLogin}>
+            Back to Login
+          </button>
           <button type="button" className="secondary-button" onClick={onBackToContact}>
             Back
           </button>

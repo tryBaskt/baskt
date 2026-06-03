@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { cognitoConfig } from "./authConfig";
-import { signUp, confirmSignUp, signIn } from "./cognitoAuth";
+import { signUp, confirmSignUp, signIn, completeNewPassword } from "./cognitoAuth";
 import LoginPage from "./Pages/LoginPage";
 import AgreementPage from "./Pages/SignUpPages/AgreementPage";
 import ContactPage from "./Pages/SignUpPages/ContactPage";
 import DisclosurePage from "./Pages/SignUpPages/DisclosurePage";
 import IdentityPage from "./Pages/SignUpPages/IdentityPage";
+import NewPasswordPage from "./Pages/SignUpPages/NewPasswordPage";
 import HomePage from "./Pages/HomePage";
 import MakeBasktPage from "./Pages/MakeBasktPage";
 import MyBasktsPage from "./Pages/MyBasktsPage";
@@ -42,8 +43,11 @@ export default function App() {
   const [email, setEmail] = useState(() => localStorage.getItem("lastLoginEmail") || "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
+  const [newPasswordChallenge, setNewPasswordChallenge] = useState(null);
   const [signupStep, setSignupStep] = useState(initialSignupDraft.signupStep || "contact");
   const [signupContact, setSignupContact] = useState(initialSignupDraft.contact || null);
   const [signupIdentity, setSignupIdentity] = useState(initialSignupDraft.identity || null);
@@ -54,7 +58,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [currentPage, setCurrentPage] = useState("make-baskt");
+  const [currentPage, setCurrentPage] = useState("home");
   const [selectedBaskt, setSelectedBaskt] = useState(null);
 
   useEffect(() => {
@@ -82,6 +86,18 @@ export default function App() {
       setIsAuthenticated(true);
       setPassword("");
     } catch (error) {
+      if (error?.name === "NewPasswordRequired") {
+        setNewPasswordChallenge({
+          cognitoUser: error.cognitoUser,
+          userAttributes: error.userAttributes || {},
+        });
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setPassword("");
+        setView("new-password");
+        return;
+      }
+
       setErrorMessage(error?.message || "Sign in failed.");
     } finally {
       setIsSubmitting(false);
@@ -97,6 +113,13 @@ export default function App() {
     sessionStorage.removeItem("refreshToken");
     setIsAuthenticated(false);
     setSelectedBaskt(null);
+    setView("login");
+    setErrorMessage("");
+    setStatusMessage("");
+    setPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setNewPasswordChallenge(null);
   }
 
   function onSignupContactSubmit(contactData) {
@@ -122,6 +145,44 @@ export default function App() {
     writeSignupDraft({ disclosures: disclosureData, signupStep: "agreement" });
     setSignupDisclosure(disclosureData);
     setSignupStep("agreement");
+  }
+
+  function onBackToLoginFromSignup() {
+    setErrorMessage("");
+    setStatusMessage("");
+    setView("login");
+  }
+
+  async function onNewPasswordSubmit() {
+    if (!newPasswordChallenge?.cognitoUser) {
+      setErrorMessage("Please log in again before setting a new password.");
+      setView("login");
+      return;
+    }
+
+    setErrorMessage("");
+    setStatusMessage("");
+
+    try {
+      setIsSubmitting(true);
+      const tokens = await completeNewPassword(
+        newPasswordChallenge.cognitoUser,
+        newPassword,
+        newPasswordChallenge.userAttributes
+      );
+      sessionStorage.setItem("idToken", tokens.idToken);
+      sessionStorage.setItem("accessToken", tokens.accessToken || "");
+      sessionStorage.setItem("refreshToken", tokens.refreshToken || "");
+      localStorage.setItem("lastLoginEmail", email.trim());
+      setIsAuthenticated(true);
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setNewPasswordChallenge(null);
+    } catch (error) {
+      setErrorMessage(error?.message || "Failed to set new password.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function onSignupAgreementSubmit({ agreements, password: signupPassword }) {
@@ -159,7 +220,15 @@ export default function App() {
       }
 
       clearSignupDraft();
-      setStatusMessage("Account submitted successfully.");
+      setStatusMessage("Account submitted successfully. You can now sign in.");
+      setView("login");
+      setSignupStep("contact");
+      setSignupContact(null);
+      setSignupIdentity(null);
+      setSignupDisclosure(null);
+      setSignupAgreements(null);
+      setPassword("");
+      setConfirmPassword("");
     } catch (error) {
       setErrorMessage(error?.message || "Failed to create account.");
     } finally {
@@ -269,15 +338,33 @@ export default function App() {
         />
       ) : null}
 
+      {view === "new-password" ? (
+        <NewPasswordPage
+          email={email}
+          newPassword={newPassword}
+          confirmNewPassword={confirmNewPassword}
+          setNewPassword={setNewPassword}
+          setConfirmNewPassword={setConfirmNewPassword}
+          onNewPasswordSubmit={onNewPasswordSubmit}
+          onBackToLogin={() => {
+            setErrorMessage("");
+            setStatusMessage("");
+            setNewPassword("");
+            setConfirmNewPassword("");
+            setNewPasswordChallenge(null);
+            setView("login");
+          }}
+          isSubmitting={isSubmitting}
+          statusMessage={statusMessage}
+          errorMessage={errorMessage}
+        />
+      ) : null}
+
       {view === "signup" && signupStep === "contact" ? (
         <ContactPage
           initialContact={signupContact}
           onContactSubmit={onSignupContactSubmit}
-          onBackToLogin={() => {
-            setErrorMessage("");
-            setStatusMessage("");
-            setView("login");
-          }}
+          onBackToLogin={onBackToLoginFromSignup}
           forgotPasswordUrl={forgotPasswordUrl}
           isSubmitting={isSubmitting}
           statusMessage={statusMessage}
@@ -290,6 +377,7 @@ export default function App() {
           contactCountry={signupContact?.country}
           initialIdentity={signupIdentity}
           onIdentitySubmit={onSignupIdentitySubmit}
+          onBackToLogin={onBackToLoginFromSignup}
           onBackToContact={() => {
             setErrorMessage("");
             setStatusMessage("");
@@ -305,6 +393,7 @@ export default function App() {
         <DisclosurePage
           initialDisclosure={signupDisclosure}
           onDisclosureSubmit={onSignupDisclosureSubmit}
+          onBackToLogin={onBackToLoginFromSignup}
           onBackToIdentity={() => {
             setErrorMessage("");
             setStatusMessage("");
@@ -325,6 +414,7 @@ export default function App() {
           setConfirmPassword={setConfirmPassword}
           onAgreementSubmit={onSignupAgreementSubmit}
           isSubmitting={isSubmitting}
+          onBackToLogin={onBackToLoginFromSignup}
           onBackToDisclosure={() => {
             setErrorMessage("");
             setStatusMessage("");

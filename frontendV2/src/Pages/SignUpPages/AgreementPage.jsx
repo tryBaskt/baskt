@@ -26,6 +26,7 @@ export default function AgreementPage({
   setConfirmPassword,
   onAgreementSubmit,
   onBackToDisclosure,
+  onBackToLogin,
   isSubmitting,
   statusMessage,
   errorMessage,
@@ -150,6 +151,9 @@ export default function AgreementPage({
         </div>
 
         <div className="signup-actions">
+          <button type="button" className="secondary-button login-return-button" onClick={onBackToLogin}>
+            Back to Login
+          </button>
           <button type="button" className="secondary-button" onClick={onBackToDisclosure}>
             Back
           </button>

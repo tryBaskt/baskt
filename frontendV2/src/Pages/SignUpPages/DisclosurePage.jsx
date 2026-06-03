@@ -54,6 +54,7 @@ export default function DisclosurePage({
   initialDisclosure,
   onDisclosureSubmit,
   onBackToIdentity,
+  onBackToLogin,
   statusMessage,
   errorMessage,
 }) {
@@ -289,6 +290,9 @@ export default function DisclosurePage({
         </div>
 
         <div className="signup-actions">
+          <button type="button" className="secondary-button login-return-button" onClick={onBackToLogin}>
+            Back to Login
+          </button>
           <button type="button" className="secondary-button" onClick={onBackToIdentity}>
             Back
           </button>

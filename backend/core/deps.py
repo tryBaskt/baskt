@@ -26,6 +26,7 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.user_account_repository import UserAccountRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
+from services.account_performance_service import AccountPerformanceService
 
 # -----------------------------
 # Settings (cached by lru_cache in config.py)
@@ -226,6 +227,14 @@ def get_trade_execution_service(
         account_lifecycle_service=account_lifecycle_service
     )
 
+def get_account_performance_service(
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    user_account_repository: UserAccountRepository = Depends(get_user_account_repository)
+) -> AccountPerformanceService:
+    return AccountPerformanceService(
+        alpaca_broker_client=alpaca_broker_client,
+        user_account_repository=user_account_repository
+    )
 
 
 # -----------------------------

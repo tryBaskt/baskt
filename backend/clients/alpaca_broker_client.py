@@ -15,11 +15,12 @@ from alpaca.broker.models import (
 )
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.models import Asset, Order, AccountConfiguration
+from alpaca.trading.models import Asset, Order, AccountConfiguration, PortfolioHistory
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockLatestQuoteRequest
+from alpaca.trading.requests import GetPortfolioHistoryRequest
 
 # Baskt imports
 from domain.baskt import BasktPosition
@@ -713,6 +714,22 @@ class AlpacaBrokerClient:
                 message=f"Failed to get order by id for alpaca account id '{alpaca_account_id}', cognito_user_id '{cognito_user_id}', and order id '{order_id}': {e}",
                 code = "ALPACA_BROKER_GET_ORDER_BY_ID_FAILED"
             )
+        
+    def get_portfolio_history_for_account(self, alpaca_account_id: str) -> PortfolioHistory:
+        try:
+            return self.client.get_portfolio_history_for_account(
+                account_id=alpaca_account_id,
+                history_filter=GetPortfolioHistoryRequest(
+                    period="1D",
+                    timeframe="5Min"
+                )
+            )
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get portfolio history for alpaca account id '{alpaca_account_id}': {e}",
+                code="ALPACA_BROKER_GET_PORTFOLIO_HISTORY_FAILED",
+            ) from e
+
 
 
 

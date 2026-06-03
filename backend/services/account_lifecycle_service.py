@@ -39,6 +39,15 @@ class AccountLifecycleService:
 		self.user_account_repository = user_account_repository
 
 	def create_baskt_account(self, account_data: Dict[str, Any], password: str | None = None) -> Dict[str, str]:
+
+		try:
+			cognito_user_id = self.cognito_client.create_cognito_user(account_data=account_data, password=password)
+		except CognitoClientError as err:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to create Alpaca account and Cognito User: {err}",
+				code="ACCOUNT_LIFECYCLE_COGNITO_CREATE_FAILED",
+			) from err
+
 		try:
 			alpaca_account_data = self.alpaca_broker_client.create_alpaca_account(account_data=account_data)
 			alpaca_account_id = alpaca_account_data["alpaca_account_id"]
@@ -48,14 +57,6 @@ class AccountLifecycleService:
 			raise AccountLifecycleServiceError(
 				message=f"Failed to create Alpaca account and Cognito User: {err}",
 				code="ACCOUNT_LIFECYCLE_ALPACA_CREATE_FAILED",
-			) from err
-
-		try:
-			cognito_user_id = self.cognito_client.create_cognito_user(account_data=account_data, password=password)
-		except CognitoClientError as err:
-			raise AccountLifecycleServiceError(
-				message=f"Alpaca account created, but Cognito user creation failed: {err}",
-				code="ACCOUNT_LIFECYCLE_COGNITO_CREATE_FAILED",
 			) from err
 
 		try:
