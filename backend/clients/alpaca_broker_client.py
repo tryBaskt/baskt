@@ -9,7 +9,7 @@ from uuid import UUID
 from alpaca.broker.client import BrokerClient
 from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest
 from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType
-from alpaca.broker.models import Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer, TradeAccount
+from alpaca.broker.models import Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer, TradeAccount, AccountDocument
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.models import Asset, Order, AccountConfiguration
@@ -198,7 +198,6 @@ class AlpacaBrokerClient:
 
             request = CreateAccountRequest(
                 account_type=account_data.get("account_type", AccountType.TRADING),
-                # account_sub_type=account_data.get("account_sub_type", AccountSubType.TRADITIONAL),
                 contact=contact,
                 identity=identity,
                 disclosures=disclosures,
