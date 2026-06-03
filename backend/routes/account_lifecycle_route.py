@@ -27,7 +27,7 @@ def _raise_account_lifecycle_http_exception(err: Exception) -> None:
 	) from err
 
 
-@router.post("", response_model=CreateAccountLifecycleResponse, status_code=HTTP_201_CREATED)
+@router.post("/create-baskt-account", response_model=CreateAccountLifecycleResponse, status_code=HTTP_201_CREATED)
 def create_baskt_account(
 	request: CreateAccountLifecycleRequest,
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),

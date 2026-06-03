@@ -9,7 +9,10 @@ from uuid import UUID
 from alpaca.broker.client import BrokerClient
 from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest
 from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType
-from alpaca.broker.models import Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer, TradeAccount, AccountDocument
+from alpaca.broker.models import (
+    Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Transfer, TradeAccount, 
+    AccountDocument, TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
+)
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.models import Asset, Order, AccountConfiguration
@@ -158,15 +161,15 @@ class AlpacaBrokerClient:
                 family_name=identity_data["family_name"],
                 date_of_birth=identity_data.get("date_of_birth"),
                 tax_id=identity_data.get("tax_id"),
-                tax_id_type=identity_data.get("tax_id_type"),
+                tax_id_type=TaxIdType(identity_data.get("tax_id_type")),
                 country_of_citizenship=identity_data.get("country_of_citizenship"),
                 country_of_birth=identity_data.get("country_of_birth"),
                 country_of_tax_residence=identity_data["country_of_tax_residence"],
-                visa_type=identity_data.get("visa_type"),
-                visa_expiration_date=identity_data.get("visa_expiration_date"),
-                date_of_departure_from_usa=identity_data.get("date_of_departure_from_usa"),
+                visa_type=VisaType(identity_data.get("visa_type")) if "visa_type" in identity_data else None,
+                visa_expiration_date=identity_data.get("visa_expiration_date") if "visa_type" in identity_data else None,
+                date_of_departure_from_usa=identity_data.get("date_of_departure_from_usa") if "visa_type" in identity_data else None,
                 permanent_resident=identity_data.get("permanent_resident"),
-                funding_source=identity_data.get("funding_source"),
+                funding_source=[FundingSource(identity_data.get("funding_source"))],
                 annual_income_min=identity_data.get("annual_income_min"),
                 annual_income_max=identity_data.get("annual_income_max"),
                 liquid_net_worth_min=identity_data.get("liquid_net_worth_min"),
@@ -180,7 +183,7 @@ class AlpacaBrokerClient:
                 is_affiliated_exchange_or_finra=disclosures_data.get("is_affiliated_exchange_or_finra"),
                 is_politically_exposed=disclosures_data.get("is_politically_exposed"),
                 immediate_family_exposed=disclosures_data["immediate_family_exposed"],
-                employment_status=disclosures_data.get("employment_status"),
+                employment_status=EmploymentStatus(disclosures_data.get("employment_status")),
                 employer_name=disclosures_data.get("employer_name"),
                 employer_address=disclosures_data.get("employer_address"),
                 employment_position=disclosures_data.get("employment_position"),
@@ -188,7 +191,7 @@ class AlpacaBrokerClient:
 
             agreements = [
                 Agreement(
-                    agreement=agreement["agreement"],
+                    agreement=AgreementType(agreement["agreement"]),
                     signed_at=agreement["signed_at"],
                     ip_address=agreement["ip_address"],
                     revision=agreement.get("revision"),

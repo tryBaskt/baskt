@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError, ParamValidationError
     
 
@@ -91,6 +90,7 @@ class CognitoClient:
         region: str,
         user_pool_id: str,
         app_client_id: str,
+        cognito_client: Any,
     ) -> None:
         """
         Initialize the Cognito client wrapper.
@@ -100,19 +100,20 @@ class CognitoClient:
             region: AWS region where the Cognito user pool is hosted.
             user_pool_id: Cognito user pool ID.
             app_client_id: Cognito app client ID associated with this service.
+            cognito_client: boto3 Cognito Identity Provider client configured
+                with the application's AWS credentials.
 
         Returns:
             None.
 
         Raises:
-            Any exception raised by boto3.client if the Cognito Identity
-            Provider client cannot be initialized.
+            No exceptions are intentionally raised by this method.
         """
         self.env = env
         self.region = region
         self.user_pool_id = user_pool_id
         self.app_client_id = app_client_id
-        self.cognito_client = boto3.client("cognito-idp", region_name=region)
+        self.cognito_client = cognito_client
 
     def get_user_existence_status(self, email_address: str) -> Dict[str, Any]:
         """

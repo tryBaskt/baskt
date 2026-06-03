@@ -62,6 +62,12 @@ def get_dynamodb_resource_cached() -> Any:
     session = get_boto3_session()
     return session.resource("dynamodb", region_name=s.aws_region)
 
+@lru_cache
+def get_cognito_idp_client_cached() -> Any:
+    s = get_settings()
+    session = get_boto3_session()
+    return session.client("cognito-idp", region_name=s.cognito_region)
+
 # -----------------------------
 # Clients
 # -----------------------------
@@ -124,11 +130,13 @@ def get_alpaca_broker_client() -> AlpacaBrokerClient:
 @lru_cache
 def get_cognito_client() -> CognitoClient:
     s = get_settings()
+    cognito_idp_client = get_cognito_idp_client_cached()
     return CognitoClient(
         env=s.env,
         region=s.cognito_region,
         user_pool_id=s.cognito_user_pool_id,
         app_client_id=s.cognito_app_client_id,
+        cognito_client=cognito_idp_client,
     )
 
 # -----------------------------
