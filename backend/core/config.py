@@ -62,10 +62,6 @@ class Settings(BaseSettings):
         default="_user_trade_lock_dynamodb",
         alias="USER_TRADE_LOCK_DYNAMODB"
     )
-    user_account_dynamodb_suffix: str = Field(
-        default="_user_account_dynamodb",
-        alias="USER_ACCOUNT_DYNAMODB"
-    )
     model_portfolio_update_lock_suffix: str = Field(
         default="_model_portfolio_update_lock_dynamodb",
         alias="MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB"
@@ -167,11 +163,6 @@ class Settings(BaseSettings):
     def user_trade_lock_dynamodb(self) -> str:
         """Full table name with environment prefix:: {env}{suffix}"""
         return f"{self.env}{self.user_trade_lock_dynamodb_suffix}"
-
-    @property
-    def user_account_dynamodb(self) -> str:
-        """Full table name with environment prefix: {env}{suffix}"""
-        return f"{self.env}{self.user_account_dynamodb_suffix}"
     
     @property
     def model_portfolio_update_lock_dynamodb(self) -> str:

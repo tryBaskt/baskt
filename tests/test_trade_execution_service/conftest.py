@@ -12,7 +12,6 @@ from backend.core import deps as app_deps
 from backend.core.config import get_settings
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.clients.cognito_client import CognitoClient
-from backend.repository.user_account_repository import UserAccountRepository
 from backend.services.account_lifecycle_service import AccountLifecycleService
 from backend.repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from backend.repository.model_portfolio_repository import ModelPortfolioRepository
@@ -116,15 +115,6 @@ def user_trade_lock_repository() -> UserTradeLockRepository:
         user_trade_lock_dynamodb_client=user_trade_lock_dynamodb_client
     )
 
-@pytest.fixture(scope="session")
-def user_account_repository() -> UserAccountRepository:
-    app_deps.get_user_account_dynamodb_client.cache_clear()
-    user_account_dynamodb_client = app_deps.get_user_account_dynamodb_client()
-    return app_deps.get_user_account_repository(
-        user_account_dynamodb_client=user_account_dynamodb_client
-    )
-
-
 ##################################################
 #################### SERVICES ####################
 ##################################################
@@ -134,17 +124,13 @@ def account_lifecycle_service(
 ) -> AccountLifecycleService:
     app_deps.get_cognito_client.cache_clear()
     app_deps.get_alpaca_broker_client.cache_clear()
-    app_deps.get_user_account_dynamodb_client.cache_clear()
-    user_account_dynamodb_client = app_deps.get_user_account_dynamodb_client()
 
     cognito_client = app_deps.get_cognito_client()
     alpaca_broker_client = app_deps.get_alpaca_broker_client()
-    user_account_repository = app_deps.get_user_account_repository(user_account_dynamodb_client=user_account_dynamodb_client)
 
     return app_deps.get_account_lifecycle_service(
         alpaca_broker_client=alpaca_broker_client,
         cognito_client=cognito_client,
-        user_account_repository=user_account_repository,
     )
 
 @pytest.fixture(scope="session")
@@ -162,8 +148,6 @@ def trade_execution_service() -> TradeExecutionService:
     model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_follower_dynamodb_client()
     app_deps.get_user_trade_lock_dynamodb_client.cache_clear()
     user_trade_lock_dynamodb_client = app_deps.get_user_trade_lock_dynamodb_client()
-    app_deps.get_user_account_dynamodb_client.cache_clear()
-    user_account_dynamodb_client = app_deps.get_user_account_dynamodb_client()
     app_deps.get_cognito_client.cache_clear()
     cognito_client = app_deps.get_cognito_client()
 
@@ -190,15 +174,6 @@ def trade_execution_service() -> TradeExecutionService:
     user_trade_lock_repository = app_deps.get_user_trade_lock_repository(
         user_trade_lock_dynamodb_client=user_trade_lock_dynamodb_client
     )
-    user_account_repository = app_deps.get_user_account_repository(
-        user_account_dynamodb_client=user_account_dynamodb_client
-    )
-    account_lifecycle_service = app_deps.get_account_lifecycle_service(
-        alpaca_broker_client=alpaca_broker_client,
-        cognito_client=cognito_client,
-        user_account_repository=user_account_repository
-    )
-
 
     return app_deps.get_trade_execution_service(
         model_portfolio_repository=model_portfolio_repository,

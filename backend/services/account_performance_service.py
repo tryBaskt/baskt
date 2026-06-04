@@ -12,7 +12,6 @@ from repository.portfolio_allocation_repository import PortfolioAllocationReposi
 from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
-from repository.user_account_repository import UserAccountRepository
 from alpaca.trading.models import Order
 from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceError
 import uuid
@@ -28,20 +27,7 @@ class AccountPerformanceService:
         self,
         *,
         alpaca_broker_client: AlpacaBrokerClient,
-        user_account_repository: UserAccountRepository
     ):
         self.alpaca_broker_client = alpaca_broker_client
-        self.user_account_repository = user_account_repository
 
-    def get_account_equity_graph(self, cognito_user_id: str):
-        user_account = self.user_account_repository.get_user_account_by_cognito_user_id(
-            cognito_user_id=cognito_user_id
-        )
-        alpaca_account_id = user_account["alpaca_account_id"]
-        history = self.alpaca_broker_client.get_portfolio_history_for_account(
-            alpaca_account_id=alpaca_account_id
-        )
-        return {
-            "equity": history.equity,
-            "timestamp": history.timestamp,
-        }
+

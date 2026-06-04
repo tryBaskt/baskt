@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 from decimal import Decimal
+from dataclasses import asdict
 repo_root = Path(__file__).resolve().parents[2]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
@@ -14,11 +15,12 @@ from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.clients.cognito_client import CognitoClient
 from backend.services.account_lifecycle_service import AccountLifecycleService
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.domain.baskt import BasktPosition, BasktAccount
+from backend.domain.baskt import BasktAccount
 from alpaca.broker.enums import (
     AgreementType,
     BankAccountType,
     EmploymentStatus,
+    FundingSource,
     TaxIdType,
     TransferDirection,
     TransferTiming,
@@ -53,21 +55,16 @@ def cognito_client() -> CognitoClient:
 #######################################
     
 @pytest.fixture(scope="session")
-def account_lifecycle_service(
-) -> AccountLifecycleService:
+def account_lifecycle_service() -> AccountLifecycleService:
     app_deps.get_cognito_client.cache_clear()
     app_deps.get_alpaca_broker_client.cache_clear()
-    app_deps.get_user_account_dynamodb_client.cache_clear()
-    user_account_dynamodb_client = app_deps.get_user_account_dynamodb_client()
 
     cognito_client = app_deps.get_cognito_client()
     alpaca_broker_client = app_deps.get_alpaca_broker_client()
-    user_account_repository = app_deps.get_user_account_repository(user_account_dynamodb_client=user_account_dynamodb_client)
 
     return app_deps.get_account_lifecycle_service(
         alpaca_broker_client=alpaca_broker_client,
         cognito_client=cognito_client,
-        user_account_repository=user_account_repository,
     )
 
 ###########################################
@@ -108,7 +105,7 @@ class TestEngine:
                 "country_of_citizenship": "USA",
                 "country_of_birth": "USA",
                 "country_of_tax_residence": "USA",
-                "funding_source": ["employment_income"],
+                "funding_source": [FundingSource.EMPLOYMENT_INCOME, FundingSource.SAVINGS],
                 "annual_income_min": 50000,
                 "annual_income_max": 120000,
                 "liquid_net_worth_min": 10000,
@@ -142,6 +139,11 @@ class TestEngine:
                     "agreement": AgreementType.MARGIN,
                     "signed_at": signed_at,
                     "ip_address": "127.0.0.1",
+                },
+                {
+                    "agreement": AgreementType.CRYPTO,
+                    "signed_at": signed_at,
+                    "ip_address": "127.0.0.1",
                 }
             ],
         }
@@ -150,14 +152,16 @@ class TestEngine:
         password = "TEST_"+ password
 
         create_account_response = self.account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
+        sleep(120)
 
         assert create_account_response is not None
         assert create_account_response["email_address"] == account_data["contact"]["email_address"]
-        baskt_account = self.account_lifecycle_service.get_baskt_account_by_email_address(email_address=create_account_response["email_address"])
-        sleep(120)
-        baskt_account.alpaca_account_status == "ACTIVE"
-        baskt_account.cognito_enabled_status == True
-        return baskt_account
+        baskt_account_by_email = self.account_lifecycle_service.get_baskt_account_by_email_address(email_address=create_account_response["email_address"])
+        baskt_account_by_cognito_user_id = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=create_account_response["cognito_user_id"])
+        assert asdict(baskt_account_by_email) == asdict(baskt_account_by_cognito_user_id)
+        assert baskt_account_by_email.alpaca_account_status.name == "ACTIVE"
+        assert baskt_account_by_email.cognito_enabled_status is True
+        return baskt_account_by_email
 
     def fund_baskt_account(
         self,
@@ -175,11 +179,6 @@ class TestEngine:
         )
         ach_relationship_id = _response_value(ach_relationship, "id")
         assert ach_relationship_id is not None
-
-        initial_trade_account = self.alpaca_broker_client.client.get_trade_account_by_id(
-            account_id=baskt_account.alpaca_account_id
-        )
-        initial_cash = Decimal(str(getattr(initial_trade_account, "last_cash", "0") or "0"))
 
         transfer = self.account_lifecycle_service.create_ach_transfer_request(
             alpaca_account_id=baskt_account.alpaca_account_id,

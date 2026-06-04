@@ -115,6 +115,40 @@ class CognitoClient:
         self.app_client_id = app_client_id
         self.cognito_client = cognito_client
 
+    def _format_cognito_user_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize a Cognito admin_get_user response.
+
+        Args:
+            response: Raw Cognito admin_get_user response.
+
+        Returns:
+            Dict[str, Any]: Normalized Cognito user payload with Cognito,
+            Alpaca, status, timestamp, email, and raw attribute data.
+
+        Raises:
+            No exceptions are intentionally raised by this method.
+        """
+        attributes = {
+            attr.get("Name"): attr.get("Value")
+            for attr in response.get("UserAttributes", [])
+            if attr.get("Name")
+        }
+
+        return {
+            "cognito_user_id": response.get("Username"),
+            "alpaca_account_id": attributes.get("custom:alpaca_acct_id")
+            or attributes.get("alpaca_acct_id"),
+            "alpaca_account_number": attributes.get("custom:alpaca_acct_num")
+            or attributes.get("alpaca_acct_num"),
+            "email_address": attributes.get("email"),
+            "cognito_enabled_status": bool(response.get("Enabled", False)),
+            "cognito_confirmation_status": response.get("UserStatus"),
+            "created_at": response.get("UserCreateDate"),
+            "updated_at": response.get("UserLastModifiedDate"),
+            "attributes": attributes,
+        }
+
     def get_user_existence_status(self, email_address: str) -> Dict[str, Any]:
         """
         Return whether a Cognito user exists and, when present, the enable and
@@ -160,7 +194,13 @@ class CognitoClient:
             ) from err
 
 
-    def create_cognito_user(self, account_data: Dict[str, Any], password: str | None = None) -> str:
+    def create_cognito_user(
+        self, 
+        account_data: Dict[str, Any], 
+        alpaca_account_id, 
+        alpaca_account_number, 
+        password: str | None = None
+    ) -> str:
         """
         Create a user in AWS Cognito.
 
@@ -190,6 +230,8 @@ class CognitoClient:
                 {"Name": "email_verified", "Value": "true"},
                 {"Name": "given_name", "Value": identity_data["given_name"]},
                 {"Name": "family_name", "Value": identity_data["family_name"]},
+                {"Name": "custom:alpaca_acct_id", "Value": alpaca_account_id},
+                {"Name": "custom:alpaca_acct_num", "Value": alpaca_account_number}
             ]
         except KeyError as err:
             raise CognitoClientError(
@@ -225,14 +267,9 @@ class CognitoClient:
                     Username=email_address,
                 )
 
-                cognito_user = self.get_cognito_user(cognito_user_id=email_address)
-                cognito_user_id = cognito_user.get("attributes", {}).get("sub")
-                if not cognito_user_id:
-                    raise CognitoClientError(
-                        message=f"Cognito user '{email_address}' was created but no sub attribute was returned.",
-                        code="COGNITO_CREATE_USER_SUB_MISSING",
-                    )
-                return cognito_user_id
+                created_user = self.get_cognito_user_by_email_address(email_address=email_address)
+                return created_user["cognito_user_id"]
+
             except ClientError as err:
                 if err.response.get("Error", {}).get("Code") == "UsernameExistsException":
                     raise CognitoClientUserAlreadyExists(
@@ -256,7 +293,7 @@ class CognitoClient:
         )
             
 
-    def get_cognito_user(self, cognito_user_id: str) -> Dict[str, Any]:
+    def get_cognito_user_by_cognito_user_id(self, cognito_user_id: str) -> Dict[str, Any]:
         """
         Fetch Cognito user data by Cognito username/user id.
 
@@ -276,23 +313,10 @@ class CognitoClient:
         try:
             response = self.cognito_client.admin_get_user(
                 UserPoolId=self.user_pool_id,
-                Username=cognito_user_id,
+                Username=cognito_user_id
             )
 
-            attributes = {
-                attr.get("Name"): attr.get("Value")
-                for attr in response.get("UserAttributes", [])
-                if attr.get("Name")
-            }
-
-            return {
-                "cognito_user_id": response.get("Username"),
-                "cognito_enabled_status": bool(response.get("Enabled", False)),
-                "cognito_confirmation_status": response.get("UserStatus"),
-                "created_at": response.get("UserCreateDate"),
-                "updated_at": response.get("UserLastModifiedDate"),
-                "attributes": attributes,
-            }
+            return self._format_cognito_user_response(response)
         except ClientError as err:
             if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
                 raise CognitoClientCognitoUserNotFound(
@@ -304,49 +328,65 @@ class CognitoClient:
                 message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
                 code="COGNITO_GET_COGNITO_USER_FAILED",
             ) from err
-        except (BotoCoreError, ParamValidationError) as err:
-            raise CognitoClientError(
-                message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
-                code="COGNITO_GET_COGNITO_USER_FAILED",
-            ) from err
-        
-    def disable_cognito_user(self, cognito_user_id: str) -> bool:
+
+    def get_cognito_user_by_email_address(self, email_address: str) -> Dict[str, Any]:
         """
-        Disable a Cognito user.
+        Fetch Cognito user data by email address.
 
         Args:
-            cognito_user_id: Cognito username/user ID to disable.
+            email_address: Email address to look up in the Cognito user pool.
 
         Returns:
-            bool: True when Cognito returns HTTP 200, otherwise False.
+            Dict[str, Any]: Normalized Cognito user payload with user ID,
+            Alpaca account ID/number, email address, enabled status,
+            confirmation status, timestamps, and attributes.
 
         Raises:
-            CognitoClientCognitoUserNotFound: If the Cognito user does not
-            exist.
-            CognitoClientError: If Cognito fails while disabling the user, the
-            response is malformed, or the request cannot be sent.
+            CognitoClientCognitoUserNotFound: If no Cognito user exists for the
+            email address.
+            CognitoClientError: If email_address is missing, Cognito fails
+            while fetching the user, or the request cannot be sent.
         """
-        try:
-            response = self.cognito_client.admin_disable_user(
-                UserPoolId=self.user_pool_id,
-                Username=cognito_user_id
-            )
-            response_metadata = response["ResponseMetadata"]
-            http_status_code = response_metadata["HTTPStatusCode"]
-            return http_status_code == 200
-        except ClientError as err:
-            error_code = err.response.get("Error", {}).get("Code")
-            if error_code == "UserNotFoundException":
-                raise CognitoClientCognitoUserNotFound(
-                    identifier=cognito_user_id,
-                    identifier_type="cognito_user_id",
-                ) from err
+        if not email_address:
             raise CognitoClientError(
-                message=f"Failed to disable Cognito user '{cognito_user_id}': {err}",
-                code="COGNITO_DISABLE_USER_FAILED",
+                message="email_address is required.",
+                code="COGNITO_GET_USER_BY_EMAIL_INVALID_EMAIL",
+            )
+
+        try:
+            users = self.cognito_client.list_users(
+                UserPoolId=self.user_pool_id,
+                Filter=f'email = "{email_address}"',
+                Limit=1,
+            ).get("Users", [])
+
+            if not users:
+                raise CognitoClientCognitoUserNotFound(
+                    identifier=email_address,
+                    identifier_type="email_address",
+                )
+
+            response = self.cognito_client.admin_get_user(
+                UserPoolId=self.user_pool_id,
+                Username=users[0]["Username"],
+            )
+
+            return self._format_cognito_user_response(response)
+        except CognitoClientCognitoUserNotFound:
+            raise
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
+                raise CognitoClientCognitoUserNotFound(
+                    identifier=email_address,
+                    identifier_type="email_address",
+                ) from err
+
+            raise CognitoClientError(
+                message=f"Failed to get cognito user for email address '{email_address}': {err}",
+                code="COGNITO_GET_COGNITO_USER_BY_EMAIL_FAILED",
             ) from err
         except (BotoCoreError, KeyError, ParamValidationError) as err:
             raise CognitoClientError(
-                message=f"Failed to disable Cognito user '{cognito_user_id}': {err}",
-                code="COGNITO_DISABLE_USER_FAILED",
+                message=f"Failed to get cognito user for email address '{email_address}': {err}",
+                code="COGNITO_GET_COGNITO_USER_BY_EMAIL_FAILED",
             ) from err

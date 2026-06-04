@@ -15,7 +15,8 @@ const defaultIdentity = {
   visa_type: "",
   visa_expiration_date: "",
   date_of_departure_from_usa: "",
-  funding_source: "",
+  funding_source: [],
+  funding_source_choice: "",
   annual_income_min: "",
   annual_income_max: "",
   liquid_net_worth_min: "",
@@ -122,6 +123,18 @@ function stringValue(value) {
   return String(value);
 }
 
+function normalizeFundingSources(value) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).map((source) => String(source));
+  }
+
+  if (value) {
+    return [String(value)];
+  }
+
+  return [];
+}
+
 export default function IdentityPage({
   contactCountry,
   initialIdentity,
@@ -150,9 +163,8 @@ export default function IdentityPage({
     visa_type: stringValue(initialIdentity?.visa_type),
     visa_expiration_date: stringValue(initialIdentity?.visa_expiration_date),
     date_of_departure_from_usa: stringValue(initialIdentity?.date_of_departure_from_usa),
-    funding_source: Array.isArray(initialIdentity?.funding_source)
-      ? initialIdentity.funding_source[0] || ""
-      : stringValue(initialIdentity?.funding_source),
+    funding_source: normalizeFundingSources(initialIdentity?.funding_source),
+    funding_source_choice: "",
     annual_income_min: stringValue(initialIdentity?.annual_income_min),
     annual_income_max: stringValue(initialIdentity?.annual_income_max),
     liquid_net_worth_min: stringValue(initialIdentity?.liquid_net_worth_min),
@@ -176,6 +188,28 @@ export default function IdentityPage({
     }));
   }
 
+  function addFundingSource() {
+    const nextFundingSource = identity.funding_source_choice;
+    if (!nextFundingSource || identity.funding_source.includes(nextFundingSource)) {
+      return;
+    }
+
+    setIdentity((currentIdentity) => ({
+      ...currentIdentity,
+      funding_source: [...currentIdentity.funding_source, nextFundingSource],
+      funding_source_choice: "",
+    }));
+  }
+
+  function removeFundingSource(fundingSource) {
+    setIdentity((currentIdentity) => ({
+      ...currentIdentity,
+      funding_source: currentIdentity.funding_source.filter(
+        (currentFundingSource) => currentFundingSource !== fundingSource
+      ),
+    }));
+  }
+
   function handleIdentitySubmit(event) {
     event.preventDefault();
     setValidationError("");
@@ -194,7 +228,7 @@ export default function IdentityPage({
       visa_type: stringValue(identity.visa_type).trim(),
       visa_expiration_date: stringValue(identity.visa_expiration_date).trim(),
       date_of_departure_from_usa: stringValue(identity.date_of_departure_from_usa).trim(),
-      funding_source: stringValue(identity.funding_source).trim(),
+      funding_source: normalizeFundingSources(identity.funding_source),
       annual_income_min: stringValue(identity.annual_income_min).trim(),
       annual_income_max: stringValue(identity.annual_income_max).trim(),
       liquid_net_worth_min: stringValue(identity.liquid_net_worth_min).trim(),
@@ -204,7 +238,10 @@ export default function IdentityPage({
     };
 
     const hasMissingRequiredField = requiredIdentityFields.some(
-      (fieldName) => !trimmedIdentity[fieldName]
+      (fieldName) =>
+        fieldName === "funding_source"
+          ? trimmedIdentity.funding_source.length === 0
+          : !trimmedIdentity[fieldName]
     );
 
     if (hasMissingRequiredField) {
@@ -472,19 +509,52 @@ export default function IdentityPage({
             <label htmlFor="identity-funding-source">
               Funding source <span className="required-marker">*</span>
             </label>
-            <select
-              id="identity-funding-source"
-              value={identity.funding_source}
-              onChange={(event) => updateIdentity("funding_source", event.target.value)}
-              required
-            >
-              <option value="">Select funding source</option>
-              {fundingSourceOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="appendable-select-row">
+              <select
+                id="identity-funding-source"
+                value={identity.funding_source_choice}
+                onChange={(event) => updateIdentity("funding_source_choice", event.target.value)}
+              >
+                <option value="">Select funding source</option>
+                {fundingSourceOptions
+                  .filter((option) => !identity.funding_source.includes(option.value))
+                  .map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                className="secondary-button appendable-add-button"
+                onClick={addFundingSource}
+                disabled={!identity.funding_source_choice}
+              >
+                Add
+              </button>
+            </div>
+            {identity.funding_source.length > 0 ? (
+              <div className="selected-pill-list" aria-label="Selected funding sources">
+                {identity.funding_source.map((source) => {
+                  const option = fundingSourceOptions.find(
+                    (fundingSourceOption) => fundingSourceOption.value === source
+                  );
+
+                  return (
+                    <span key={source} className="selected-pill">
+                      {option?.label || source}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${option?.label || source}`}
+                        onClick={() => removeFundingSource(source)}
+                      >
+                        x
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
 
           <div className="field-group">

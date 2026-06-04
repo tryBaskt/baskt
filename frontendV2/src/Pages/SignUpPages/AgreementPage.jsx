@@ -16,6 +16,11 @@ const agreementOptions = [
     label: "Margin Agreement",
     href: "https://files.alpaca.markets/disclosures/library/MarginDiscStmt.pdf",
   },
+  {
+    value: "crypto_agreement",
+    label: "Crypto Agreement",
+    href: "https://files.alpaca.markets/disclosures/library/Crypto%20Customer%20Agreement.pdf",
+  },
 ];
 
 export default function AgreementPage({

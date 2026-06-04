@@ -170,7 +170,7 @@ class AlpacaBrokerClient:
                 visa_expiration_date=identity_data.get("visa_expiration_date") if "visa_type" in identity_data else None,
                 date_of_departure_from_usa=identity_data.get("date_of_departure_from_usa") if "visa_type" in identity_data else None,
                 permanent_resident=identity_data.get("permanent_resident"),
-                funding_source=[FundingSource(identity_data.get("funding_source"))],
+                funding_source=[FundingSource(source) for source in identity_data.get("funding_source")],
                 annual_income_min=identity_data.get("annual_income_min"),
                 annual_income_max=identity_data.get("annual_income_max"),
                 liquid_net_worth_min=identity_data.get("liquid_net_worth_min"),
@@ -224,7 +224,6 @@ class AlpacaBrokerClient:
             return {
                 "alpaca_account_id": alpaca_account_id,
                 "alpaca_account_number": alpaca_account_number,
-                "email_address": email_address
             }
         
         except Exception as e:

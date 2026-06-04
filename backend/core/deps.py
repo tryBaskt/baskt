@@ -23,7 +23,6 @@ from repository.portfolio_allocation_repository import PortfolioAllocationReposi
 from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
-from repository.user_account_repository import UserAccountRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.account_performance_service import AccountPerformanceService
@@ -104,12 +103,6 @@ def get_user_trade_lock_dynamodb_client() -> DynamoDBClient:
     return DynamoDBClient(table=dynamodb.Table(s.user_trade_lock_dynamodb))
 
 @lru_cache
-def get_user_account_dynamodb_client() -> DynamoDBClient:
-    s = get_settings()
-    dynamodb = get_dynamodb_resource_cached()
-    return DynamoDBClient(table=dynamodb.Table(s.user_account_dynamodb))
-
-@lru_cache
 def get_model_portfolio_update_lock_dynamodb_client() -> DynamoDBClient:
     s = get_settings()
     dynamodb = get_dynamodb_resource_cached()
@@ -185,11 +178,6 @@ def get_user_trade_lock_repository(
 ) -> UserTradeLockRepository:
     return UserTradeLockRepository(dynamodb_client=user_trade_lock_dynamodb_client)
 
-
-def get_user_account_repository(
-    user_account_dynamodb_client: DynamoDBClient = Depends(get_user_account_dynamodb_client)
-) -> UserAccountRepository:
-    return UserAccountRepository(client=user_account_dynamodb_client)
 # -----------------------------
 # Services
 # -----------------------------
@@ -200,12 +188,10 @@ def get_backtest_service(yfinance_client: YFinanceClient = Depends(get_yfinance_
 def get_account_lifecycle_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     cognito_client: CognitoClient = Depends(get_cognito_client),
-    user_account_repository: UserAccountRepository = Depends(get_user_account_repository),
 ) -> AccountLifecycleService:
     return AccountLifecycleService(
         alpaca_broker_client=alpaca_broker_client,
         cognito_client=cognito_client,
-        user_account_repository=user_account_repository,
     )
 
 def get_trade_execution_service(
@@ -229,11 +215,9 @@ def get_trade_execution_service(
 
 def get_account_performance_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    user_account_repository: UserAccountRepository = Depends(get_user_account_repository)
 ) -> AccountPerformanceService:
     return AccountPerformanceService(
         alpaca_broker_client=alpaca_broker_client,
-        user_account_repository=user_account_repository
     )
 
 

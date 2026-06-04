@@ -150,6 +150,50 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.appendable-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.appendable-add-button {
+  min-height: 44px;
+  padding-inline: 1rem;
+}
+
+.selected-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.selected-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(110, 63, 242, 0.18);
+  border-radius: 999px;
+  background: rgba(110, 63, 242, 0.08);
+  color: #4020a8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.38rem 0.42rem 0.38rem 0.68rem;
+}
+
+.selected-pill button {
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(64, 32, 168, 0.12);
+  color: #4020a8;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.76rem;
+  line-height: 1;
+  padding: 0;
+}
+
 .field-hint,
 .field-error {
   margin: 0;
