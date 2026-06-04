@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Dict
+from typing import List, Dict, Any
 from fastapi import HTTPException
 from domain.portfolio_allocation import PortfolioAllocationPosition, PortfolioAllocationSnapshot, PortfolioAllocation
 from domain.model_portfolio import ModelPortfolioSnapshot, ModelPortfolioPosition, DeltaPosition
@@ -17,10 +17,6 @@ from services.account_lifecycle_service import AccountLifecycleService, AccountL
 import uuid
 from math import floor, ceil
 from clients.alpaca_broker_client import AlpacaBrokerClient
-from domain.baskt import BasktAccount
-MARGIN = 0.0007
-EPS = 1e-6
-LOCK_LEASE_SECONDS = 30
 
 class AccountPerformanceService:
     def __init__(
@@ -29,5 +25,14 @@ class AccountPerformanceService:
         alpaca_broker_client: AlpacaBrokerClient,
     ):
         self.alpaca_broker_client = alpaca_broker_client
+
+    def get_account_performance(self, alpaca_account_id: str) -> Dict[str, Dict[str, Any]]:
+
+        account_performance = self.alpaca_broker_client.get_account_performance(alpaca_account_id=alpaca_account_id)
+
+        return account_performance
+
+
+
 
 

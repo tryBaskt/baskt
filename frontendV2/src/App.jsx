@@ -8,6 +8,7 @@ import DisclosurePage from "./Pages/SignUpPages/DisclosurePage";
 import IdentityPage from "./Pages/SignUpPages/IdentityPage";
 import NewPasswordPage from "./Pages/SignUpPages/NewPasswordPage";
 import HomePage from "./Pages/HomePage";
+import BankConnectionPage from "./Pages/BankConnectionPage";
 import MakeBasktPage from "./Pages/MakeBasktPage";
 import MyBasktsPage from "./Pages/MyBasktsPage";
 import BasktPage from "./Pages/BasktPage";
@@ -287,6 +288,8 @@ export default function App() {
     let pageContent = <MakeBasktPage />;
     if (currentPage === "home") {
       pageContent = <HomePage />;
+    } else if (currentPage === "bank-connection") {
+      pageContent = <BankConnectionPage />;
     } else if (currentPage === "my-baskts") {
       pageContent = (
         <MyBasktsPage

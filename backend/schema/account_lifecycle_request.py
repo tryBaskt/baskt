@@ -21,6 +21,9 @@ class CreateAccountLifecycleRequest(BaseModel):
     password: Optional[str] = None
 
 
-class CreateAccountLifecycleResponse(BaseModel):
-    alpaca_account_id: str
-    cognito_username: str
+class CreateACHRelationshipRequest(BaseModel):
+    bank_account_owner_name: str
+    bank_account_type: str
+    bank_account_number: str
+    bank_account_routing_number: str
+    bank_account_nickname: Optional[str] = None

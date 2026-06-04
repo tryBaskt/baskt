@@ -33,7 +33,7 @@ class BacktestServiceCalculationError(BacktestServiceError):
 class BacktestService:
     """Service layer for building and evaluating a basket backtest."""
 
-    def __init__(self, *, market_data: YFinanceClient, periods_per_year: int = 252) -> None:
+    def __init__(self, *, yfinance_client: YFinanceClient, periods_per_year: int = 252) -> None:
         """
         Initialize the backtest service.
 
@@ -44,7 +44,7 @@ class BacktestService:
         Returns:
             None.
         """
-        self.market_data = market_data
+        self.market_data = yfinance_client
         self.periods_per_year = periods_per_year
 
     def run_backtest(

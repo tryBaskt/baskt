@@ -359,6 +359,17 @@ class AlpacaBrokerClient:
                 message=f"Failed to create ACH relationship for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CREATE_ACH_RELATIONSHIP_FAILED",
             )
+        
+
+    def get_ach_relationships(
+        self,
+        *,
+        alpaca_account_id: str
+    ):
+        ach_relationships = self.client.get_ach_relationships_for_account(
+            account_id=alpaca_account_id
+        )
+        return ach_relationships
 
     def create_ach_transfer(
         self,
@@ -714,19 +725,42 @@ class AlpacaBrokerClient:
                 code = "ALPACA_BROKER_GET_ORDER_BY_ID_FAILED"
             )
         
-    def get_portfolio_history_for_account(self, alpaca_account_id: str) -> PortfolioHistory:
+    def get_account_performance(self, alpaca_account_id: str) -> Dict[str, Dict[str, Any]]:
         try:
-            return self.client.get_portfolio_history_for_account(
-                account_id=alpaca_account_id,
-                history_filter=GetPortfolioHistoryRequest(
-                    period="1D",
-                    timeframe="5Min"
+            periods_and_timeframes = [
+                ["1D","5Min"],
+                ["1W", "1H"],
+                ["1M", "1D"],
+                ["3M", "1D"],
+                ["1A", "1D"]
+            ]
+
+            account_performance = {}
+
+            for period, timeframe in periods_and_timeframes:
+
+                portfolio_history = self.client.get_portfolio_history_for_account(
+                    account_id=alpaca_account_id,
+                    history_filter=GetPortfolioHistoryRequest(
+                        period=period,
+                        timeframe=timeframe
+                    )
                 )
-            )
+
+                account_performance[period] = {
+                    "equity": portfolio_history.equity,
+                    "timestamp": portfolio_history.timestamp,
+                    "profit_loss": portfolio_history.profit_loss,
+                    "profit_loss_pct": portfolio_history.profit_loss_pct,
+                    "base_value": portfolio_history.base_value
+                }
+
+            return account_performance
+
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to get portfolio history for alpaca account id '{alpaca_account_id}': {e}",
-                code="ALPACA_BROKER_GET_PORTFOLIO_HISTORY_FAILED",
+                message=f"Failed to get account performance for alpaca account id '{alpaca_account_id}': {e}",
+                code="ALPACA_BROKER_GET_ACCOUNT_PERFORMANCE_FAILED"
             ) from e
 
 

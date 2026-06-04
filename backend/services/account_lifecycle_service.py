@@ -161,6 +161,24 @@ class AccountLifecycleService:
 				message=f"Failed to create ACH relationship for Alpaca account '{alpaca_account_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_ACH_RELATIONSHIP_FAILED",
 			) from err
+		
+	def get_ach_relationship(
+		self,
+		*,
+		alpaca_account_id: str
+	):
+		ach_relationships = self.alpaca_broker_client.get_ach_relationships(alpaca_account_id=alpaca_account_id)
+		return [
+			{
+				"created_at": relationship.created_at.isoformat(),
+				"updated_at": relationship.updated_at.isoformat(),
+				"status": str(relationship.status.name),
+				"account_owner_name": relationship.account_owner_name			
+			}
+			for relationship in ach_relationships
+		]
+
+		
 
 	def create_ach_transfer_request(
 		self,

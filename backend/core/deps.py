@@ -13,8 +13,7 @@ from core.config import Settings, get_settings
 from core.security import CognitoTokenVerifier
 from clients.yfinance_client import YFinanceClient
 from services.backtest_service import BacktestService
-from clients.alpaca_broker_client import AlpacaBrokerClient
-from clients.alpaca_broker_client import AlpacaBrokerClient
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
 from repository.model_portfolio_repository import ModelPortfolioRepository
@@ -26,6 +25,8 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.account_performance_service import AccountPerformanceService
+
+from alpaca.broker.models import Account
 
 # -----------------------------
 # Settings (cached by lru_cache in config.py)
@@ -253,3 +254,54 @@ def get_current_user(
     token = credentials.credentials.strip()
     verifier = get_token_verifier()
     return verifier.verify(token)
+
+
+def get_current_alpaca_account_id(
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> str:
+    alpaca_account_id = user.get("custom:alpaca_acct_id")
+    if not alpaca_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated user does not have an Alpaca account id.",
+        )
+
+    return str(alpaca_account_id)
+
+
+def get_current_alpaca_account(
+    user: Dict[str, Any] = Depends(get_current_user),
+    alpaca_account_id: str = Depends(get_current_alpaca_account_id),
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+) -> Any:
+    cognito_user_id = user.get("sub")
+    if not cognito_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated token is missing Cognito user id.",
+        )
+
+    try:
+        return alpaca_broker_client.get_alpaca_account_by_id(
+            account_id=alpaca_account_id,
+            cognito_user_id=str(cognito_user_id),
+        )
+    except AlpacaBrokerClientError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to verify Alpaca account: {err}",
+        ) from err
+
+
+def get_current_active_alpaca_account(
+    alpaca_account: Account = Depends(get_current_alpaca_account),
+) -> Any:
+    account_status = alpaca_account.status.name.upper()
+
+    if account_status != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Alpaca account must be ACTIVE, APPROVED, or . Current status is '{account_status}'.",
+        )
+
+    return alpaca_account

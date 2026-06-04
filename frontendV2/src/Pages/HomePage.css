@@ -38,6 +38,71 @@
   white-space: nowrap;
 }
 
+.account-period-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.account-period-controls button {
+  border: 1px solid rgba(110, 63, 242, 0.18);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4020a8;
+  font: 700 0.78rem "Plus Jakarta Sans", sans-serif;
+  min-height: 34px;
+  padding: 0.35rem 0.8rem;
+}
+
+.account-period-controls button.is-selected {
+  background: #6e3ff2;
+  border-color: #6e3ff2;
+  color: #ffffff;
+}
+
+.account-period-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.account-performance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.account-performance-metrics div {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fafafa;
+  padding: 0.75rem;
+}
+
+.account-performance-metrics span {
+  display: block;
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.32rem;
+  text-transform: uppercase;
+}
+
+.account-performance-metrics strong {
+  color: #2a2f35;
+  font-size: 1rem;
+}
+
+.account-performance-metrics strong.is-positive {
+  color: #17834f;
+}
+
+.account-performance-metrics strong.is-negative {
+  color: #b42318;
+}
+
 .account-performance-meta,
 .account-performance-error {
   margin: 0;
@@ -80,5 +145,9 @@
   .account-performance-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .account-performance-metrics {
+    grid-template-columns: 1fr;
   }
 }

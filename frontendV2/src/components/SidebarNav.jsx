@@ -2,6 +2,7 @@ export default function SidebarNav({ onLogout, currentPage, onSelectPage }) {
   const isHomeActive = currentPage === "home";
   const isMakeBasktActive = currentPage === "make-baskt";
   const isMyBasktsActive = currentPage === "my-baskts";
+  const isBankConnectionActive = currentPage === "bank-connection";
 
   return (
     <aside className="home-sidebar" aria-label="Primary navigation">
@@ -47,6 +48,20 @@ export default function SidebarNav({ onLogout, currentPage, onSelectPage }) {
             </svg>
           </span>
           <span>My Baskts</span>
+        </button>
+
+        <button
+          type="button"
+          className={`home-nav-button${isBankConnectionActive ? " is-active" : ""}`}
+          aria-current={isBankConnectionActive ? "page" : undefined}
+          onClick={() => onSelectPage("bank-connection")}
+        >
+          <span className="home-nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M4 9.25L12 4l8 5.25V11H4V9.25zm2 3.25h2v5H6v-5zm5 0h2v5h-2v-5zm5 0h2v5h-2v-5zM4.75 19h14.5v1.5H4.75V19z" />
+            </svg>
+          </span>
+          <span>Connect to your Bank</span>
         </button>
       </nav>
       <button type="button" className="home-logout" onClick={onLogout}>
