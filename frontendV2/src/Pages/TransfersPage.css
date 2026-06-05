@@ -1,4 +1,4 @@
-.bank-connection-page {
+.transfers-page {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -6,7 +6,7 @@
   min-height: 0;
 }
 
-.bank-connection-panel {
+.transfers-panel {
   width: 100%;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 14px;
@@ -14,15 +14,15 @@
   padding: 1rem;
 }
 
-.bank-connection-header {
+.transfers-header {
   margin-bottom: 1rem;
 }
 
-.bank-connection-header h1 {
+.transfers-header h1 {
   margin: 0;
 }
 
-.bank-connection-list-header {
+.transfers-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -30,47 +30,47 @@
   margin-bottom: 1rem;
 }
 
-.bank-connection-list-header h2 {
+.transfers-list-header h2 {
   margin: 0;
   color: #2a2f35;
   font-size: 1.1rem;
 }
 
-.bank-connection-form {
+.transfers-form {
   display: grid;
   gap: 1rem;
 }
 
-.bank-connection-grid {
+.transfers-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem 1rem;
 }
 
-.bank-connection-actions {
+.transfers-actions {
   display: flex;
   justify-content: flex-end;
 }
 
-.bank-connection-success,
-.bank-connection-error {
+.transfers-success,
+.transfers-error {
   margin: 0 0 1rem;
   padding: 0.8rem;
   border-radius: 10px;
   font-weight: 700;
 }
 
-.bank-connection-success {
+.transfers-success {
   background: rgba(23, 131, 79, 0.1);
   color: #17834f;
 }
 
-.bank-connection-error {
+.transfers-error {
   background: #f7e4e8;
   color: #a1111d;
 }
 
-.bank-connection-result {
+.transfers-result {
   display: grid;
   gap: 0.25rem;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -80,7 +80,7 @@
   padding: 0.8rem;
 }
 
-.bank-connection-result span {
+.transfers-result span {
   color: rgba(0, 0, 0, 0.48);
   font-size: 0.74rem;
   font-weight: 800;
@@ -88,13 +88,13 @@
   text-transform: uppercase;
 }
 
-.bank-connection-result strong {
+.transfers-result strong {
   color: #2a2f35;
   font-size: 0.95rem;
   overflow-wrap: anywhere;
 }
 
-.bank-connection-muted {
+.transfers-muted {
   margin: 0;
   border-radius: 10px;
   background: rgba(110, 63, 242, 0.08);
@@ -152,11 +152,11 @@
 }
 
 @media (max-width: 700px) {
-  .bank-connection-grid {
+  .transfers-grid {
     grid-template-columns: 1fr;
   }
 
-  .bank-connection-list-header,
+  .transfers-list-header,
   .bank-relationship-item {
     align-items: stretch;
     grid-template-columns: 1fr;

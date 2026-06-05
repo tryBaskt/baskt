@@ -9,6 +9,7 @@ from core.deps import get_account_lifecycle_service, get_current_active_alpaca_a
 from schema.account_lifecycle_request import (
 	CreateACHRelationshipRequest,
 	CreateAccountLifecycleRequest,
+	CreatePlaidRelationshipRequest
 )
 from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceError
 
@@ -56,22 +57,38 @@ def create_baskt_account(
 
 @router.post("/create-ach-relationships", status_code=HTTP_201_CREATED)
 def create_ach_relationship(
-	request: CreateACHRelationshipRequest,
+	request: CreateACHRelationshipRequest | CreatePlaidRelationshipRequest,
 	user: Dict[str, Any] = Depends(get_current_user),
 	alpaca_account: Any = Depends(get_current_active_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> Dict[str, Any]:
-	alpaca_account_id = str(alpaca_account.id)
 	cognito_user_id = user["sub"]
+	alpaca_account_id = user["custom:alpaca_acct_id"]
 	try:
+		if isinstance(request, CreatePlaidRelationshipRequest):
+			ach_relationship_data = {
+				"processor_token": request.processor_token
+			}
+			ach_relationship = service.create_ach_relationship(
+				alpaca_account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id,
+				ach_relationship_data=ach_relationship_data,
+				is_plaid=True
+			)
+			return _to_response_dict(ach_relationship)
+		
+		ach_relationship_data = {
+			"account_owner_name": request.account_owner_name,
+			"bank_account_type": request.bank_account_type,
+			"bank_account_number": request.bank_account_number,
+			"bank_routing_number": request.bank_routing_number,
+			"nickname": request.nickname
+		}
 		ach_relationship = service.create_ach_relationship(
 			alpaca_account_id=alpaca_account_id,
 			cognito_user_id=cognito_user_id,
-			account_owner_name=request.bank_account_owner_name,
-			bank_account_type=request.bank_account_type,
-			bank_account_number=request.bank_account_number,
-			bank_routing_number=request.bank_account_routing_number,
-			nickname=request.bank_account_nickname,
+			ach_relationship_data=ach_relationship_data,
+			is_plaid=False
 		)
 		return _to_response_dict(ach_relationship)
 	except Exception as err:
@@ -85,9 +102,12 @@ def get_ach_relationships(
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> List[Dict[str, Any]]:
 	try:
-		alpaca_account_id = str(alpaca_account.id)
-		return service.get_ach_relationship(alpaca_account_id=alpaca_account_id)
+		cognito_user_id = user["sub"]
+		alpaca_account_id = user["custom:alpaca_acct_id"]
+		return service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
+
+	
 

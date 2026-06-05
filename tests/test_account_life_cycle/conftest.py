@@ -162,6 +162,35 @@ class TestEngine:
         assert baskt_account_by_email.alpaca_account_status.name == "ACTIVE"
         assert baskt_account_by_email.cognito_enabled_status is True
         return baskt_account_by_email
+    
+    def test_create_ach_relationship(self, alpaca_account_id: str, cognito_user_id: str, ):
+        ach_relationship_data = {
+            "account_owner_name": "baskt_testuser_46ec47e2",
+            "bank_account_type": "checking",
+            "bank_account_number": "123456789",
+            "bank_routing_number": "121000358",
+            "nickname": "Sandbox Checking"
+        }
+        ach_relationship = self.account_lifecycle_service.create_ach_relationship(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            ach_relationship_data=ach_relationship_data,
+            is_plaid=False
+        )
+
+        assert ach_relationship.status.name.upper() == "QUEUED"
+        assert str(ach_relationship.account_id) == alpaca_account_id
+        assert ach_relationship.account_owner_name == ach_relationship_data["account_owner_name"]
+        assert ach_relationship.bank_account_type.name.upper() == ach_relationship_data["bank_account_type"].upper()
+        assert ach_relationship.bank_account_number == ach_relationship_data["bank_account_number"]
+        assert ach_relationship.bank_routing_number == ach_relationship_data["bank_routing_number"]
+
+        return str(ach_relationship.id)
+
+    def test_get_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
+        return self.account_lifecycle_service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+
+
 
     def fund_baskt_account(
         self,

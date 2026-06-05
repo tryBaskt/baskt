@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import "./BankConnectionPage.css";
+import "./TransfersPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -25,7 +25,7 @@ function responseValue(response, key) {
   return response[key] ?? null;
 }
 
-export default function BankConnectionPage() {
+export default function TransfersPage() {
   const [bankRelationship, setBankRelationship] = useState(defaultBankRelationship);
   const [achRelationships, setAchRelationships] = useState([]);
   const [isLoadingRelationships, setIsLoadingRelationships] = useState(true);
@@ -122,18 +122,18 @@ export default function BankConnectionPage() {
   }
 
   return (
-    <section className="bank-connection-page" aria-labelledby="bank-connection-title">
-      <div className="bank-connection-panel">
-        <header className="bank-connection-header">
-          <h1 id="bank-connection-title">Connect to your Bank</h1>
+    <section className="transfers-page" aria-labelledby="transfers-title">
+      <div className="transfers-panel">
+        <header className="transfers-header">
+          <h1 id="transfers-title">Transfers</h1>
         </header>
 
-        {successMessage ? <p className="bank-connection-success">{successMessage}</p> : null}
-        {errorMessage ? <p className="bank-connection-error">{errorMessage}</p> : null}
-        {validationError ? <p className="bank-connection-error">{validationError}</p> : null}
+        {successMessage ? <p className="transfers-success">{successMessage}</p> : null}
+        {errorMessage ? <p className="transfers-error">{errorMessage}</p> : null}
+        {validationError ? <p className="transfers-error">{validationError}</p> : null}
 
-        <form className="bank-connection-form" onSubmit={handleBankRelationshipSubmit}>
-          <div className="bank-connection-grid">
+        <form className="transfers-form" onSubmit={handleBankRelationshipSubmit}>
+          <div className="transfers-grid">
             <div className="field-group">
               <label htmlFor="bank-owner-name">
                 Account owner name <span className="required-marker">*</span>
@@ -202,7 +202,7 @@ export default function BankConnectionPage() {
             </div>
           </div>
 
-          <div className="bank-connection-actions">
+          <div className="transfers-actions">
             <button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Connecting..." : "Connect Bank"}
             </button>
@@ -210,24 +210,24 @@ export default function BankConnectionPage() {
         </form>
 
         {createdRelationship ? (
-          <div className="bank-connection-result">
+          <div className="transfers-result">
             <span>Relationship ID</span>
             <strong>{responseValue(createdRelationship, "id") || "-"}</strong>
           </div>
         ) : null}
       </div>
 
-      <div className="bank-connection-panel">
-        <header className="bank-connection-list-header">
+      <div className="transfers-panel">
+        <header className="transfers-list-header">
           <h2>ACH Relationships</h2>
           <button type="button" className="secondary-button" onClick={fetchAchRelationships}>
             Refresh
           </button>
         </header>
 
-        {isLoadingRelationships ? <p className="bank-connection-muted">Loading ACH relationships...</p> : null}
+        {isLoadingRelationships ? <p className="transfers-muted">Loading ACH relationships...</p> : null}
         {!isLoadingRelationships && achRelationships.length === 0 ? (
-          <p className="bank-connection-muted">No ACH relationships connected.</p>
+          <p className="transfers-muted">No ACH relationships connected.</p>
         ) : null}
 
         {achRelationships.length > 0 ? (

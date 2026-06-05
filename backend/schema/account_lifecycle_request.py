@@ -22,8 +22,11 @@ class CreateAccountLifecycleRequest(BaseModel):
 
 
 class CreateACHRelationshipRequest(BaseModel):
-    bank_account_owner_name: str
+    account_owner_name: str
     bank_account_type: str
     bank_account_number: str
-    bank_account_routing_number: str
-    bank_account_nickname: Optional[str] = None
+    bank_routing_number: str
+    nickname: Optional[str] = None
+
+class CreatePlaidRelationshipRequest(BaseModel):
+    processor_token: str
