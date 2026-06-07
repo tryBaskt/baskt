@@ -6,8 +6,8 @@ from typing import Any, List, Dict
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
-from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest, CreateBankRequest, CreateBankTransferRequest, CreatePlaidRelationshipRequest
-from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType, IdentifierType, TransferType
+from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest, CreateBankRequest, CreateBankTransferRequest, CreatePlaidRelationshipRequest, GetTransfersRequest
+from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType, IdentifierType
 from alpaca.broker.models import (
     Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Bank, Transfer, TradeAccount, 
     AccountDocument, TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
@@ -304,32 +304,38 @@ class AlpacaBrokerClient:
         nickname: str | None = None
     ) -> ACHRelationship:
         """
-        Create an ACH bank relationship for an Alpaca broker account.
+        Create a direct ACH relationship for an Alpaca broker account.
 
         Args:
             cognito_user_id: Cognito user ID used for error context.
             alpaca_account_id: Alpaca broker account ID that owns the ACH
                 relationship.
-            ach_relationship_data: Input data for the ACH relationship. For
-                direct ACH relationships, expected keys are account_owner_name,
-                bank_account_type, bank_account_number, bank_routing_number,
-                and optional nickname. For Plaid relationships, expected key
-                is processor_token.
-            is_plaid: True to create the ACH relationship from a Plaid
-                processor token. False to create it from direct bank account
-                and routing details.
+            account_owner_name: Name of the bank account owner.
+            bank_account_type: Bank account type, such as CHECKING or SAVINGS.
+            bank_account_number: External bank account number.
+            bank_routing_number: External bank routing number.
+            nickname: Optional nickname for the ACH relationship.
 
         Returns:
-            ACHRelationship: Alpaca ACH relationship response
-            returned by the broker API.
+            ACHRelationship: Alpaca ACH relationship response.
 
         Raises:
-            AlpacaBrokerClientError: If required input is missing, direct bank
-            account data or Plaid processor token data is invalid, Alpaca
-            rejects the ACH relationship request, the network request fails,
-            or any unexpected error occurs.
+            AlpacaBrokerClientError: If required input is missing, enum values
+            are invalid, Alpaca rejects the ACH relationship request, the
+            network request fails, or any unexpected error occurs.
         """
         try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if not account_owner_name:
+                raise ValueError("account_owner_name is required")
+            if not bank_account_type:
+                raise ValueError("bank_account_type is required")
+            if not bank_account_number:
+                raise ValueError("bank_account_number is required")
+            if not bank_routing_number:
+                raise ValueError("bank_routing_number is required")
+
             request = CreateACHRelationshipRequest(
                 account_owner_name=account_owner_name,
                 bank_account_type=BankAccountType(bank_account_type.upper()),
@@ -349,7 +355,52 @@ class AlpacaBrokerClient:
             ) from e
         
 
-    def get_all_ach_relationships(
+    def create_plaid_ach_relationship(
+        self,
+        *,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        processor_token: str
+    ) -> ACHRelationship:
+        """
+        Create an ACH relationship from a Plaid processor token.
+
+        Args:
+            cognito_user_id: Cognito user ID used for error context.
+            alpaca_account_id: Alpaca broker account ID that owns the ACH
+                relationship.
+            processor_token: Plaid processor token created for Alpaca.
+
+        Returns:
+            ACHRelationship: Alpaca ACH relationship response.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, Alpaca
+            rejects the Plaid ACH relationship request, the network request
+            fails, or any unexpected error occurs.
+        """
+        try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if not processor_token:
+                raise ValueError("processor_token is required")
+
+            request = CreatePlaidRelationshipRequest(
+                processor_token=processor_token
+            )
+
+            return self.client.create_ach_relationship_for_account(
+                account_id=alpaca_account_id,
+                ach_data=request
+            )
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to create Plaid ACH relationship for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_CREATE_PLAID_ACH_RELATIONSHIP_FAILED",
+            ) from e
+        
+
+    def get_ach_relationships(
         self,
         *,
         cognito_user_id: str,
@@ -359,19 +410,22 @@ class AlpacaBrokerClient:
         Get ACH relationships for an Alpaca broker account.
 
         Args:
+            cognito_user_id: Cognito user ID used for error context.
             alpaca_account_id: Alpaca broker account ID whose ACH
                 relationships should be fetched.
 
         Returns:
-            List[ACHRelationship]: ACH relationship records returned by
-            Alpaca for the broker account.
+            List[ACHRelationship]: ACH relationships returned by Alpaca.
 
         Raises:
             AlpacaBrokerClientError: If alpaca_account_id is missing, Alpaca
-            rejects the ACH relationship lookup, the network request fails, or
-            any unexpected error occurs.
+            rejects the lookup, the network request fails, or any unexpected
+            error occurs.
         """
         try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+
             return self.client.get_ach_relationships_for_account(
                 account_id=alpaca_account_id
             )
@@ -381,8 +435,48 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_GET_ACH_RELATIONSHIPS_FAILED",
             ) from e
         
+    def delete_ach_relationship(
+        self,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        ach_relationship_id: str
+    ) -> None:
+        """
+        Delete an ACH relationship from an Alpaca broker account.
 
-    def create_direct_ach_transfer(
+        Args:
+            cognito_user_id: Cognito user ID used for error context.
+            alpaca_account_id: Alpaca broker account ID that owns the ACH
+                relationship.
+            ach_relationship_id: ACH relationship ID to delete.
+
+        Returns:
+            None.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, Alpaca
+            rejects the delete request, the network request fails, or any
+            unexpected error occurs.
+        """
+        try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if not ach_relationship_id:
+                raise ValueError("ach_relationship_id is required")
+
+            self.client.delete_ach_relationship_for_account(
+                account_id=alpaca_account_id,
+                ach_relationship_id=ach_relationship_id
+            )
+        
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to delete ACH Relationship '{ach_relationship_id}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_DELETE_ACH_RELATIONSHIP_FAILED"
+            ) from e 
+        
+
+    def create_ach_transfer(
         self,
         *,
         alpaca_account_id: str,
@@ -392,13 +486,42 @@ class AlpacaBrokerClient:
         timing: str,
         relationship_id: str,
         fee_payment_method: str | None = None,
-    ) -> Transfer: 
+    ) -> Transfer:
         """
+        Create a direct ACH transfer for an Alpaca broker account.
+
+        Args:
+            alpaca_account_id: Alpaca broker account ID that owns the transfer.
+            cognito_user_id: Cognito user ID used for error context.
+            amount: Transfer amount. Converted to a string for Alpaca.
+            direction: Transfer direction, such as INCOMING or OUTGOING.
+            timing: Transfer timing, such as IMMEDIATE.
+            relationship_id: ACH relationship ID to use for the transfer.
+            fee_payment_method: Optional fee payment method, such as USER or
+                INVOICE.
+
+        Returns:
+            Transfer | Dict[str, Any]: Alpaca transfer response.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, enum values
+            are invalid, Alpaca rejects the transfer request, the network
+            request fails, or any unexpected error occurs.
         """
         try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if amount is None:
+                raise ValueError("amount is required")
+            if not direction:
+                raise ValueError("direction is required")
+            if not timing:
+                raise ValueError("timing is required")
+            if not relationship_id:
+                raise ValueError("relationship_id is required")
 
             request = CreateACHTransferRequest(
-                amount=amount,
+                amount=str(amount),
                 direction=TransferDirection(direction.upper()),
                 timing=TransferTiming(timing.lower()),
                 fee_payment_method=FeePaymentMethod(fee_payment_method.lower()) if fee_payment_method else None,
@@ -413,7 +536,7 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to create ach transfer for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
-                code="ALPACA_BROKER_CREATE_TRANSFER",
+                code="ALPACA_BROKER_CREATE_ACH_TRANSFER_FAILED",
             ) from e
         
     
@@ -433,9 +556,43 @@ class AlpacaBrokerClient:
         street_address: str | None = None
     ) -> Bank:
         """
+        Create a bank relationship for an Alpaca broker account.
+
+        Args:
+            cognito_user_id: Cognito user ID used for error context.
+            alpaca_account_id: Alpaca broker account ID that owns the bank
+                relationship.
+            name: Bank name.
+            bank_code_type: Bank identifier type, such as ABA or BIC.
+            bank_code: Bank identifier value. For ABA, this is the routing
+                number.
+            account_number: External bank account number.
+            country: Optional bank country.
+            state_province: Optional bank state or province.
+            postal_code: Optional bank postal code.
+            city: Optional bank city.
+            street_address: Optional bank street address.
+
+        Returns:
+            Bank: Alpaca bank relationship response.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, enum values
+            are invalid, Alpaca rejects the bank request, the network request
+            fails, or any unexpected error occurs.
         """
         try:
-                
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if not name:
+                raise ValueError("name is required")
+            if not bank_code_type:
+                raise ValueError("bank_code_type is required")
+            if not bank_code:
+                raise ValueError("bank_code is required")
+            if not account_number:
+                raise ValueError("account_number is required")
+
             request = CreateBankRequest(
                 name=name,
                 bank_code_type=IdentifierType(bank_code_type.upper()),
@@ -474,13 +631,12 @@ class AlpacaBrokerClient:
                 relationships should be fetched.
 
         Returns:
-            List[Bank]: Bank relationship records returned by Alpaca for the
-            broker account.
+            List[Bank]: Bank relationships returned by Alpaca.
 
         Raises:
             AlpacaBrokerClientError: If alpaca_account_id is missing, Alpaca
-            rejects the bank relationship lookup, the network request fails, or
-            any unexpected error occurs.
+            rejects the lookup, the network request fails, or any unexpected
+            error occurs.
         """
         try:
             if not alpaca_account_id:
@@ -494,6 +650,47 @@ class AlpacaBrokerClient:
                 message=f"Failed to get banks for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_GET_BANKS_FAILED",
             ) from e
+        
+
+    def delete_bank(
+        self,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        bank_id: str
+    ) -> None:
+        """
+        Delete a bank relationship from an Alpaca broker account.
+
+        Args:
+            cognito_user_id: Cognito user ID used for error context.
+            alpaca_account_id: Alpaca broker account ID that owns the bank
+                relationship.
+            bank_id: Bank relationship ID to delete.
+
+        Returns:
+            None.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, Alpaca
+            rejects the delete request, the network request fails, or any
+            unexpected error occurs.
+        """
+        try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if not bank_id:
+                raise ValueError("bank_id is required")
+
+            self.client.delete_bank_for_account(
+                account_id=alpaca_account_id,
+                bank_id=bank_id
+            )
+        
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to delete bank '{bank_id}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_DELETE_BANK_FAILED"
+            ) from e
 
     def create_bank_transfer(
         self,
@@ -506,16 +703,46 @@ class AlpacaBrokerClient:
         bank_id: str,
         fee_payment_method: str | None = None,
         additional_information: str | None = None
-    ) -> Transfer: 
+    ) -> Transfer:
         """
+        Create a wire transfer for an Alpaca broker account.
+
+        Args:
+            alpaca_account_id: Alpaca broker account ID that owns the transfer.
+            cognito_user_id: Cognito user ID used for error context.
+            amount: Transfer amount. Converted to a string for Alpaca.
+            direction: Transfer direction, such as INCOMING or OUTGOING.
+            timing: Transfer timing, such as IMMEDIATE.
+            bank_id: Bank relationship ID to use for the wire transfer.
+            fee_payment_method: Optional fee payment method, such as USER or
+                INVOICE.
+            additional_information: Optional wire transfer instructions.
+
+        Returns:
+            Transfer | Dict[str, Any]: Alpaca transfer response.
+
+        Raises:
+            AlpacaBrokerClientError: If required input is missing, enum values
+            are invalid, Alpaca rejects the transfer request, the network
+            request fails, or any unexpected error occurs.
         """
         try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if amount is None:
+                raise ValueError("amount is required")
+            if not direction:
+                raise ValueError("direction is required")
+            if not timing:
+                raise ValueError("timing is required")
+            if not bank_id:
+                raise ValueError("bank_id is required")
 
             request = CreateBankTransferRequest(
-                amount=amount,
+                amount=str(amount),
                 direction=TransferDirection(direction.upper()),
-                timing=TransferTiming(timing.upper()),
-                fee_payment_method=FeePaymentMethod(fee_payment_method.upper()) if fee_payment_method else None,
+                timing=TransferTiming(timing.lower()),
+                fee_payment_method=FeePaymentMethod(fee_payment_method.lower()) if fee_payment_method else None,
                 bank_id=bank_id,
                 additional_information=additional_information
             )
@@ -528,7 +755,56 @@ class AlpacaBrokerClient:
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to create bank transfer for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
-                code="ALPACA_BROKER_CREATE_TRANSFER",
+                code="ALPACA_BROKER_CREATE_BANK_TRANSFER_FAILED",
+            ) from e
+        
+
+    def get_transfers(
+        self,
+        *,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> List[Transfer]:
+        """
+        Get all transfers for an Alpaca broker account.
+
+        Args:
+            cognito_user_id: Cognito user ID used for error context.
+            alpaca_account_id: Alpaca broker account ID whose transfers should
+                be fetched.
+            limit: Optional maximum number of transfer records to fetch.
+            offset: Number of transfer records to skip before returning
+                results.
+
+        Returns:
+            List[Transfer]: Transfer records returned by Alpaca for the broker
+            account.
+
+        Raises:
+            AlpacaBrokerClientError: If alpaca_account_id is missing, Alpaca
+            rejects the lookup, the network request fails, or any unexpected
+            error occurs.
+        """
+        try:
+            if not alpaca_account_id:
+                raise ValueError("alpaca_account_id is required")
+            if limit is not None and limit < 1:
+                raise ValueError("limit must be greater than 0")
+            if offset < 0:
+                raise ValueError("offset must be greater than or equal to 0")
+
+            transfers_filter = GetTransfersRequest(limit=limit, offset=offset)
+
+            return self.client.get_transfers_for_account(
+                account_id=alpaca_account_id,
+                transfers_filter=transfers_filter,
+            )
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get transfers for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_GET_TRANSFERS_FAILED",
             ) from e
             
         

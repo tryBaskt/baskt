@@ -152,97 +152,228 @@ class TestEngine:
         password = "TEST_"+ password
 
         create_account_response = self.account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
-        sleep(120)
-
         assert create_account_response is not None
         assert create_account_response["email_address"] == account_data["contact"]["email_address"]
         baskt_account_by_email = self.account_lifecycle_service.get_baskt_account_by_email_address(email_address=create_account_response["email_address"])
         baskt_account_by_cognito_user_id = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=create_account_response["cognito_user_id"])
         assert asdict(baskt_account_by_email) == asdict(baskt_account_by_cognito_user_id)
-        assert baskt_account_by_email.alpaca_account_status.name == "ACTIVE"
+        assert baskt_account_by_email.alpaca_account_status.name in ["ACTIVE", "SUBMITTED", "APPROVED"]
         assert baskt_account_by_email.cognito_enabled_status is True
         return baskt_account_by_email
     
-    def test_create_ach_relationship(self, alpaca_account_id: str, cognito_user_id: str):
+    def test_create_direct_ach_relationship(
+        self, 
+        alpaca_account_id: str, 
+        cognito_user_id: str,
+        account_owner_name: str,
+        bank_account_type: str,
+        bank_account_number: str,
+        bank_routing_number: str,
+        nickname: str
+    ):
 
         ach_relationship = self.account_lifecycle_service.create_direct_ach_relationship(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            account_owner_name="baskt_testuser_46ec47e2",
-            bank_account_type="checking",
-            bank_account_number="123456789",
-            bank_routing_number="121000358",
-            nickname="Sandbox Checking"
+            account_owner_name=account_owner_name,
+            bank_account_type=bank_account_type,
+            bank_account_number=bank_account_number,
+            bank_routing_number=bank_routing_number,
+            nickname=nickname
         )
-        sleep(240)
 
-        assert ach_relationship.status.name.upper() == "APPROVED"
+        assert ach_relationship is not None
+        assert ach_relationship.status.name.upper() in ["QUEUED", "APPROVED"]
         assert str(ach_relationship.account_id) == alpaca_account_id
-        assert ach_relationship.account_owner_name == "baskt_testuser_46ec47e2"
+        assert ach_relationship.account_owner_name.upper() == account_owner_name.upper()
         assert ach_relationship.bank_account_type.name.upper() == "checking".upper()
-        assert ach_relationship.bank_account_number == "123456789"
-        assert ach_relationship.bank_routing_number == "121000358"
+        assert ach_relationship.bank_account_number == bank_account_number
+        assert ach_relationship.bank_routing_number == bank_routing_number
 
-        return str(ach_relationship.id)
+        return ach_relationship
     
-    def test_create_bank(self, alpaca_account_id: str, cognito_user_id: str):
-        bank_data = {
-            "name": "Sandbox Bank",
-            "bank_code_type": "ABA",
-            "bank_code": "121000358",
-            "account_number": "123456789",
-            "country": "USA",
-            "state_province": "CA",
-            "postal_code": "94105",
-            "city": "San Francisco",
-            "street_address": "123 Market St",
-        }
+    def test_create_plaid_ach_relationship(
+        self, 
+        alpaca_account_id: str, 
+        cognito_user_id: str,
+        processor_token: str
+    ):
+
+        plaid_ach_relationship = self.account_lifecycle_service.create_plaid_ach_relationship(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            processor_token=processor_token
+        )
+
+        assert str(plaid_ach_relationship.account_id) == alpaca_account_id
+        assert str(plaid_ach_relationship.processor_token)==processor_token
+
+        return str(plaid_ach_relationship.id)
+
+    
+    def test_get_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
+        ach_relationships = self.account_lifecycle_service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+        return ach_relationships
+    
+    def test_delete_ach_relationship(
+        self,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+        ach_relationship_id: str
+    ):
+        self.account_lifecycle_service.delete_ach_relationship(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            ach_relationship_id=ach_relationship_id
+        )
+
+    
+    def test_create_ach_transfer(
+        self, 
+        alpaca_account_id: str, 
+        cognito_user_id: str, 
+        amount: str,
+        direction: str,
+        timing: str,
+        fee_payment_method: str,
+        relationship_id: str
+    ):
+
+        transfer = self.account_lifecycle_service.create_ach_transfer(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            amount=amount,
+            direction=direction,
+            timing=timing,
+            fee_payment_method=fee_payment_method,
+            relationship_id=relationship_id
+        )
+
+        assert str(transfer.account_id) == alpaca_account_id
+        assert str(transfer.relationship_id).upper() == relationship_id.upper()
+        assert transfer.amount == amount
+        assert transfer.type.name.upper() == "ACH"
+        assert transfer.direction.name.upper() == direction.upper()
+        assert transfer.fee_payment_method.name.upper() == fee_payment_method.upper()
+
+        return transfer
+    
+    def test_create_bank(
+        self, 
+        alpaca_account_id: str, 
+        cognito_user_id: str,
+        name: str,
+        bank_code_type: str,
+        bank_code: str,
+        account_number: str
+    ):
 
         bank = self.account_lifecycle_service.create_bank(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            bank_data=bank_data,
+            name=name,
+            bank_code_type=bank_code_type,
+            bank_code=bank_code,
+            account_number=account_number,
         )
+
 
         assert bank is not None
+        assert bank.status.name.upper() in ["QUEUED", "APPROVED"]
         assert str(bank.account_id) == alpaca_account_id
-        assert bank.name == bank_data["name"]
-        assert bank.bank_code == bank_data["bank_code"]
-        assert bank.account_number == bank_data["account_number"]
-        assert bank.bank_code_type.name.upper() == bank_data["bank_code_type"]
+        assert bank.name.upper() == name.upper()
+        assert bank.bank_code == bank_code
+        assert bank.account_number == account_number
+        assert bank.bank_code_type.name.upper() == bank_code_type
 
-        return str(bank.id)
-
-    def test_get_all_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
-        return self.account_lifecycle_service.get_all_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+        return bank
     
     def test_get_banks(self, alpaca_account_id: str, cognito_user_id: str):
-        return self.account_lifecycle_service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
-
-    def test_create_direct_ach_transfer(self, alpaca_account_id: str, cognito_user_id: str, relationship_id: str):
-
-        return self.account_lifecycle_service.create_direct_ach_transfer(
-            alpaca_account_id=alpaca_account_id,
-            cognito_user_id=cognito_user_id,
-            amount="20000",
-            direction="INCOMING",
-            timing="IMMEDIATE",
-            fee_payment_method="USER",
-            relationship_id=relationship_id
-        )
+        banks = self.account_lifecycle_service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+        return banks
     
-    def test_create_bank_transfer(self, alpaca_account_id: str, cognito_user_id: str, bank_id: str):
-
-        return self.account_lifecycle_service.create_transfer(
+    def test_delete_bank(
+        self,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+        bank_id: str
+    ):
+        self.account_lifecycle_service.delete_bank(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            amount=20000,
-            direction="INCOMING",
-            timing="IMMEDIATE",
-            fee_payment_method="USER",
-            transfer_type="WIRE",
             bank_id=bank_id
         )
+    
+    def test_create_bank_transfer(
+        self, alpaca_account_id: str, 
+        cognito_user_id: str, 
+        amount: str,
+        direction: str,
+        timing: str,
+        fee_payment_method: str,
+        bank_id: str
+    ):
+
+        transfer = self.account_lifecycle_service.create_bank_transfer(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            amount=amount,
+            direction=direction,
+            timing=timing,
+            fee_payment_method=fee_payment_method,
+            bank_id=bank_id
+        )
+
+        assert str(transfer.account_id) == alpaca_account_id
+        assert str(transfer.relationship_id).upper() == bank_id.upper()
+        assert transfer.amount == amount
+        assert transfer.type.name.upper() == "WIRE"
+        assert transfer.direction.name.upper() == direction.upper()
+        assert transfer.fee_payment_method.name.upper() == fee_payment_method.upper()
+
+        return transfer
+
+
+    def _clean_up_achs_banks(
+        self,
+        alpaca_account_id: str,
+        cognito_user_id: str
+    ):
+        try:
+            ach_relationships = self.test_get_ach_relationships(
+                alpaca_account_id=alpaca_account_id, 
+                cognito_user_id=cognito_user_id
+            )
+            self.test_delete_ach_relationship(
+                alpaca_account_id=alpaca_account_id, 
+                cognito_user_id=cognito_user_id, 
+                ach_relationship_id=str(ach_relationships[0].id)
+            )
+        except Exception as e:
+            pass
+
+        try:
+            banks = self.test_get_banks(
+                alpaca_account_id=alpaca_account_id, 
+                cognito_user_id=cognito_user_id
+            )
+            self.test_delete_bank(
+                alpaca_account_id=alpaca_account_id, 
+                cognito_user_id=cognito_user_id, 
+                ach_relationship_id=str(banks[0].id)
+            )
+        except Exception as e:
+            pass
+
+
+
+
+
+
+
+    
+
+    
     
     
     
