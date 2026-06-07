@@ -163,63 +163,86 @@ class TestEngine:
         assert baskt_account_by_email.cognito_enabled_status is True
         return baskt_account_by_email
     
-    def test_create_ach_relationship(self, alpaca_account_id: str, cognito_user_id: str, ):
-        ach_relationship_data = {
-            "account_owner_name": "baskt_testuser_46ec47e2",
-            "bank_account_type": "checking",
-            "bank_account_number": "123456789",
-            "bank_routing_number": "121000358",
-            "nickname": "Sandbox Checking"
-        }
-        ach_relationship = self.account_lifecycle_service.create_ach_relationship(
+    def test_create_ach_relationship(self, alpaca_account_id: str, cognito_user_id: str):
+
+        ach_relationship = self.account_lifecycle_service.create_direct_ach_relationship(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            ach_relationship_data=ach_relationship_data,
-            is_plaid=False
-        )
-
-        assert ach_relationship.status.name.upper() == "QUEUED"
-        assert str(ach_relationship.account_id) == alpaca_account_id
-        assert ach_relationship.account_owner_name == ach_relationship_data["account_owner_name"]
-        assert ach_relationship.bank_account_type.name.upper() == ach_relationship_data["bank_account_type"].upper()
-        assert ach_relationship.bank_account_number == ach_relationship_data["bank_account_number"]
-        assert ach_relationship.bank_routing_number == ach_relationship_data["bank_routing_number"]
-
-        return str(ach_relationship.id)
-
-    def test_get_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
-        return self.account_lifecycle_service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
-
-
-
-    def fund_baskt_account(
-        self,
-        baskt_account: BasktAccount,
-        funding_amount: Decimal = Decimal("50000.00"),
-    ):
-        ach_relationship = self.account_lifecycle_service.create_ach_relationship(
-            alpaca_account_id=baskt_account.alpaca_account_id,
-            cognito_user_id=baskt_account.cognito_user_id,
-            account_owner_name="Jane Q Tester",
-            bank_account_type=BankAccountType.CHECKING,
+            account_owner_name="baskt_testuser_46ec47e2",
+            bank_account_type="checking",
             bank_account_number="123456789",
             bank_routing_number="121000358",
-            nickname="Sandbox Checking",
+            nickname="Sandbox Checking"
         )
-        ach_relationship_id = _response_value(ach_relationship, "id")
-        assert ach_relationship_id is not None
+        sleep(240)
 
-        transfer = self.account_lifecycle_service.create_ach_transfer_request(
-            alpaca_account_id=baskt_account.alpaca_account_id,
-            cognito_user_id=baskt_account.cognito_user_id,
-            relationship_id=ach_relationship_id,
-            amount=str(funding_amount),
-            direction=TransferDirection.INCOMING,
-            timing=TransferTiming.IMMEDIATE,
+        assert ach_relationship.status.name.upper() == "APPROVED"
+        assert str(ach_relationship.account_id) == alpaca_account_id
+        assert ach_relationship.account_owner_name == "baskt_testuser_46ec47e2"
+        assert ach_relationship.bank_account_type.name.upper() == "checking".upper()
+        assert ach_relationship.bank_account_number == "123456789"
+        assert ach_relationship.bank_routing_number == "121000358"
+
+        return str(ach_relationship.id)
+    
+    def test_create_bank(self, alpaca_account_id: str, cognito_user_id: str):
+        bank_data = {
+            "name": "Sandbox Bank",
+            "bank_code_type": "ABA",
+            "bank_code": "121000358",
+            "account_number": "123456789",
+            "country": "USA",
+            "state_province": "CA",
+            "postal_code": "94105",
+            "city": "San Francisco",
+            "street_address": "123 Market St",
+        }
+
+        bank = self.account_lifecycle_service.create_bank(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            bank_data=bank_data,
         )
 
-        assert Decimal(str(_response_value(transfer, "amount"))) == funding_amount
-        assert _response_value(transfer, "relationship_id") is not None
+        assert bank is not None
+        assert str(bank.account_id) == alpaca_account_id
+        assert bank.name == bank_data["name"]
+        assert bank.bank_code == bank_data["bank_code"]
+        assert bank.account_number == bank_data["account_number"]
+        assert bank.bank_code_type.name.upper() == bank_data["bank_code_type"]
+
+        return str(bank.id)
+
+    def test_get_all_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
+        return self.account_lifecycle_service.get_all_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+    
+    def test_get_banks(self, alpaca_account_id: str, cognito_user_id: str):
+        return self.account_lifecycle_service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+
+    def test_create_direct_ach_transfer(self, alpaca_account_id: str, cognito_user_id: str, relationship_id: str):
+
+        return self.account_lifecycle_service.create_direct_ach_transfer(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            amount="20000",
+            direction="INCOMING",
+            timing="IMMEDIATE",
+            fee_payment_method="USER",
+            relationship_id=relationship_id
+        )
+    
+    def test_create_bank_transfer(self, alpaca_account_id: str, cognito_user_id: str, bank_id: str):
+
+        return self.account_lifecycle_service.create_transfer(
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            amount=20000,
+            direction="INCOMING",
+            timing="IMMEDIATE",
+            fee_payment_method="USER",
+            transfer_type="WIRE",
+            bank_id=bank_id
+        )
     
     
     

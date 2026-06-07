@@ -3,11 +3,10 @@
 # Python imports
 from __future__ import annotations
 from typing import Any, Dict, List
-from uuid import UUID
 
 # Alpaca imports
 from alpaca.broker.enums import BankAccountType, FeePaymentMethod, TransferDirection, TransferTiming
-from alpaca.broker.models import ACHRelationship, Transfer
+from alpaca.broker.models import ACHRelationship, Transfer, Bank
 
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
@@ -115,57 +114,28 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
 			)
 
-	def create_ach_relationship(
+	def create_direct_ach_relationship(
 		self,
 		*,
 		alpaca_account_id: str,
 		cognito_user_id: str,
-		ach_relationship_data: Dict[str, str],
-		is_plaid: bool = False
+		account_owner_name: str,
+		bank_account_type: str,
+		bank_account_number: str,
+		bank_routing_number: str,
+		nickname: str | None = None
 	) -> ACHRelationship:
 		"""
-		Create an ACH bank relationship for an Alpaca broker account.
-
-		Args:
-			alpaca_account_id: Alpaca broker account ID that owns the ACH
-				relationship.
-			cognito_user_id: Optional Cognito user ID used for error context.
-			ach_relationship_data: Input data for the ACH relationship. For
-                direct ACH relationships, expected keys are account_owner_name,
-                bank_account_type, bank_account_number, bank_routing_number,
-                and optional nickname. For Plaid relationships, expected key
-                is processor_token.
-			is_plaid: bool
-
-		Returns:
-			ACHRelationship: Alpaca ACH relationship response.
-
-		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the ACH
-			relationship.
 		"""
 		try:
-			print(ach_relationship_data)
-			if is_plaid:
-				if "processor_token" not in ach_relationship_data:
-					raise ValueError("Processor Token is required.")
-			else:
-				if not alpaca_account_id:
-					raise ValueError("alpaca_account_id is required")
-				if "account_owner_name" not in ach_relationship_data:
-					raise ValueError("account_owner_name is required")
-				if "bank_account_number" not in ach_relationship_data:
-					raise ValueError("bank_account_number is required")
-				if "bank_routing_number" not in ach_relationship_data:
-					raise ValueError("bank_routing_number is required")
-				if "bank_account_type" not in ach_relationship_data:
-					raise ValueError("bank_account_type is required")
-
-			return self.alpaca_broker_client.create_ach_relationship(
-				alpaca_account_id=alpaca_account_id,
+			return self.alpaca_broker_client.create_direct_ach_relationship(
 				cognito_user_id=cognito_user_id,
-				ach_relationship_data=ach_relationship_data,
-				is_plaid=is_plaid
+				alpaca_account_id=alpaca_account_id,
+				account_owner_name=account_owner_name,
+				bank_account_type=bank_account_type,
+				bank_account_number=bank_account_number,
+				bank_routing_number=bank_routing_number,
+				nickname=nickname
 			)
 		except AlpacaBrokerClientError as err:
 			raise AccountLifecycleServiceError(
@@ -173,7 +143,7 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_CREATE_ACH_RELATIONSHIP_FAILED",
 			) from err
 		
-	def get_ach_relationships(
+	def get_all_ach_relationships(
 		self,
 		*,
 		cognito_user_id: str,
@@ -196,58 +166,146 @@ class AccountLifecycleService:
 			fetching ACH relationships.
 		"""
 		try:
-			return self.alpaca_broker_client.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+			return self.alpaca_broker_client.get_all_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		except AlpacaBrokerClientError as err:
 			raise AccountLifecycleServiceError(
 				message=f"Failed to get ACH relationships for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_GET_ACH_RELATIONSHIPS_FAILED",
 			) from err
 
-		
+	def create_bank(
+        self,
+        *,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        name: str,
+        bank_code_type: str,
+        bank_code: str,
+        account_number: str,
+        country: str | None = None,
+        state_province: str | None = None,
+        postal_code: str | None = None,
+        city: str | None = None,
+        street_address: str | None = None
+	)-> Bank:
+		"""
 
-	def create_ach_transfer_request(
+        """
+		try:
+			return self.alpaca_broker_client.create_bank(
+				cognito_user_id=cognito_user_id,
+				alpaca_account_id=alpaca_account_id,
+				name=name,
+				bank_code_type=bank_code_type,
+				bank_code=bank_code,
+				account_number=account_number,
+				country=country,
+				state_province=state_province,
+				postal_code=postal_code,
+				city=city,
+				street_address=street_address
+
+			)
+		except Exception as e:
+			raise AccountLifecycleServiceError(
+                message=f"Failed to create bank request for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+	                code="ACCOUNT_LIFECYCLE_CREATE_BANK_REQUEST_FAILED",
+	            ) from e
+
+	def get_banks(
 		self,
 		*,
-		alpaca_account_id: str,
-		relationship_id: str | UUID,
-		amount: str | float,
-		direction: TransferDirection | str = TransferDirection.INCOMING,
-		timing: TransferTiming | str = TransferTiming.IMMEDIATE,
-		fee_payment_method: FeePaymentMethod | str | None = None,
-		cognito_user_id: str | None = None,
-	) -> Transfer | Dict[str, Any]:
+		cognito_user_id: str,
+		alpaca_account_id: str
+	) -> List[Bank]:
 		"""
-		Create an ACH transfer request for an Alpaca broker account.
+		Get bank relationships for an Alpaca broker account.
 
 		Args:
-			alpaca_account_id: Alpaca broker account ID that owns the transfer.
-			relationship_id: ACH relationship ID to use for the transfer.
-			amount: Transfer amount.
-			direction: Transfer direction.
-			timing: Transfer timing.
-			fee_payment_method: Optional fee payment method.
-			cognito_user_id: Optional Cognito user ID used for error context.
+			cognito_user_id: Cognito user ID used for error context.
+			alpaca_account_id: Alpaca broker account ID whose bank
+				relationships should be fetched.
 
 		Returns:
-			Transfer | Dict[str, Any]: Alpaca ACH transfer response.
+			List[Bank]: Bank relationship records returned by Alpaca for the
+			broker account.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the ACH
-			transfer request.
+			AccountLifecycleServiceError: If Alpaca fails to fetch the bank
+			relationships.
 		"""
 		try:
-			return self.alpaca_broker_client.create_ach_transfer(
-				alpaca_account_id=alpaca_account_id,
-				relationship_id=relationship_id,
-				amount=amount,
-				direction=direction,
-				timing=timing,
-				fee_payment_method=fee_payment_method,
+			return self.alpaca_broker_client.get_banks(
 				cognito_user_id=cognito_user_id,
+				alpaca_account_id=alpaca_account_id,
 			)
 		except AlpacaBrokerClientError as err:
 			raise AccountLifecycleServiceError(
-				message=f"Failed to create ACH transfer request for Alpaca account '{alpaca_account_id}': {err}",
+				message=f"Failed to get banks for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_GET_BANKS_FAILED",
+			) from err
+		
+
+	def create_direct_ach_transfer(
+		self,
+		*,
+		alpaca_account_id: str,
+		cognito_user_id: str,
+		amount: str,
+		direction: str,
+		timing: str,
+		relationship_id: str,
+		fee_payment_method: str | None = None,
+	) -> Transfer:
+		"""
+		"""
+		try:
+			return self.alpaca_broker_client.create_direct_ach_transfer(
+				alpaca_account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id,
+				amount=amount,
+				direction=direction,
+				timing=timing,
+				relationship_id=relationship_id,
+				fee_payment_method=fee_payment_method
+			)
+		
+		except AlpacaBrokerClientError as err:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to create ach transfer request for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_CREATE_ACH_TRANSFER_REQUEST_FAILED",
+			) from err
+		
+
+	def create_bank_transfer(
+		self,
+		*,
+		alpaca_account_id: str,
+		cognito_user_id: str,
+		amount: str,
+		direction: str,
+		timing: str,
+		bank_id: str,
+		fee_payment_method: str | None = None,
+		additional_information: str | None = None
+	) -> Transfer:
+		"""
+		"""
+		try:
+			return self.alpaca_broker_client.create_bank_transfer(
+				alpaca_account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id,
+				amount=amount,
+				direction=direction,
+				timing=timing,
+				bank_id=bank_id,
+				fee_payment_method=fee_payment_method,
+				additional_information=additional_information
+			)
+		
+		except AlpacaBrokerClientError as err:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to create bank transfer request for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_ACH_TRANSFER_REQUEST_FAILED",
 			) from err
 		
