@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 # Alpaca imports
 from alpaca.broker.enums import BankAccountType, FeePaymentMethod, TransferDirection, TransferTiming
-from alpaca.broker.models import ACHRelationship, Transfer, Bank
+from alpaca.broker.models import ACHRelationship, Transfer, Bank, TradeAccount
 
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
@@ -259,6 +259,24 @@ class AccountLifecycleService:
 				message=f"Failed to delete ach relationship '{ach_relationship_id}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_DELETE_ACH_RELATIONSHIP_FAILED"
 			) from err
+		
+	def get_trade_account(
+		self,
+		alpaca_account_id: str,
+		cognito_user_id: str,
+	) -> TradeAccount:
+		try:
+			return self.alpaca_broker_client.get_trade_account(
+				account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id
+			)
+		except AlpacaBrokerClientError as e:
+			raise AccountLifecycleServiceError(
+				message=f"Failed to get trade account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}'",
+				code="ACCOUNT_LIFECYCLE_GET_TRADE_ACCOUNT_FAILED"
+			) from e
+
+		
 		
 	def create_ach_transfer(
 		self,

@@ -82,6 +82,10 @@ class AlpacaBrokerClient:
             sandbox=is_sandbox,
         )
 
+    ###########################
+    ######## BACKTEST #########
+    ###########################
+
     def get_tradeable_fractionable_US_assets(self) -> List[Asset]:
         """
         Fetch all Alpaca assets and filter to tradable, fractionable US equities.
@@ -114,6 +118,10 @@ class AlpacaBrokerClient:
                 tradeable.append(asset)
 
         return tradeable
+    
+    ######################################
+    ######## ACCOUNT LIFECYCLE ###########
+    ######################################
     
     def create_alpaca_account(self, account_data: Dict[str, Any]) -> Dict[str, str]:
         """
@@ -278,7 +286,7 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_CLOSE_ALPACA_ACCOUNT_FAILED"
             )
         
-    def get_alpaca_trade_account_by_id(self, account_id: str, cognito_user_id: str) -> TradeAccount:
+    def get_trade_account(self, account_id: str, cognito_user_id: str) -> TradeAccount:
         """
         Get the trade broker account
         """
@@ -807,9 +815,9 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_GET_TRANSFERS_FAILED",
             ) from e
             
-        
-
-    
+    ##############################
+    ###### TRADE EXECUTION #######
+    ##############################
 
     def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id) -> Order:
         """
@@ -863,8 +871,6 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_EXECUTE_CLOSE_ALL_POSITION_FAILED",
             )
 
-
-
     def execute_quantity_buy(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id) -> Order:
         """
         Submit a market buy order for a specific quantity for a broker account.
@@ -896,8 +902,6 @@ class AlpacaBrokerClient:
                 message=f"Failed to submit buy order for '{symbol}' for alpacaa account id '{alpaca_account_id}' and cognito_user_id '{cognito_user_id}'): {e}",
                 code="ALPACA_BROKER_EXECUTE_QUANTITY_BUY_FAILED",
             )
-
-
 
     def execute_quantity_fractional_sell(self, symbol: str, quantity, alpaca_account_id: str, cognito_user_id) -> List[Order | None]:
         """
@@ -961,8 +965,6 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_FRACTIONAL_BUYBACK_FAILED",
             )
         return [order1, order2]
-
-
 
     def execute_quantity_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id) -> Order:
         """
@@ -1031,7 +1033,6 @@ class AlpacaBrokerClient:
 
         return result
     
-
     def get_baskt_positions_dict(self, alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         """
         Fetch all positions for an Alpaca account and convert them to Baskt positions.
@@ -1090,6 +1091,10 @@ class AlpacaBrokerClient:
                 message=f"Failed to get order by id for alpaca account id '{alpaca_account_id}', cognito_user_id '{cognito_user_id}', and order id '{order_id}': {e}",
                 code = "ALPACA_BROKER_GET_ORDER_BY_ID_FAILED"
             )
+
+    #############################   
+    #### ACCOUNT PERFORMANCE ####
+    #############################
         
     def get_account_performance(self, alpaca_account_id: str) -> Dict[str, Dict[str, Any]]:
         try:

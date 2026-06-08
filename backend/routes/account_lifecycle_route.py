@@ -56,6 +56,20 @@ def create_baskt_account(
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
 
+@router.get("/trade-account", status_code=HTTP_200_OK)
+def get_trade_account(
+	user: Any = Depends(get_current_user),
+	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service)
+) -> Dict[str, Any]:
+	cognito_user_id = user["sub"]
+	alpaca_account_id = user["custom:alpaca_acct_id"]
+	try:
+		trade_account = service.get_trade_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+		return _to_response_dict(trade_account)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
 
 @router.post("/ach-relationship", status_code=HTTP_201_CREATED)
 def create_ach_relationship(

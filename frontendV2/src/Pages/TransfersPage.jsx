@@ -142,10 +142,11 @@ export default function TransfersPage() {
   const [transfers, setTransfers] = useState([]);
   const [achRelationships, setAchRelationships] = useState([]);
   const [banks, setBanks] = useState([]);
+  const [tradeAccount, setTradeAccount] = useState(null);
   const [isTransfersLoading, setIsTransfersLoading] = useState(false);
   const [isAchLoading, setIsAchLoading] = useState(true);
   const [isBankLoading, setIsBankLoading] = useState(true);
-  const [relationshipsLoaded, setRelationshipsLoaded] = useState(false);
+  const [isTradeAccountLoading, setIsTradeAccountLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [modalType, setModalType] = useState(null);
@@ -318,42 +319,64 @@ export default function TransfersPage() {
     }
   }, [authHeaders, transferLimit, transferOffset]);
 
+  const fetchTradeAccount = useCallback(async ({ signal, showLoading = true } = {}) => {
+    if (showLoading) {
+      setIsTradeAccountLoading(true);
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/accounts/trade-account`, {
+        headers: authHeaders,
+        signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || `Failed to load trade account (${response.status}).`);
+      }
+
+      if (!signal?.aborted) {
+        setTradeAccount(payload && typeof payload === "object" ? payload : null);
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsTradeAccountLoading(false);
+      }
+    }
+  }, [authHeaders]);
+
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadRelationshipsFirst() {
-      setErrorMessage("");
-      setRelationshipsLoaded(false);
-      setIsAchLoading(true);
-      setIsBankLoading(true);
+    setErrorMessage("");
+    setIsAchLoading(true);
+    setIsBankLoading(true);
 
-      try {
-        await Promise.all([
-          fetchAchRelationships({ signal: controller.signal, showLoading: false }),
-          fetchBanks({ signal: controller.signal, showLoading: false }),
-        ]);
-
-        if (!controller.signal.aborted) {
-          setRelationshipsLoaded(true);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setErrorMessage(error?.message || "Unable to load funding relationships.");
-          setRelationshipsLoaded(false);
-        }
+    fetchAchRelationships({ signal: controller.signal, showLoading: false }).catch((error) => {
+      if (!controller.signal.aborted) {
+        setErrorMessage(error?.message || "Unable to load ACH relationships.");
+        setAchRelationships([]);
       }
-    }
+    });
 
-    loadRelationshipsFirst();
+    fetchBanks({ signal: controller.signal, showLoading: false }).catch((error) => {
+      if (!controller.signal.aborted) {
+        setErrorMessage(error?.message || "Unable to load banks.");
+        setBanks([]);
+      }
+    });
+
+    fetchTradeAccount({ signal: controller.signal, showLoading: false }).catch((error) => {
+      if (!controller.signal.aborted) {
+        setErrorMessage(error?.message || "Unable to load trade account.");
+        setTradeAccount(null);
+      }
+    });
 
     return () => controller.abort();
-  }, [fetchAchRelationships, fetchBanks]);
+  }, [fetchAchRelationships, fetchBanks, fetchTradeAccount]);
 
   useEffect(() => {
-    if (!relationshipsLoaded) {
-      return undefined;
-    }
-
     const controller = new AbortController();
 
     fetchTransfers({
@@ -370,7 +393,7 @@ export default function TransfersPage() {
     });
 
     return () => controller.abort();
-  }, [fetchTransfers, relationshipsLoaded, transferLimit, transferOffset]);
+  }, [fetchTransfers, transferLimit, transferOffset]);
 
   const sortedTransfers = useMemo(() => {
     return [...transfers].sort((first, second) => {
@@ -397,6 +420,13 @@ export default function TransfersPage() {
 
     return [...achOptions, ...bankOptions].filter((option) => option.id);
   }, [achRelationships, banks]);
+
+  const cashWithdrawable = useMemo(() => {
+    const rawValue = tradeAccount?.cash_withdrawable;
+    const parsedValue = Number(rawValue);
+
+    return Number.isFinite(parsedValue) ? parsedValue : 0;
+  }, [tradeAccount]);
 
   function goToPreviousTransfersPage() {
     setTransferOffset((currentOffset) => Math.max(0, currentOffset - transferLimit));
@@ -531,6 +561,19 @@ export default function TransfersPage() {
       return;
     }
 
+    const transferAmount = Number(transferForm.amount);
+    if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
+      setModalError("Enter a valid transfer amount.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (transferModalType === "withdraw" && transferAmount > cashWithdrawable) {
+      setModalError(`Withdrawal amount cannot exceed ${formatMoney(cashWithdrawable)}.`);
+      setIsSubmitting(false);
+      return;
+    }
+
     const payload = {
       amount: transferForm.amount,
       direction: transferModalType === "deposit" ? "INCOMING" : "OUTGOING",
@@ -558,7 +601,10 @@ export default function TransfersPage() {
       setSuccessMessage(transferModalType === "deposit" ? "Deposit submitted." : "Withdrawal submitted.");
       setTransferModalType(null);
       setTransferOffset(0);
-      await fetchTransfers({ limit: transferLimit, offset: 0 });
+      await Promise.all([
+        fetchTransfers({ limit: transferLimit, offset: 0 }),
+        fetchTradeAccount(),
+      ]);
     } catch (error) {
       setModalError(error?.message || "Unable to submit transfer.");
     } finally {
@@ -831,12 +877,21 @@ export default function TransfersPage() {
                   name="amount"
                   type="number"
                   min="0.01"
+                  max={transferModalType === "withdraw" ? cashWithdrawable : undefined}
                   step="0.01"
                   value={transferForm.amount}
                   onChange={updateTransferForm}
                   required
                 />
               </label>
+              {transferModalType === "withdraw" ? (
+                <p className="transfer-available-cash">
+                  Available to withdraw:{" "}
+                  <strong>
+                    {isTradeAccountLoading ? "Loading..." : formatMoney(cashWithdrawable)}
+                  </strong>
+                </p>
+              ) : null}
               <label>
                 <span>Funding source</span>
                 <select
@@ -865,7 +920,11 @@ export default function TransfersPage() {
                 <button
                   type="submit"
                   className="transfer-primary-button"
-                  disabled={isSubmitting || connectedFundingSources.length === 0}
+                  disabled={
+                    isSubmitting
+                    || connectedFundingSources.length === 0
+                    || (transferModalType === "withdraw" && (isTradeAccountLoading || cashWithdrawable <= 0))
+                  }
                 >
                   {isSubmitting ? "Submitting..." : "Submit"}
                 </button>

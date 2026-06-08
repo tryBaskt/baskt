@@ -162,7 +162,11 @@ def update_model_portfolio(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     try:
-        updated = service.update_model_portfolio(portfolio_id=portfolio_id, positions_request=request.positions)
+        updated = service.update_model_portfolio(
+            portfolio_id=portfolio_id,
+            positions_request=request.positions,
+            description=request.description,
+        )
         if not updated:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio not found")
         return {"message": "Portfolio updated"}

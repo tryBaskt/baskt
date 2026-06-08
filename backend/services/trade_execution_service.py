@@ -572,13 +572,10 @@ class TradeExecutionService:
             try:
                 follower_baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=follower_cognito_user_id)
                 follower_alpaca_account_id = follower_baskt_account.alpaca_account_id
-                print(follower_cognito_user_id, follower_alpaca_account_id)
                 all_update_orders[follower_cognito_user_id] = self._execute_update_in_portfolio_helper(portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, cognito_user_id=follower_cognito_user_id, follower_alpaca_account_id=follower_alpaca_account_id, is_test=is_test)
             except Exception as e:
-                print(e)
                 continue
 
-        print(f"all_update_orders: ", all_update_orders)
         return all_update_orders
 
     

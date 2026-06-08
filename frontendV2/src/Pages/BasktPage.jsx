@@ -55,7 +55,26 @@ function buildPositionsFromCurrentWeight(currentWeightBySymbol, snapshotPosition
 	});
 }
 
-export default function BasktPage({ selectedBaskt, onBack }) {
+function getJwtPayload(token) {
+	if (!token) {
+		return {};
+	}
+
+	try {
+		const [, payload] = token.split(".");
+		const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+		const paddedPayload = normalizedPayload.padEnd(
+			normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+			"="
+		);
+		const decodedPayload = window.atob(paddedPayload);
+		return JSON.parse(decodedPayload);
+	} catch {
+		return {};
+	}
+}
+
+export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [details, setDetails] = useState(null);
@@ -64,6 +83,7 @@ export default function BasktPage({ selectedBaskt, onBack }) {
 		() => sessionStorage.getItem("idToken") || sessionStorage.getItem("accessToken") || "",
 		[]
 	);
+	const currentUserSub = useMemo(() => getJwtPayload(token)?.sub || "", [token]);
 
 	useEffect(() => {
 		let isCancelled = false;
@@ -101,6 +121,7 @@ export default function BasktPage({ selectedBaskt, onBack }) {
 
 				if (!isCancelled) {
 					setDetails({
+						portfolioOwnerCognitoUserId: payload?.portfolio_owner_cognito_user_id || "",
 						portfolioName: payload?.portfolio_name || selectedBaskt?.portfolioName || "Untitled Baskt",
 						description: payload?.description ?? selectedBaskt?.description ?? "",
 						createdAt: payload?.created_at,
@@ -135,8 +156,26 @@ export default function BasktPage({ selectedBaskt, onBack }) {
 			{!isLoading && !errorMessage && details ? (
 				<>
 					<header className="baskt-header">
-						<h1 id="baskt-title">{details.portfolioName}</h1>
-						<p className="baskt-description">{details.description || "No description"}</p>
+						<div>
+							<h1 id="baskt-title">{details.portfolioName}</h1>
+							<p className="baskt-description">{details.description || "No description"}</p>
+						</div>
+						{details.portfolioOwnerCognitoUserId && details.portfolioOwnerCognitoUserId === currentUserSub ? (
+							<button
+								type="button"
+								className="baskt-update-button"
+								onClick={() => {
+									if (onUpdateBaskt) {
+										onUpdateBaskt({
+											portfolioId: selectedBaskt?.portfolioId,
+											...details,
+										});
+									}
+								}}
+							>
+								Update
+							</button>
+						) : null}
 					</header>
 
 					<div className="baskt-dates">

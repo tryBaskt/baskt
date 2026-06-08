@@ -61,6 +61,7 @@ export default function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [currentPage, setCurrentPage] = useState("home");
   const [selectedBaskt, setSelectedBaskt] = useState(null);
+  const [editingBaskt, setEditingBaskt] = useState(null);
 
   useEffect(() => {
     const storedIdToken = sessionStorage.getItem("idToken");
@@ -285,7 +286,12 @@ export default function App() {
   }
 
   if (isAuthenticated) {
-    let pageContent = <MakeBasktPage />;
+    let pageContent = (
+      <MakeBasktPage
+        key={editingBaskt?.portfolioId || "new-baskt"}
+        editingBaskt={editingBaskt}
+      />
+    );
     if (currentPage === "home") {
       pageContent = <HomePage />;
     } else if (currentPage === "transfers") {
@@ -295,6 +301,7 @@ export default function App() {
         <MyBasktsPage
           onOpenBaskt={(baskt) => {
             setSelectedBaskt(baskt);
+            setEditingBaskt(null);
             setCurrentPage("baskt-detail");
           }}
         />
@@ -304,12 +311,25 @@ export default function App() {
         <BasktPage
           selectedBaskt={selectedBaskt}
           onBack={() => setCurrentPage("my-baskts")}
+          onUpdateBaskt={(baskt) => {
+            setEditingBaskt(baskt);
+            setCurrentPage("make-baskt");
+          }}
         />
       );
     }
 
     return (
-      <AuthenticatedLayout onLogout={onLogout} currentPage={currentPage} onSelectPage={setCurrentPage}>
+      <AuthenticatedLayout
+        onLogout={onLogout}
+        currentPage={currentPage}
+        onSelectPage={(nextPage) => {
+          if (nextPage === "make-baskt") {
+            setEditingBaskt(null);
+          }
+          setCurrentPage(nextPage);
+        }}
+      >
         {pageContent}
       </AuthenticatedLayout>
     );

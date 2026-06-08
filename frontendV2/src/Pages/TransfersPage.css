@@ -419,6 +419,20 @@
   grid-template-columns: 1fr;
 }
 
+.transfer-available-cash {
+  margin: -0.3rem 0 0;
+  border-radius: 8px;
+  background: #f6f7f8;
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 0.75rem;
+}
+
+.transfer-available-cash strong {
+  color: #2a2f35;
+}
+
 .transfer-modal-actions {
   display: flex;
   justify-content: flex-end;
