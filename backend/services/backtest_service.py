@@ -1,11 +1,12 @@
 # backend/services/backtest_service.py
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional
 import pandas as pd
 from domain.backtest import BacktestPosition
 from clients.yfinance_client import YFinanceClient, YFinanceClientError
-
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
+from domain.baskt import BasktAsset
 
 class BacktestServiceError(Exception):
     """Base error for backtest service failures."""
@@ -33,7 +34,13 @@ class BacktestServiceCalculationError(BacktestServiceError):
 class BacktestService:
     """Service layer for building and evaluating a basket backtest."""
 
-    def __init__(self, *, yfinance_client: YFinanceClient, periods_per_year: int = 252) -> None:
+    def __init__(
+        self, 
+        *, 
+        yfinance_client: YFinanceClient, 
+        alpaca_broker_client: AlpacaBrokerClient,
+        periods_per_year: int = 252
+    ) -> None:
         """
         Initialize the backtest service.
 
@@ -46,6 +53,30 @@ class BacktestService:
         """
         self.market_data = yfinance_client
         self.periods_per_year = periods_per_year
+        self.alpaca_broker_client = alpaca_broker_client
+
+
+    def get_tradeable_fractionable_US_baskt_assets(
+        self
+    ) -> List[BasktAsset]:
+        try:
+            assets = self.alpaca_broker_client.get_tradeable_fractionable_US_assets()
+            baskt_assets = [
+                BasktAsset(
+                    symbol=asset.symbol,
+                    tradable=asset.tradable,
+                    fractionable=asset.fractionable,
+                    asset_class=asset.asset_class.name
+                )
+                for asset in assets
+            ]
+            return baskt_assets
+        except AlpacaBrokerClientError as err:
+            raise BacktestServiceError(
+                message=f"Failed to get tradeable, fractionable, US baskt assets: {err}",
+                code="BACKTEST_GET_TRADEABLE_FRACTIONABLE_US_BASKT_ASSETS_FAILED"
+            ) from err
+
 
     def run_backtest(
         self,
@@ -54,7 +85,7 @@ class BacktestService:
         end_date: str,
         positions_conf: List[dict],
         price_col: str = "close",
-    ) -> Dict[str, List[Any] | Dict[str, Any]]:
+    ) -> Dict[str, List[str] | List[float] | Dict[str, Optional[float]]]:
         """
         Run a backtest for the given portfolio configuration and date window.
 
@@ -66,10 +97,11 @@ class BacktestService:
             price_col: Price column to use from historical bars (default: "close").
 
         Returns:
-            Dictionary with:
-                - dates: list[str] of ISO dates
-                - cumulative_returns: list[float] cumulative return series
-                - metrics: dict[str, float | None] summary metrics
+            Dict[str, List[str] | List[float] | Dict[str, Optional[float]]]:
+            Dictionary containing:
+                - dates: ISO date strings.
+                - cumulative_returns: Cumulative return values.
+                - metrics: Summary metric values, each float or None.
 
         Raises:
             ValueError: If no positions are provided or no price data is available.
@@ -130,7 +162,7 @@ class BacktestService:
         return {
             "dates": [d.strftime("%Y-%m-%d") for d in cum_ret_series.index],
             "cumulative_returns": [float(x) for x in cum_ret_series.values],
-            "metrics": metrics
+            "metrics": metrics,
         }
 
 

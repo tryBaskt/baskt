@@ -15,8 +15,8 @@ class CreateBasktAccountLifecycleRequest(BaseModel):
     account_sub_type: Optional[str] = None
     currency: Optional[str] = None
     enabled_assets: Optional[List[str]] = None
-    trusted_contact: Optional[Dict[str, Any]] = None
-    documents: Optional[List[Dict[str, Any]]] = None
+    trusted_contact: Optional[Dict[str, str]] = None
+    documents: Optional[List[Dict[str, str]]] = None
 
     password: Optional[str] = None
 
@@ -50,5 +50,5 @@ class CreateBasktTransferRequest(BaseModel):
     funding_source_type: str
     relationship_id: Optional[str] = None
     bank_id: Optional[str] = None
-    timing: str = "IMMEDIATE"
-    fee_payment_method: Optional[str] = "USER"
+    timing: str
+    fee_payment_method: Optional[str]

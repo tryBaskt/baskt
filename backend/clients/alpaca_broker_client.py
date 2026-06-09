@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Union
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
@@ -14,7 +14,7 @@ from alpaca.broker.models import (
 )
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.models import Asset, Order, AccountConfiguration, PortfolioHistory
+from alpaca.trading.models import Asset, Order, AccountConfiguration, PortfolioHistory, ClosePositionResponse, FailedClosePositionDetails
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
@@ -88,7 +88,8 @@ class AlpacaBrokerClient:
 
     def get_tradeable_fractionable_US_assets(self) -> List[Asset]:
         """
-        Fetch all Alpaca assets and filter to tradable, fractionable US equities.
+        Fetch active US equity assets and filter to tradable, fractionable
+        securities.
 
         Args:
             None.
@@ -103,18 +104,23 @@ class AlpacaBrokerClient:
             fetching assets.
         """
         try:
-            filter = GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY)
-            assets = self.client.get_all_assets(filter=filter)
+            # GetAssetsRequest does not expose tradable/fractionable fields in
+            # this SDK version, so those checks are applied below.
+            asset_filter = GetAssetsRequest(
+                status=AssetStatus.ACTIVE,
+                asset_class=AssetClass.US_EQUITY,
+            )
+            assets = self.client.get_all_assets(filter=asset_filter)
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to fetch tradable, fractionable US Alpaca assets: {e}",
                 code="ALPACA_BROKER_GET_TRADEABLE_FRACTIONABLE_US_ASSETS_FAILED",
             )
 
-        tradeable = []
+        tradeable: List[Asset] = []
         for asset in assets:
             asset_class = getattr(asset.asset_class, "name", asset.asset_class)
-            if asset.tradable and asset_class in {"US_EQUITY", "us_equity"} and asset.fractionable:
+            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False):
                 tradeable.append(asset)
 
         return tradeable
@@ -846,7 +852,7 @@ class AlpacaBrokerClient:
             )
         
 
-    def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id) -> Order:
+    def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id) -> Union[Order | FailedClosePositionDetails]:
         """
         Submit an order request to close all open positions for a broker account.
 
@@ -864,7 +870,10 @@ class AlpacaBrokerClient:
         """
 
         try:
-            return self.client.close_all_positions_for_account(account_id=alpaca_account_id)
+            close_positions_response = self.client.close_all_positions_for_account(account_id=alpaca_account_id)
+            return [
+                close_position.body for close_position in close_positions_response
+            ]
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to close all open positions for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
@@ -1068,7 +1077,7 @@ class AlpacaBrokerClient:
             for position in positions
         }
     
-    def get_order_by_id(self, alpaca_account_id: str, cognito_user_id: str, order_id: str):
+    def get_order_by_id(self, alpaca_account_id: str, cognito_user_id: str, order_id: str) -> Order:
         """
         Fetch an Alpaca order by account ID and order ID.
 

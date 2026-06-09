@@ -149,7 +149,7 @@ export default function MakeBasktPage({ editingBaskt = null }) {
 
 			try {
 				const response = await fetch(
-					`${API_BASE_URL}/alpaca-broker/assets/tradeable-fractionable-us`,
+					`${API_BASE_URL}/backtest/tradeable-fractionable-us-baskt-assets`,
 					{
 						method: "GET",
 						headers: {
@@ -220,7 +220,7 @@ export default function MakeBasktPage({ editingBaskt = null }) {
 					positions: JSON.stringify(positions),
 				});
 
-				const response = await fetch(`${API_BASE_URL}/backtests/model-portfolio-performance?${queryParams.toString()}`, {
+				const response = await fetch(`${API_BASE_URL}/backtest?${queryParams.toString()}`, {
 					method: "GET",
 					headers: {
 						...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -28,7 +28,7 @@ from repository.model_portfolio_follower_repository import (
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
-from schema.model_portfolio_request import ModelPortfolioPositionRequest
+from schema.model_portfolio_schema import ModelPortfolioPositionRequest
 
 LOCK_LEASE_SECONDS = 30
 READ_LOCK_POLL_SECONDS = 0.25

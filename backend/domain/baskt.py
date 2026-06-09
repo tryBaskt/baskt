@@ -4,6 +4,17 @@ from dataclasses import dataclass
 from alpaca.trading.enums import AccountStatus
 
 
+@dataclass(frozen=True)
+class BasktAsset:
+    """
+    Asset 
+    """
+    symbol: str
+    tradable: bool
+    fractionable: bool
+    asset_class: str
+
+
 
 @dataclass(frozen=True)
 class BasktPosition:

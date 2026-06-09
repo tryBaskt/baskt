@@ -6,8 +6,12 @@ from typing import Dict, List, Type
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
-from schema.model_portfolio_request import CreateModelPortfolioRequest, UpdateModelPortfolioRequest
-from core.deps import get_current_user, get_model_portfolio_repository
+from schema.model_portfolio_schema import CreateModelPortfolioRequest, UpdateModelPortfolioRequest
+from core.deps import (
+    get_current_user,
+    get_model_portfolio_performance_service,
+    get_model_portfolio_repository,
+)
 from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot
 from repository.model_portfolio_repository import (ModelPortfolioRepository,
                                                    ModelPortfolioNotFoundError, 
@@ -17,6 +21,10 @@ from repository.model_portfolio_repository import (ModelPortfolioRepository,
                                                    ModelPortfolioTooManyRequestsError,
                                                    ModelPortfolioBadGatewayError,
                                                    ModelPortfolioLockedError)
+from services.model_portfolio_performance_service import (
+    ModelPortfolioPerformanceService,
+    ModelPortfolioPerformanceServiceError,
+)
 
 
 router = APIRouter(prefix="/model-portfolios", tags=["model-portfolios"])
@@ -30,6 +38,7 @@ MODEL_PORTFOLIO_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
     (ModelPortfolioUnprocessableEntityError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (ModelPortfolioBadGatewayError, status.HTTP_502_BAD_GATEWAY),
     (ModelPortfolioInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    (ModelPortfolioPerformanceServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 )
 
 
@@ -96,6 +105,31 @@ def get_model_portfolio(
         "updated_at": model_portfolio.updated_at.isoformat(),
         "positions_current_weight": positions_current_weight
     }
+
+
+@router.get("/{portfolio_id}/performance")
+def get_model_portfolio_performance(
+    portfolio_id: str,
+    user: Dict[str, str] = Depends(get_current_user),
+    service: ModelPortfolioPerformanceService = Depends(get_model_portfolio_performance_service),
+):
+    """
+    Retrieve snapshot-aware performance for one model portfolio.
+
+    Args:
+        portfolio_id: Identifier of the model portfolio to evaluate.
+        user: Authenticated user claims resolved by dependency injection.
+        service: Performance service dependency.
+
+    Returns:
+        Dict: Performance keyed by account-performance-style periods. Each
+        period contains graph timestamps, cumulative return percentages, and
+        model portfolio performance metrics.
+    """
+    try:
+        return service.get_model_portfolio_performance(portfolio_id=portfolio_id)
+    except Exception as e:
+        _raise_model_portfolio_http_exception(e)
 
 
 @router.post("", response_model=Dict[str, str], status_code=status.HTTP_201_CREATED)

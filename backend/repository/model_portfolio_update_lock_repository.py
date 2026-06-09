@@ -94,29 +94,6 @@ class ModelPortfolioUpdateLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def _validate_inputs(self, portfolio_id: str, owner_token: str, lease_seconds: Optional[int] = None) -> None:
-		"""
-		Validate lock operation inputs before executing lock table operations.
-
-		Args:
-			portfolio_id: Identifier of the portfolio being locked.
-			owner_token: Opaque token identifying the lock owner.
-			lease_seconds: Optional lease duration in seconds.
-
-		Returns:
-			None.
-
-		Raises:
-			ModelPortfolioUpdateLockUnprocessableEntityError: If portfolio_id or
-			owner_token is missing, or lease_seconds is not greater than zero.
-		"""
-		if not portfolio_id:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="portfolio_id")
-		if not owner_token:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="owner_token")
-		if lease_seconds is not None and lease_seconds <= 0:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="lease_seconds", constraint="must be > 0")
-
 	def get_lock(self, portfolio_id: str) -> Optional[Dict[str, Any]]:
 		"""
 		Fetch the current lock record for a portfolio.
@@ -164,7 +141,6 @@ class ModelPortfolioUpdateLockRepository:
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
 			occurs.
 		"""
-		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token, lease_seconds=lease_seconds)
 
 		now = int(time.time())
 		expires_at = now + int(lease_seconds)
@@ -218,8 +194,6 @@ class ModelPortfolioUpdateLockRepository:
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
 			occurs.
 		"""
-		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token, lease_seconds=lease_seconds)
-
 		now = int(time.time())
 		new_expires_at = now + int(lease_seconds)
 
@@ -269,7 +243,6 @@ class ModelPortfolioUpdateLockRepository:
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
 			occurs.
 		"""
-		self._validate_inputs(portfolio_id=portfolio_id, owner_token=owner_token)
 
 		try:
 			self.lock_table_client.table.delete_item(

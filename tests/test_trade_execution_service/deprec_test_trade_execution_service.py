@@ -13,7 +13,7 @@ from backend.repository.order_repository import OrderRepository
 from backend.repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from backend.repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from backend.repository.user_trade_lock_repository import UserTradeLockRepository
-from backend.schema.model_portfolio_request import ModelPortfolioPositionRequest
+from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
 MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
 class PortfolioTestUser:

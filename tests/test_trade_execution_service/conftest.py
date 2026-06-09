@@ -24,7 +24,7 @@ from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.domain.baskt import BasktPosition, BasktAccount
 from time import sleep
 from datetime import datetime, timezone, timedelta
-from backend.schema.model_portfolio_request import ModelPortfolioPositionRequest
+from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
 from collections import defaultdict
 
 MARGIN_ERROR = 0.01

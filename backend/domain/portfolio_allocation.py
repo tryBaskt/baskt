@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-###########################
-# USER LEVEl
-###########################
 @dataclass(frozen=True)
 class PortfolioAllocationPosition:
     symbol: str

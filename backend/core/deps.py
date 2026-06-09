@@ -25,6 +25,7 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.account_performance_service import AccountPerformanceService
+from services.model_portfolio_performance_service import ModelPortfolioPerformanceService
 
 from alpaca.broker.models import Account
 
@@ -183,8 +184,8 @@ def get_user_trade_lock_repository(
 # Services
 # -----------------------------
 
-def get_backtest_service(yfinance_client: YFinanceClient = Depends(get_yfinance_client)) -> BacktestService:
-    return BacktestService(yfinance_client=yfinance_client)
+def get_backtest_service(yfinance_client: YFinanceClient = Depends(get_yfinance_client), alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client)) -> BacktestService:
+    return BacktestService(yfinance_client=yfinance_client, alpaca_broker_client=alpaca_broker_client)
 
 def get_account_lifecycle_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
@@ -219,6 +220,15 @@ def get_account_performance_service(
 ) -> AccountPerformanceService:
     return AccountPerformanceService(
         alpaca_broker_client=alpaca_broker_client,
+    )
+
+def get_model_portfolio_performance_service(
+    yfinance_client: YFinanceClient = Depends(get_yfinance_client),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+) -> ModelPortfolioPerformanceService:
+    return ModelPortfolioPerformanceService(
+        y_finance_client=yfinance_client,
+        model_portfolio_repository=model_portfolio_repository,
     )
 
 

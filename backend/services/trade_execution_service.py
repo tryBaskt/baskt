@@ -270,9 +270,10 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if not is_test:
+            if is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
+                    alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
@@ -345,9 +346,10 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if not is_test:
+            if is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
+                    alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
@@ -412,9 +414,10 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if not is_test:
+            if is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
+                    alpaca_account_id=follower_alpaca_account_id,
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
@@ -616,12 +619,17 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if not is_test:
+            print("sodfjoisdjfisdjofisdjofisjdoifjsdoifjsdoif")
+            print(is_test)
+            if is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
+                    alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
+
+            print("it got hereserfwefwefasefasefasef")
 
             # Get the current model portfolio snapshot
             model_portfolio_snapshots = self.model_portfolio_repository.get_n_last_model_portfolio_snapshots(portfolio_id=portfolio_id, n=1)
@@ -669,6 +677,35 @@ class TradeExecutionService:
         
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
+
+    def get_portfolio_invested_amount(self, *, cognito_user_id: str, portfolio_id: str) -> float:
+        """
+        Get the user's current market value invested in a model portfolio.
+
+        Args:
+            cognito_user_id: Identifier of the user whose allocation should be loaded.
+            portfolio_id: Identifier of the model portfolio allocation.
+
+        Returns:
+            float: Current market value of the user's allocation. Returns 0.0
+            when the user does not have an allocation for the portfolio.
+        """
+        try:
+            snapshots = self.portfolio_allocation_repository.get_n_last_portfolio_allocation_snapshots(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                n=1,
+            )
+        except Exception:
+            return 0.0
+
+        if not snapshots:
+            return 0.0
+
+        _, total_portfolio_allocation_value, _ = self.portfolio_allocation_repository.calculate_positions_current_weight(
+            portfolio_allocation_snapshot=snapshots[-1],
+        )
+        return float(total_portfolio_allocation_value)
 
     def _apply_filled_order_to_positions(
         self,

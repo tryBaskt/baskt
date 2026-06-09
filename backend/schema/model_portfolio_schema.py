@@ -16,9 +16,9 @@ class ModelPortfolioPositionRequest(BaseModel):
 class CreateModelPortfolioRequest(BaseModel):
     name: str
     positions: List[ModelPortfolioPositionRequest]
-    description: str = None
+    description: str | None = None
 
 
 class UpdateModelPortfolioRequest(BaseModel):
     positions: List[ModelPortfolioPositionRequest]
-    description: str = None
+    description: str | None = None

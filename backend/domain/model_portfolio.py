@@ -41,7 +41,7 @@ class ModelPortfolio:
     position_history: List[ModelPortfolioSnapshot]
     created_at: datetime
     updated_at: datetime
-    description: str = None
+    description: str | None = None
 
 @dataclass(frozen=True)
 class DeltaPosition:

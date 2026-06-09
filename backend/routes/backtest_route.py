@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 # Baskt imports
 from core.deps import get_backtest_service, get_current_user
+from schema.backtest_schema import BacktestRequest, BasktAssetsResponse, BacktestResponse
+from services.backtest_service import BacktestService
 from services.backtest_service import (BacktestService, 
                                        BacktestServiceCalculationError,
                                        BacktestServiceError,
@@ -19,7 +21,7 @@ from services.backtest_service import (BacktestService,
                                         
 
 
-router = APIRouter(prefix="/backtests", tags=["backtests"])
+router = APIRouter(prefix="/backtest", tags=["backtest"])
 
 
 BACKTEST_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
@@ -46,14 +48,26 @@ def _raise_backtest_http_exception(err: Exception) -> None:
     ) from err
 
 
-@router.get("/model-portfolio-performance")
+@router.get("/tradeable-fractionable-us-baskt-assets", response_model=BasktAssetsResponse)
+def get_tradeable_fractionable_us_baskt_assets(
+    backtest_service: BacktestService = Depends(get_backtest_service),
+    user: Dict[str, Any] = Depends(get_current_user)
+) -> BasktAssetsResponse:
+    try:
+        baskt_assets = backtest_service.get_tradeable_fractionable_US_baskt_assets()
+        return BasktAssetsResponse(baskt_assets=baskt_assets)
+    except Exception as err:
+        _raise_backtest_http_exception(err)
+
+
+@router.get("", response_model=BacktestResponse)
 def backtest(
     start_date: date,
     end_date: date,
     positions: str,
     user=Depends(get_current_user),
     svc: BacktestService = Depends(get_backtest_service),
-) -> Dict[str, Any]:
+) -> BacktestResponse:
     """
     Run a portfolio backtest for a date range and return timeseries + summary metrics.
 
@@ -86,11 +100,7 @@ def backtest(
             end_date=end_date.isoformat(),
             positions_conf=positions_conf
         )
+        return BacktestResponse(**result)
+
     except Exception as e:
         _raise_backtest_http_exception(e)
-
-    return {
-        "dates": result["dates"],
-        "cumulative_returns": result["cumulative_returns"],
-        "metrics": result["metrics"],
-    }

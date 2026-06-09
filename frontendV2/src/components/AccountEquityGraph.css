@@ -1,0 +1,141 @@
+.account-performance-panel {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.account-performance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.account-performance-header h1 {
+  margin: 0;
+}
+
+.account-performance-header p {
+  margin: 0.25rem 0 0;
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 0.9rem;
+}
+
+.account-performance-header strong {
+  color: #2a2f35;
+  font-size: 1.35rem;
+  white-space: nowrap;
+}
+
+.account-period-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.account-period-controls button {
+  border: 1px solid rgba(110, 63, 242, 0.18);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4020a8;
+  font: 700 0.78rem "Plus Jakarta Sans", sans-serif;
+  min-height: 34px;
+  padding: 0.35rem 0.8rem;
+}
+
+.account-period-controls button.is-selected {
+  background: #6e3ff2;
+  border-color: #6e3ff2;
+  color: #ffffff;
+}
+
+.account-period-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.account-performance-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.account-performance-metrics div {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fafafa;
+  padding: 0.75rem;
+}
+
+.account-performance-metrics span {
+  display: block;
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.32rem;
+  text-transform: uppercase;
+}
+
+.account-performance-metrics strong {
+  color: #2a2f35;
+  font-size: 1rem;
+}
+
+.account-performance-metrics strong.is-positive {
+  color: #17834f;
+}
+
+.account-performance-metrics strong.is-negative {
+  color: #b42318;
+}
+
+.account-performance-meta,
+.account-performance-error {
+  margin: 0;
+  padding: 0.8rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.account-performance-meta {
+  background: rgba(110, 63, 242, 0.08);
+  color: #5a2ed9;
+}
+
+.account-performance-error {
+  background: #f7e4e8;
+  color: #a1111d;
+}
+
+.account-equity-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 260px;
+}
+
+.account-equity-axis {
+  stroke: rgba(0, 0, 0, 0.12);
+  stroke-width: 1;
+}
+
+.account-equity-line {
+  fill: none;
+  stroke: #6e3ff2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+@media (max-width: 700px) {
+  .account-performance-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

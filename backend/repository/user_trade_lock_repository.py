@@ -101,29 +101,6 @@ class UserTradeLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def _validate_inputs(self, cognito_user_id: str, owner_token: str, lease_seconds: Optional[int] = None) -> None:
-		"""
-		Validate lock operation inputs.
-
-		Args:
-			cognito_user_id: Cognito user ID whose trade lock is being modified.
-			owner_token: Opaque token identifying the lock owner.
-			lease_seconds: Optional lock lease duration in seconds.
-
-		Returns:
-			None.
-
-		Raises:
-			UserTradeLockUnprocessableEntityError: If required inputs are missing
-			or lease_seconds is not greater than zero.
-		"""
-		if not cognito_user_id:
-			raise UserTradeLockUnprocessableEntityError(field_name="cognito_user_id")
-		if not owner_token:
-			raise UserTradeLockUnprocessableEntityError(field_name="owner_token")
-		if lease_seconds is not None and lease_seconds <= 0:
-			raise UserTradeLockUnprocessableEntityError(field_name="lease_seconds", constraint="must be greater than 0")
-
 	def get_lock(self, cognito_user_id: str) -> Optional[Dict[str, Any]]:
 		"""
 		Fetch the current trade lock for a Cognito user.
@@ -167,8 +144,6 @@ class UserTradeLockRepository:
 			UserTradeLockBadGatewayError: If DynamoDB fails while acquiring the
 			lock.
 		"""
-		self._validate_inputs(cognito_user_id=cognito_user_id, owner_token=owner_token, lease_seconds=lease_seconds)
-
 		now = int(time.time())
 		expires_at = now + int(lease_seconds)
 
@@ -213,8 +188,6 @@ class UserTradeLockRepository:
 			UserTradeLockBadGatewayError: If DynamoDB fails while renewing the
 			lock.
 		"""
-		self._validate_inputs(cognito_user_id=cognito_user_id, owner_token=owner_token, lease_seconds=lease_seconds)
-
 		now = int(time.time())
 		new_expires_at = now + int(lease_seconds)
 
@@ -256,8 +229,6 @@ class UserTradeLockRepository:
 			UserTradeLockBadGatewayError: If DynamoDB fails while releasing the
 			lock.
 		"""
-		self._validate_inputs(cognito_user_id=cognito_user_id, owner_token=owner_token)
-
 		try:
 			self.lock_table_client.table.delete_item(
 				Key={"cognito_user_id": str(cognito_user_id)},

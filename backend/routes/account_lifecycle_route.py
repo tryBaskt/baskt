@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED, HTTP_422_UNPROCESSABLE_CONTENT, HTTP_500_INTERNAL_SERVER_ERROR
 
 from core.deps import get_account_lifecycle_service, get_current_active_alpaca_account, get_current_user
-from schema.account_lifecycle_request import (
+from schema.account_lifecycle_schema import (
 	CreateBasktACHRelationshipRequest,
 	CreateBasktAccountLifecycleRequest,
 	CreateBasktBankRequest,
