@@ -4,7 +4,7 @@
 from __future__ import annotations
 from typing import List, Dict, Any
 from decimal import Decimal
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Key
 
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
@@ -14,7 +14,7 @@ from core.timeutils import to_utc_from_iso
 
 
 class OrderInternalServerError(Exception):
-    def __init__(self, message: str, code: str = "ORDER_INTERNAL_SERVER_ERROR"):
+    def __init__(self, message: str, code: str = "ORDER_INTERNAL_SERVER_ERROR") -> None:
         """
         Initialize an order repository exception.
 
@@ -40,7 +40,7 @@ class OrderBadGatewayError(OrderInternalServerError):
         transaction_id: str | None = None,
         portfolio_id: str | None = None,
         cause: Exception | None = None,
-    ):
+    ) -> None:
         """
         Initialize an upstream dependency failure for order operations.
 
@@ -74,7 +74,7 @@ class OrderBadGatewayError(OrderInternalServerError):
 
 
 class OrderUnprocessableEntityError(OrderInternalServerError):
-    def __init__(self, *, field_name: str | None = None, operation: str | None = None, cause: Exception | None = None):
+    def __init__(self, *, field_name: str | None = None, operation: str | None = None, cause: Exception | None = None) -> None:
         """
         Initialize an invalid order request or parse failure exception.
 
@@ -99,7 +99,7 @@ class OrderUnprocessableEntityError(OrderInternalServerError):
 
 
 class OrderNotFoundError(OrderInternalServerError):
-    def __init__(self, *, transaction_id: str | None = None, portfolio_id: str | None = None):
+    def __init__(self, *, transaction_id: str | None = None, portfolio_id: str | None = None) -> None:
         """
         Initialize a missing orders exception.
 
@@ -125,11 +125,15 @@ class OrderNotFoundError(OrderInternalServerError):
 
 
 class OrderRepository:
+    """
+    Repository for persisting and loading trade order records from DynamoDB.
+    """
+
     def __init__(
             self,
             alpaca_broker_client: AlpacaBrokerClient,
             dynamodb_client: DynamoDBClient
-        ):
+        ) -> None:
         """
         Initialize order repository dependencies.
 
@@ -154,7 +158,8 @@ class OrderRepository:
             orders: Raw order records loaded from DynamoDB.
 
         Returns:
-            List[Dict[str, Any]]: Normalized order records.
+            List[Dict[str, Any]]: Normalized order records with parsed
+            timestamps and numeric values.
 
         Raises:
             OrderUnprocessableEntityError: If an order record cannot be parsed.
@@ -202,41 +207,41 @@ class OrderRepository:
             int: Number of order records written.
 
         Raises:
-            OrderUnprocessableEntityError: If a required ID is missing.
+            OrderUnprocessableEntityError: If an order record cannot be
+            converted into the DynamoDB item shape.
             OrderBadGatewayError: If DynamoDB fails while writing orders.
         """
-        if not portfolio_id:
-            raise OrderUnprocessableEntityError(field_name="portfolio_id")
-        if not cognito_user_id:
-            raise OrderUnprocessableEntityError(field_name="cognito_user_id")
-        if not transaction_id:
-            raise OrderUnprocessableEntityError(field_name="transaction_id")
-
-        items = [
-            {"transaction_id": transaction_id,
-             "order_id": str(order.id),
-             "cognito_user_id": cognito_user_id,
-             "portfolio_id": portfolio_id,
-             "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
-             "created_at": str(order.created_at.isoformat()),
-             "updated_at": str(order.updated_at.isoformat()) if order.updated_at else None,
-             "filled_at": str(order.filled_at.isoformat()) if order.filled_at else None,
-             "symbol": str(order.symbol),
-             "notional": str(order.notional) if order.notional else None,         
-             "qty": Decimal(str(order.qty)),
-             "filled_qty": Decimal(str(order.filled_qty)) if order.filled_qty else None,
-             "filled_avg_price": Decimal(str(order.filled_avg_price)) if order.filled_avg_price else None,
-             "side": str(order.side.name),
-             "status": str(order.status.name)
-            } 
-            for order in orders
-        ]
+        try:
+            items = [
+                {"transaction_id": transaction_id,
+                 "order_id": str(order.id),
+                 "cognito_user_id": cognito_user_id,
+                 "portfolio_id": portfolio_id,
+                 "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
+                 "created_at": str(order.created_at.isoformat()),
+                 "updated_at": str(order.updated_at.isoformat()) if order.updated_at else None,
+                 "filled_at": str(order.filled_at.isoformat()) if order.filled_at else None,
+                 "symbol": str(order.symbol),
+                 "notional": str(order.notional) if order.notional else None,
+                 "qty": Decimal(str(order.qty)),
+                 "filled_qty": Decimal(str(order.filled_qty)) if order.filled_qty else None,
+                 "filled_avg_price": Decimal(str(order.filled_avg_price)) if order.filled_avg_price else None,
+                 "side": str(order.side.name),
+                 "status": str(order.status.name)
+                }
+                for order in orders
+            ]
+        except Exception as e:
+            raise OrderUnprocessableEntityError(
+                operation="convert orders for persistence",
+                cause=e,
+            ) from e
 
         try:
             with self.order_table_client.table.batch_writer() as batch:
                 for item in items:
                     batch.put_item(Item=item)
-        except DynamoDBClientError as e:
+        except Exception as e:
             raise OrderBadGatewayError(
                 operation="persisting orders",
                 transaction_id=transaction_id,
@@ -245,7 +250,7 @@ class OrderRepository:
 
         return len(items)
 
-    def get_orders_by_transaction(self, transaction_id: str) -> List[Dict]:
+    def get_orders_by_transaction(self, transaction_id: str) -> List[Dict[str, Any]]:
         """
         Load orders for a transaction ID.
 
@@ -253,7 +258,7 @@ class OrderRepository:
             transaction_id: Transaction ID to query.
 
         Returns:
-            List[Dict]: Normalized orders for the transaction.
+            List[Dict[str, Any]]: Normalized orders for the transaction.
 
         Raises:
             OrderBadGatewayError: If DynamoDB fails while loading orders.
@@ -277,7 +282,7 @@ class OrderRepository:
             )
         return self._norm_data_types(orders=orders)
     
-    def get_orders_by_portfolio(self, cognito_user_id: str, portfolio_id: str) -> List[Dict]:
+    def get_orders_by_portfolio(self, cognito_user_id: str, portfolio_id: str) -> List[Dict[str, Any]]:
         """
         Load orders for a user's portfolio.
 
@@ -286,17 +291,13 @@ class OrderRepository:
             portfolio_id: Portfolio ID to query.
 
         Returns:
-            List[Dict]: Normalized orders for the portfolio.
+            List[Dict[str, Any]]: Normalized orders for the portfolio.
 
         Raises:
-            OrderUnprocessableEntityError: If cognito_user_id or portfolio_id is missing.
             OrderBadGatewayError: If DynamoDB fails while loading orders.
             OrderNotFoundError: If no orders are found for the portfolio.
+            OrderUnprocessableEntityError: If stored order records cannot be parsed.
         """
-        if not cognito_user_id:
-            raise OrderUnprocessableEntityError(field_name="cognito_user_id")
-        if not portfolio_id:
-            raise OrderUnprocessableEntityError(field_name="portfolio_id")
         
         try:
             orders = self.order_table_client.query(
@@ -316,7 +317,7 @@ class OrderRepository:
             )
         return self._norm_data_types(orders=orders)
     
-    def get_unfilled_orders_by_transaction(self, transaction_id: str) -> List[Dict]:
+    def get_unfilled_orders_by_transaction(self, transaction_id: str) -> List[Dict[str, Any]]:
         """
         Load unfilled orders for a transaction ID.
 
@@ -324,7 +325,7 @@ class OrderRepository:
             transaction_id: Transaction ID to query.
 
         Returns:
-            List[Dict]: Normalized orders whose status is not FILLED.
+            List[Dict[str, Any]]: Normalized orders whose status is not FILLED.
 
         Raises:
             OrderBadGatewayError: If DynamoDB fails while loading orders.

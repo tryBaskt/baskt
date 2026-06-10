@@ -1,7 +1,7 @@
 # backend/domain/user_models.py
 
+# Python imports
 from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List
@@ -11,14 +11,14 @@ class PortfolioAllocationPosition:
     symbol: str
     filled_quantity: float
     direction: int
-    filled_avg_price: float = None
+    filled_avg_price: float
 
 
 @dataclass(frozen=True)
 class PortfolioAllocationSnapshot:
-    positions: List[PortfolioAllocationPosition] | None
-    timestamp: datetime | None
-    allocation_amount: float | None
+    positions: List[PortfolioAllocationPosition]
+    timestamp: datetime
+    allocation_amount: float
     transaction_id: str
 
 

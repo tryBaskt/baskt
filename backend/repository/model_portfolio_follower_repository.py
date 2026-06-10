@@ -1,4 +1,4 @@
-# backend/repository/model_portfolio_repository.py
+# backend/repository/model_portfolio_follower_repository.py
 
 # Python imports
 from __future__ import annotations
@@ -10,7 +10,7 @@ from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 from clients.alpaca_broker_client import AlpacaBrokerClient
 
 class ModelPortfolioFollowerInternalServerError(Exception):
-    def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_FOLLOWER_INTERNAL_SERVER_ERROR"):
+    def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_FOLLOWER_INTERNAL_SERVER_ERROR") -> None:
         """
         Initialize a model portfolio follower repository exception.
 
@@ -36,7 +36,7 @@ class ModelPortfolioFollowerBadGatewayError(ModelPortfolioFollowerInternalServer
         cognito_user_id: str | None = None,
         portfolio_id: str | None = None,
         cause: Exception | None = None,
-    ):
+    ) -> None:
         """
         Initialize an upstream dependency failure for follower operations.
 
@@ -72,7 +72,7 @@ class ModelPortfolioFollowerBadGatewayError(ModelPortfolioFollowerInternalServer
 
 
 class ModelPortfolioFollowerNotFoundError(ModelPortfolioFollowerInternalServerError):
-    def __init__(self, portfolio_id: str):
+    def __init__(self, portfolio_id: str) -> None:
         """
         Initialize a missing followers exception for a model portfolio.
 
@@ -99,7 +99,7 @@ class ModelPortfolioFollowerUnprocessableEntityError(ModelPortfolioFollowerInter
         operation: str | None = None,
         portfolio_id: str | None = None,
         cause: Exception | None = None,
-    ):
+    ) -> None:
         """
         Initialize an invalid follower request or parse failure exception.
 
@@ -134,10 +134,10 @@ class ModelPortfolioFollowerUnprocessableEntityError(ModelPortfolioFollowerInter
 
 class ModelPortfolioFollowerRepository:
     """
-    Service for managing model portfolios in DynamoDB.
+    Repository for managing model portfolio follower records in DynamoDB.
     """
 
-    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient):
+    def __init__(self, dynamodb_client: DynamoDBClient, alpaca_broker_client: AlpacaBrokerClient) -> None:
         """
         Initialize follower repository dependencies.
 
@@ -166,19 +166,9 @@ class ModelPortfolioFollowerRepository:
             bool: True when a follower record exists, otherwise False.
 
         Raises:
-            ModelPortfolioFollowerUnprocessableEntityError: If cognito_user_id
-            or portfolio_id is missing.
             ModelPortfolioFollowerBadGatewayError: If DynamoDB fails while
             checking the follower relationship.
         """
-        if not cognito_user_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="cognito_user_id"
-            )
-        if not portfolio_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="portfolio_id"
-            )
         try:
             key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
             item = self.dynamodb.get_item(key=key)
@@ -204,23 +194,9 @@ class ModelPortfolioFollowerRepository:
             None.
 
         Raises:
-            ModelPortfolioFollowerUnprocessableEntityError: If cognito_user_id,
-            portfolio_id, or portfolio_owner_cognito_user_id is missing.
             ModelPortfolioFollowerBadGatewayError: If DynamoDB fails while
             checking or creating the follower relationship.
         """
-        if not cognito_user_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="cognito_user_id"
-            )
-        if not portfolio_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="portfolio_id"
-            )
-        if not portfolio_owner_cognito_user_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="portfolio_owner_cognito_user_id"
-            )
         try:
             if self.is_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return
@@ -249,17 +225,13 @@ class ModelPortfolioFollowerRepository:
             List[str]: User IDs that currently follow the portfolio.
 
         Raises:
-            ModelPortfolioFollowerUnprocessableEntityError: If portfolio_id is
-            missing or follower records cannot be parsed.
+            ModelPortfolioFollowerUnprocessableEntityError: If follower records
+            cannot be parsed.
             ModelPortfolioFollowerBadGatewayError: If DynamoDB fails while
             fetching followers.
             ModelPortfolioFollowerNotFoundError: If no followers are found for
             the portfolio.
         """
-        if not portfolio_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="portfolio_id"
-            )
         try:
             items = self.dynamodb.query(
                 key_condition=Key("portfolio_id").eq(portfolio_id),
@@ -298,19 +270,9 @@ class ModelPortfolioFollowerRepository:
             None.
 
         Raises:
-            ModelPortfolioFollowerUnprocessableEntityError: If cognito_user_id
-            or portfolio_id is missing.
             ModelPortfolioFollowerBadGatewayError: If DynamoDB fails while
             checking or deleting the follower relationship.
         """
-        if not cognito_user_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="cognito_user_id"
-            )
-        if not portfolio_id:
-            raise ModelPortfolioFollowerUnprocessableEntityError(
-                field_name="portfolio_id"
-            )
         try:
             if not self.is_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return

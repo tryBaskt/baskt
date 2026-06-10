@@ -76,6 +76,48 @@ const modelPortfolioMetricDefinitions = [
 	},
 ];
 
+const allocationPerformanceMetricDefinitions = [
+	{
+		label: "Profit/Loss",
+		key: "profit_loss",
+		format: "currency",
+		signed: true,
+	},
+	{
+		label: "Profit/Loss %",
+		key: "profit_loss_pct",
+		format: "percentage",
+		signed: true,
+	},
+	{
+		label: "Cost Basis",
+		key: "allocation_amount",
+		format: "currency",
+	},
+];
+
+function buildAllocationPerformanceByPeriod(performance) {
+	if (!performance || typeof performance !== "object") {
+		return {};
+	}
+
+	const currentValue = Number(performance.current_value);
+	if (!Number.isFinite(currentValue)) {
+		return {};
+	}
+
+	const timestamp = Date.now();
+	return {
+		"1D": {
+			timestamp: [timestamp],
+			current_value: [currentValue],
+			allocation_amount: Number(performance.allocation_amount),
+			profit_loss: Number(performance.profit_loss),
+			profit_loss_pct: Number(performance.profit_loss_pct),
+		},
+	};
+}
+
 function normalizePosition(position) {
 	return {
 		symbol: position?.symbol || "-",
@@ -140,6 +182,9 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 	const [tradeErrorMessage, setTradeErrorMessage] = useState("");
 	const [tradeStatusMessage, setTradeStatusMessage] = useState("");
 	const [isTradeSubmitting, setIsTradeSubmitting] = useState(false);
+	const [allocationPerformanceByPeriod, setAllocationPerformanceByPeriod] = useState({});
+	const [isAllocationPerformanceLoading, setIsAllocationPerformanceLoading] = useState(false);
+	const [allocationPerformanceErrorMessage, setAllocationPerformanceErrorMessage] = useState("");
 
 	const token = useMemo(
 		() => sessionStorage.getItem("idToken") || sessionStorage.getItem("accessToken") || "",
@@ -154,6 +199,7 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 			if (!selectedBaskt?.portfolioId) {
 				setDetails(null);
 				setPerformanceByPeriod({});
+				setAllocationPerformanceByPeriod({});
 				setErrorMessage("No Baskt selected.");
 				setIsLoading(false);
 				setIsPerformanceLoading(false);
@@ -166,6 +212,9 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 			setErrorMessage("");
 			setPerformanceErrorMessage("");
 			setPerformanceByPeriod({});
+			setAllocationPerformanceByPeriod({});
+			setAllocationPerformanceErrorMessage("");
+			setIsAllocationPerformanceLoading(false);
 			setSelectedPreviousSnapshotIndex("");
 			setInvestedAmount(0);
 			setIsInvestmentLoading(true);
@@ -309,6 +358,57 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 			isCancelled = true;
 		};
 	}, [selectedBaskt, token]);
+
+	useEffect(() => {
+		let isCancelled = false;
+
+		async function fetchAllocationPerformance() {
+			if (!selectedBaskt?.portfolioId || isInvestmentLoading || investedAmount <= 0) {
+				setAllocationPerformanceByPeriod({});
+				setAllocationPerformanceErrorMessage("");
+				setIsAllocationPerformanceLoading(false);
+				return;
+			}
+
+			setIsAllocationPerformanceLoading(true);
+			setAllocationPerformanceErrorMessage("");
+
+			try {
+				const response = await fetch(
+					`${API_BASE_URL}/account-performance/portfolio-allocation/${selectedBaskt.portfolioId}`,
+					{
+						method: "GET",
+						headers: {
+							...(token ? { Authorization: `Bearer ${token}` } : {}),
+						},
+					}
+				);
+				const payload = await response.json().catch(() => ({}));
+				if (!response.ok) {
+					throw new Error(payload?.detail || `Failed to load allocation performance (${response.status}).`);
+				}
+
+				if (!isCancelled) {
+					setAllocationPerformanceByPeriod(buildAllocationPerformanceByPeriod(payload));
+				}
+			} catch (error) {
+				if (!isCancelled) {
+					setAllocationPerformanceErrorMessage(error?.message || "Unable to load allocation performance.");
+					setAllocationPerformanceByPeriod({});
+				}
+			} finally {
+				if (!isCancelled) {
+					setIsAllocationPerformanceLoading(false);
+				}
+			}
+		}
+
+		fetchAllocationPerformance();
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [selectedBaskt, token, investedAmount, isInvestmentLoading]);
 
 	function openTradeModal(type) {
 		setTradeModalType(type);
@@ -471,16 +571,44 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 					<div className="baskt-main-grid">
 						<div className="baskt-performance">
 							<AccountEquityGraph
-								performanceByPeriod={performanceByPeriod}
-								isLoading={isPerformanceLoading}
-								errorMessage={performanceErrorMessage}
-								title="Baskt Performance"
-								ariaLabel="Baskt cumulative returns over time"
-								valueKey="cumulative_returns"
-								latestValueFormatter={formatPercentValue}
-								emptyMessage="No Baskt performance history available."
-								loadingMessage="Loading Baskt performance..."
-								metricDefinitions={modelPortfolioMetricDefinitions}
+								performanceByPeriod={
+									investedAmount > 0
+										? allocationPerformanceByPeriod
+										: performanceByPeriod
+								}
+								isLoading={
+									investedAmount > 0
+										? isAllocationPerformanceLoading
+										: isPerformanceLoading
+								}
+								errorMessage={
+									investedAmount > 0
+										? allocationPerformanceErrorMessage
+										: performanceErrorMessage
+								}
+								title={investedAmount > 0 ? "Your Baskt Performance" : "Baskt Performance"}
+								ariaLabel={
+									investedAmount > 0
+										? "Your Baskt allocation value"
+										: "Baskt cumulative returns over time"
+								}
+								valueKey={investedAmount > 0 ? "current_value" : "cumulative_returns"}
+								latestValueFormatter={investedAmount > 0 ? formatCurrency : formatPercentValue}
+								emptyMessage={
+									investedAmount > 0
+										? "No allocation performance available."
+										: "No Baskt performance history available."
+								}
+								loadingMessage={
+									investedAmount > 0
+										? "Loading your Baskt performance..."
+										: "Loading Baskt performance..."
+								}
+								metricDefinitions={
+									investedAmount > 0
+										? allocationPerformanceMetricDefinitions
+										: modelPortfolioMetricDefinitions
+								}
 							/>
 						</div>
 

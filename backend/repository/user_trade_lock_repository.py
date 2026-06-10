@@ -3,15 +3,15 @@
 # Python imports
 from __future__ import annotations
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from botocore.exceptions import ClientError
 
 # Baskt imports
-from clients.dynamodb_client import DynamoDBClient
+from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 
 class UserTradeLockInternalServerError(Exception):
-	def __init__(self, message: str, code: str = "USER_TRADE_LOCK_INTERNAL_SERVER_ERROR"):
+	def __init__(self, message: str, code: str = "USER_TRADE_LOCK_INTERNAL_SERVER_ERROR") -> None:
 		"""
 		Initialize a user trade lock repository exception.
 
@@ -30,13 +30,14 @@ class UserTradeLockInternalServerError(Exception):
 
 
 class UserTradeLockBadGatewayError(UserTradeLockInternalServerError):
-	def __init__(self, operation: str, cognito_user_id: str, *, cause: Exception | None = None):
+	def __init__(self, operation: str, cognito_user_id: str, *, source: str, cause: Exception | None = None) -> None:
 		"""
 		Initialize an upstream dependency failure for user trade lock operations.
 
 		Args:
 			operation: Description of the lock operation that failed.
 			cognito_user_id: Cognito user ID involved in the failure.
+			source: Upstream dependency that failed.
 			cause: Optional upstream exception that caused the failure.
 
 		Returns:
@@ -45,7 +46,7 @@ class UserTradeLockBadGatewayError(UserTradeLockInternalServerError):
 		Raises:
 			No exceptions are intentionally raised by this method.
 		"""
-		message = f"Upstream DynamoDB botocore client failed while {operation} for user '{cognito_user_id}'"
+		message = f"Upstream {source} client failed while {operation} for user '{cognito_user_id}'"
 		if cause:
 			message = f"{message}: {cause}"
 		super().__init__(
@@ -55,7 +56,7 @@ class UserTradeLockBadGatewayError(UserTradeLockInternalServerError):
 
 
 class UserTradeLockUnprocessableEntityError(UserTradeLockInternalServerError):
-	def __init__(self, field_name: str, constraint: str = "is required"):
+	def __init__(self, field_name: str, constraint: str) -> None:
 		"""
 		Initialize an invalid user trade lock request exception.
 
@@ -86,7 +87,7 @@ class UserTradeLockRepository:
 	  - No sort key
 	"""
 
-	def __init__(self, dynamodb_client: DynamoDBClient):
+	def __init__(self, dynamodb_client: DynamoDBClient) -> None:
 		"""
 		Initialize the user trade lock repository.
 
@@ -101,7 +102,7 @@ class UserTradeLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def get_lock(self, cognito_user_id: str) -> Optional[Dict[str, Any]]:
+	def get_lock(self, cognito_user_id: str) -> Dict[str, Any] | None:
 		"""
 		Fetch the current trade lock for a Cognito user.
 
@@ -109,21 +110,20 @@ class UserTradeLockRepository:
 			cognito_user_id: Cognito user ID whose lock should be fetched.
 
 		Returns:
-			Optional[Dict[str, Any]]: Lock item when present, otherwise None.
+			Dict[str, Any] | None: Lock item when present, otherwise None.
 
 		Raises:
-			UserTradeLockUnprocessableEntityError: If cognito_user_id is missing.
 			UserTradeLockBadGatewayError: If DynamoDB fails while loading the
 			lock.
 		"""
-		if not cognito_user_id:
-			raise UserTradeLockUnprocessableEntityError(field_name="cognito_user_id")
+
 		try:
 			return self.lock_table_client.get_item(key={"cognito_user_id": str(cognito_user_id)})
-		except ClientError as e:
+		except DynamoDBClientError as e:
 			raise UserTradeLockBadGatewayError(
 				operation="loading lock",
 				cognito_user_id=cognito_user_id,
+				source="DynamoDB",
 				cause=e,
 			) from e
 
@@ -140,9 +140,9 @@ class UserTradeLockRepository:
 			bool: True if acquired, False if another active owner holds the lock.
 
 		Raises:
-			UserTradeLockUnprocessableEntityError: If inputs are invalid.
 			UserTradeLockBadGatewayError: If DynamoDB fails while acquiring the
 			lock.
+			UserTradeLockInternalServerError: If an unexpected error occurs.
 		"""
 		now = int(time.time())
 		expires_at = now + int(lease_seconds)
@@ -168,7 +168,12 @@ class UserTradeLockRepository:
 			raise UserTradeLockBadGatewayError(
 				operation="acquiring lock",
 				cognito_user_id=cognito_user_id,
+				source="DynamoDB botocore",
 				cause=e,
+			) from e
+		except Exception as e:
+			raise UserTradeLockInternalServerError(
+				message=f"Unexpected error acquiring lock for user '{cognito_user_id}': {e}"
 			) from e
 
 	def renew_lock(self, cognito_user_id: str, owner_token: str, lease_seconds: int = 30) -> bool:
@@ -184,9 +189,9 @@ class UserTradeLockRepository:
 			bool: True if renewed, False if lock is not owned by owner_token.
 
 		Raises:
-			UserTradeLockUnprocessableEntityError: If inputs are invalid.
 			UserTradeLockBadGatewayError: If DynamoDB fails while renewing the
 			lock.
+			UserTradeLockInternalServerError: If an unexpected error occurs.
 		"""
 		now = int(time.time())
 		new_expires_at = now + int(lease_seconds)
@@ -209,7 +214,12 @@ class UserTradeLockRepository:
 			raise UserTradeLockBadGatewayError(
 				operation="renewing lock",
 				cognito_user_id=cognito_user_id,
+				source="DynamoDB botocore",
 				cause=e,
+			) from e
+		except Exception as e:
+			raise UserTradeLockInternalServerError(
+				message=f"Unexpected error renewing lock for user '{cognito_user_id}': {e}",
 			) from e
 
 	def release_lock(self, cognito_user_id: str, owner_token: str) -> bool:
@@ -225,9 +235,9 @@ class UserTradeLockRepository:
 			else.
 
 		Raises:
-			UserTradeLockUnprocessableEntityError: If inputs are invalid.
 			UserTradeLockBadGatewayError: If DynamoDB fails while releasing the
 			lock.
+			UserTradeLockInternalServerError: If an unexpected error occurs.
 		"""
 		try:
 			self.lock_table_client.table.delete_item(
@@ -242,6 +252,11 @@ class UserTradeLockRepository:
 			raise UserTradeLockBadGatewayError(
 				operation="releasing lock",
 				cognito_user_id=cognito_user_id,
+				source="DynamoDB botocore",
 				cause=e,
+			) from e
+		except Exception as e:
+			raise UserTradeLockInternalServerError(
+				message=f"Unexpected error releasing lock for user '{cognito_user_id}': {e}",
 			) from e
 		

@@ -2,19 +2,19 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Any, List, Dict, Union
+from typing import Any, List, Dict
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
 from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest, CreateBankRequest, CreateBankTransferRequest, CreatePlaidRelationshipRequest, GetTransfersRequest
-from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, AccountSubType, IdentifierType
+from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, IdentifierType
 from alpaca.broker.models import (
     Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Bank, Transfer, TradeAccount, 
-    AccountDocument, TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
+    TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
 )
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.models import Asset, Order, AccountConfiguration, PortfolioHistory, ClosePositionResponse, FailedClosePositionDetails
+from alpaca.trading.models import Asset, Order, FailedClosePositionDetails
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
@@ -28,7 +28,7 @@ from domain.baskt import BasktPosition
 class AlpacaBrokerClientError(Exception):
     """Raised when Alpaca Broker client operations fail."""
 
-    def __init__(self, message: str, code: str):
+    def __init__(self, message: str, code: str) -> None:
         """
         Initialize an Alpaca broker client exception with a message and code.
 
@@ -61,6 +61,8 @@ class AlpacaBrokerClient:
         Args:
             alpaca_broker_api_key: Alpaca API key.
             alpaca_broker_api_secret: Alpaca API secret.
+            alpaca_env: Alpaca environment name. Use "sandbox" for sandbox
+                broker API calls; any other value creates a live client.
 
         Returns:
             None.
@@ -129,7 +131,7 @@ class AlpacaBrokerClient:
     ######## ACCOUNT LIFECYCLE ###########
     ######################################
     
-    def create_alpaca_account(self, account_data: Dict[str, Any]) -> Dict[str, str]:
+    def create_alpaca_account(self, account_data: Dict[str, Dict[str,str] | List[Dict[str, str]]]) -> Dict[str, str]:
         """
         Create a broker account from Alpaca account payload sections.
 
@@ -140,8 +142,7 @@ class AlpacaBrokerClient:
                 currency, enabled_assets, trusted_contact, and documents.
 
         Returns:
-            Dict[str, str]: Created Alpaca account identifiers and the email
-            address used to create the account.
+            Dict[str, str]: Created Alpaca account identifiers.
 
         Raises:
             AlpacaBrokerClientError: If required payload fields are missing,
@@ -154,18 +155,16 @@ class AlpacaBrokerClient:
             disclosures_data: Dict[str, str] = account_data["disclosures"]
             agreements_data: List[Dict[str, str]] = account_data["agreements"]
 
-            email_address = contact_data.get("email_address")
-            if not email_address:
-                raise ValueError("contact.email_address is required to create Cognito user")
+            email_address = contact_data["email_address"]
 
             contact = Contact(
-                email_address=contact_data["email_address"],
+                email_address=email_address,
                 phone_number=contact_data.get("phone_number"),
                 street_address=contact_data["street_address"],
                 unit=contact_data.get("unit"),
                 city=contact_data["city"],
                 state=contact_data.get("state"),
-                postal_code=contact_data.get("postal_code", contact_data.get("postal")),
+                postal_code=contact_data.get("postal_code"),
                 country=contact_data.get("country"),
             )
 
@@ -175,7 +174,7 @@ class AlpacaBrokerClient:
                 family_name=identity_data["family_name"],
                 date_of_birth=identity_data.get("date_of_birth"),
                 tax_id=identity_data.get("tax_id"),
-                tax_id_type=TaxIdType(identity_data.get("tax_id_type")),
+                tax_id_type=TaxIdType(identity_data.get("tax_id_type")) if "tax_id_type" in identity_data else None,
                 country_of_citizenship=identity_data.get("country_of_citizenship"),
                 country_of_birth=identity_data.get("country_of_birth"),
                 country_of_tax_residence=identity_data["country_of_tax_residence"],
@@ -183,7 +182,7 @@ class AlpacaBrokerClient:
                 visa_expiration_date=identity_data.get("visa_expiration_date") if "visa_type" in identity_data else None,
                 date_of_departure_from_usa=identity_data.get("date_of_departure_from_usa") if "visa_type" in identity_data else None,
                 permanent_resident=identity_data.get("permanent_resident"),
-                funding_source=[FundingSource(source) for source in identity_data.get("funding_source")],
+                funding_source=[FundingSource(source) for source in identity_data.get("funding_source")] if "funding_source" in identity_data else None,
                 annual_income_min=identity_data.get("annual_income_min"),
                 annual_income_max=identity_data.get("annual_income_max"),
                 liquid_net_worth_min=identity_data.get("liquid_net_worth_min"),
@@ -197,7 +196,7 @@ class AlpacaBrokerClient:
                 is_affiliated_exchange_or_finra=disclosures_data.get("is_affiliated_exchange_or_finra"),
                 is_politically_exposed=disclosures_data.get("is_politically_exposed"),
                 immediate_family_exposed=disclosures_data["immediate_family_exposed"],
-                employment_status=EmploymentStatus(disclosures_data.get("employment_status")),
+                employment_status=EmploymentStatus(disclosures_data.get("employment_status")) if "employment_status" in disclosures_data else None,
                 employer_name=disclosures_data.get("employer_name"),
                 employer_address=disclosures_data.get("employer_address"),
                 employment_position=disclosures_data.get("employment_position"),
@@ -214,21 +213,17 @@ class AlpacaBrokerClient:
             ]
 
             request = CreateAccountRequest(
-                account_type=account_data.get("account_type", AccountType.TRADING),
+                account_type=AccountType(account_data.get("account_type")) if "account_type" in account_data else None,
                 contact=contact,
                 identity=identity,
                 disclosures=disclosures,
-                agreements=agreements,
-                trusted_contact=account_data.get("trusted_contact"),
-                documents=account_data.get("documents"),
-                currency=account_data.get("currency"),
-                enabled_assets=account_data.get("enabled_assets"),
+                agreements=agreements
             )
             alpaca_account = self.client.create_account(request)
             alpaca_account_id = str(getattr(alpaca_account, "id", None))
             alpaca_account_number = str(getattr(alpaca_account, "account_number", None))
 
-            if not (alpaca_account_id and alpaca_account_id):
+            if not alpaca_account_id or alpaca_account_id == "None" or not alpaca_account_number or alpaca_account_number == "None":
                 raise AlpacaBrokerClientError(
                     message=f"Request to create alpaca account failed for user '{email_address}'",
                     code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
@@ -251,6 +246,7 @@ class AlpacaBrokerClient:
 
         Args:
             account_id: Alpaca broker account ID to fetch.
+            cognito_user_id: Cognito user ID used for error context.
 
         Returns:
             Account: Alpaca account model returned by the broker API.
@@ -269,12 +265,13 @@ class AlpacaBrokerClient:
             )
     
     
-    def close_alpaca_account(self, account_id: str, cognito_user_id: str):
+    def close_alpaca_account(self, account_id: str, cognito_user_id: str) -> None:
         """
         Close an Alpaca broker account.
 
         Args:
             account_id: Alpaca broker account ID to close.
+            cognito_user_id: Cognito user ID used for error context.
 
         Returns:
             None.
@@ -294,12 +291,26 @@ class AlpacaBrokerClient:
         
     def get_trade_account(self, account_id: str, cognito_user_id: str) -> TradeAccount:
         """
-        Get the trade broker account
+        Fetch a trade account from Alpaca by broker account ID.
+
+        Args:
+            account_id: Alpaca broker account ID whose trade account should be
+            retrieved.
+            cognito_user_id: Cognito user ID associated with the account. Used
+            for error context and logging.
+
+        Returns:
+            TradeAccount: Alpaca trade account model containing trading status,
+            buying power, cash, equity, margin, and transferability fields.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the request, the account
+            does not exist or cannot be accessed, the network request fails, or
+            any unexpected error occurs while fetching the trade account.
         """
 
         try:
-            trade_account = self.client.get_trade_account_by_id(account_id=account_id)
-            return trade_account
+            return self.client.get_trade_account_by_id(account_id=account_id)
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to get alpaca trade account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
@@ -339,17 +350,6 @@ class AlpacaBrokerClient:
             network request fails, or any unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if not account_owner_name:
-                raise ValueError("account_owner_name is required")
-            if not bank_account_type:
-                raise ValueError("bank_account_type is required")
-            if not bank_account_number:
-                raise ValueError("bank_account_number is required")
-            if not bank_routing_number:
-                raise ValueError("bank_routing_number is required")
-
             request = CreateACHRelationshipRequest(
                 account_owner_name=account_owner_name,
                 bank_account_type=BankAccountType(bank_account_type.upper()),
@@ -364,7 +364,7 @@ class AlpacaBrokerClient:
             )
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to create ACH relationship for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                message=f"Failed to create direct ACH relationship for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CREATE_ACH_RELATIONSHIP_FAILED",
             ) from e
         
@@ -394,11 +394,6 @@ class AlpacaBrokerClient:
             fails, or any unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if not processor_token:
-                raise ValueError("processor_token is required")
-
             request = CreatePlaidRelationshipRequest(
                 processor_token=processor_token
             )
@@ -437,8 +432,6 @@ class AlpacaBrokerClient:
             error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
 
             return self.client.get_ach_relationships_for_account(
                 account_id=alpaca_account_id
@@ -473,10 +466,6 @@ class AlpacaBrokerClient:
             unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if not ach_relationship_id:
-                raise ValueError("ach_relationship_id is required")
 
             self.client.delete_ach_relationship_for_account(
                 account_id=alpaca_account_id,
@@ -515,7 +504,7 @@ class AlpacaBrokerClient:
                 INVOICE.
 
         Returns:
-            Transfer | Dict[str, Any]: Alpaca transfer response.
+            Transfer: Alpaca transfer response.
 
         Raises:
             AlpacaBrokerClientError: If required input is missing, enum values
@@ -523,19 +512,8 @@ class AlpacaBrokerClient:
             request fails, or any unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if amount is None:
-                raise ValueError("amount is required")
-            if not direction:
-                raise ValueError("direction is required")
-            if not timing:
-                raise ValueError("timing is required")
-            if not relationship_id:
-                raise ValueError("relationship_id is required")
-
             request = CreateACHTransferRequest(
-                amount=str(amount),
+                amount=amount,
                 direction=TransferDirection(direction.upper()),
                 timing=TransferTiming(timing.lower()),
                 fee_payment_method=FeePaymentMethod(fee_payment_method.lower()) if fee_payment_method else None,
@@ -596,16 +574,6 @@ class AlpacaBrokerClient:
             fails, or any unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if not name:
-                raise ValueError("name is required")
-            if not bank_code_type:
-                raise ValueError("bank_code_type is required")
-            if not bank_code:
-                raise ValueError("bank_code is required")
-            if not account_number:
-                raise ValueError("account_number is required")
 
             request = CreateBankRequest(
                 name=name,
@@ -653,9 +621,6 @@ class AlpacaBrokerClient:
             error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-
             return self.client.get_banks_for_account(
                 account_id=alpaca_account_id
             )
@@ -690,11 +655,6 @@ class AlpacaBrokerClient:
             unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if not bank_id:
-                raise ValueError("bank_id is required")
-
             self.client.delete_bank_for_account(
                 account_id=alpaca_account_id,
                 bank_id=bank_id
@@ -733,7 +693,7 @@ class AlpacaBrokerClient:
             additional_information: Optional wire transfer instructions.
 
         Returns:
-            Transfer | Dict[str, Any]: Alpaca transfer response.
+            Transfer: Alpaca transfer response.
 
         Raises:
             AlpacaBrokerClientError: If required input is missing, enum values
@@ -741,19 +701,9 @@ class AlpacaBrokerClient:
             request fails, or any unexpected error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
-            if amount is None:
-                raise ValueError("amount is required")
-            if not direction:
-                raise ValueError("direction is required")
-            if not timing:
-                raise ValueError("timing is required")
-            if not bank_id:
-                raise ValueError("bank_id is required")
 
             request = CreateBankTransferRequest(
-                amount=str(amount),
+                amount=amount,
                 direction=TransferDirection(direction.upper()),
                 timing=TransferTiming(timing.lower()),
                 fee_payment_method=FeePaymentMethod(fee_payment_method.lower()) if fee_payment_method else None,
@@ -802,8 +752,6 @@ class AlpacaBrokerClient:
             error occurs.
         """
         try:
-            if not alpaca_account_id:
-                raise ValueError("alpaca_account_id is required")
             if limit is not None and limit < 1:
                 raise ValueError("limit must be greater than 0")
             if offset < 0:
@@ -825,7 +773,7 @@ class AlpacaBrokerClient:
     ###### TRADE EXECUTION #######
     ##############################
 
-    def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id) -> Order:
+    def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id: str) -> Order:
         """
         Submit an order request to close an open position for a symbol.
 
@@ -852,7 +800,7 @@ class AlpacaBrokerClient:
             )
         
 
-    def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id) -> Union[Order | FailedClosePositionDetails]:
+    def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id: str) -> List[Order | FailedClosePositionDetails]:
         """
         Submit an order request to close all open positions for a broker account.
 
@@ -861,7 +809,8 @@ class AlpacaBrokerClient:
             cognito_user_id: Cognito user ID used for error context.
 
         Returns:
-            Order: Alpaca order response for the close-position request.
+            List[Order | FailedClosePositionDetails]: One response body for
+            each attempted close-position request.
 
         Raises:
             AlpacaBrokerClientError: If Alpaca rejects the close-position
@@ -880,7 +829,7 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_EXECUTE_CLOSE_ALL_POSITION_FAILED",
             )
 
-    def execute_quantity_buy(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id) -> Order:
+    def execute_quantity_buy(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> Order:
         """
         Submit a market buy order for a specific quantity for a broker account.
 
@@ -908,11 +857,11 @@ class AlpacaBrokerClient:
             return self.client.submit_order_for_account(account_id=alpaca_account_id, order_data=order_req)
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to submit buy order for '{symbol}' for alpacaa account id '{alpaca_account_id}' and cognito_user_id '{cognito_user_id}'): {e}",
+                message=f"Failed to submit buy order for '{symbol}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_EXECUTE_QUANTITY_BUY_FAILED",
             )
 
-    def execute_quantity_fractional_sell(self, symbol: str, quantity, alpaca_account_id: str, cognito_user_id) -> List[Order | None]:
+    def execute_quantity_fractional_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> List[Order | None]:
         """
         Reduce a position using a two-step order flow for fractional quantities for a broker account.
 
@@ -956,7 +905,7 @@ class AlpacaBrokerClient:
             return [order1, None]
 
         order1_id = order1.id
-        while self.get_order_by_id(order1_id).status.name != "FILLED":
+        while self.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order1_id).status.name != "FILLED":
             sleep(0.25)
 
         order_req = MarketOrderRequest(
@@ -975,7 +924,7 @@ class AlpacaBrokerClient:
             )
         return [order1, order2]
 
-    def execute_quantity_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id) -> Order:
+    def execute_quantity_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> Order:
         """
         Submit a market sell order for a specific quantity for a broker account.
 
@@ -1031,14 +980,14 @@ class AlpacaBrokerClient:
                 message=f"Failed to fetch latest prices for symbols {symbols}: {e}",
                 code="ALPACA_BROKER_GET_LATEST_PRICE_FAILED",
             )
-        result = {}
+        result: Dict[str, float] = {}
         for symbol in symbols:
             if symbol not in quotes:
                 raise AlpacaBrokerClientError(
-                    message=f"Latest price missing for symbol '{symbol}': {e}",
+                    message=f"Latest price missing for symbol '{symbol}'",
                     code="ALPACA_BROKER_MISSING_LATEST_PRICE",
                 )
-            result[symbol] = quotes[symbol].price 
+            result[symbol] = float(quotes[symbol].price)
 
         return result
     
@@ -1049,16 +998,15 @@ class AlpacaBrokerClient:
         Args:
             alpaca_account_id: Alpaca broker account ID whose positions should
                 be fetched.
+            cognito_user_id: Cognito user ID used for error context.
 
         Returns:
             Dict[str, BasktPosition]: Mapping of ticker symbol to BasktPosition.
 
         Raises:
-            Any exception raised by Alpaca's get_all_positions_for_account call
-            if the account is inaccessible, the network request fails, or
-            Alpaca rejects the positions request. Exceptions may also be raised
-            while constructing BasktPosition values from malformed Alpaca
-            position data.
+            AlpacaBrokerClientError: If Alpaca rejects the positions request,
+            the account is inaccessible, the network request fails, or any
+            unexpected error occurs while fetching positions.
         """
         try:
             positions = self.client.get_all_positions_for_account(account_id=alpaca_account_id)
@@ -1083,15 +1031,16 @@ class AlpacaBrokerClient:
 
         Args:
             alpaca_account_id: Alpaca broker account ID that owns the order.
+            cognito_user_id: Cognito user ID used for error context.
             order_id: Alpaca order ID to fetch.
 
         Returns:
             Order: Alpaca order model returned by the broker API.
 
         Raises:
-            Any exception raised by Alpaca's get_order_for_account_by_id call
-            if the order does not exist, the account is inaccessible, the
-            network request fails, or Alpaca rejects the order lookup.
+            AlpacaBrokerClientError: If the order does not exist, the account
+            is inaccessible, the network request fails, Alpaca rejects the
+            order lookup, or any unexpected error occurs.
         """
         try:
             return self.client.get_order_for_account_by_id(account_id=alpaca_account_id, order_id=order_id)
@@ -1106,6 +1055,23 @@ class AlpacaBrokerClient:
     #############################
         
     def get_account_performance(self, alpaca_account_id: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetch Alpaca portfolio history for the standard account performance periods.
+
+        Args:
+            alpaca_account_id: Alpaca broker account ID whose portfolio history
+                should be fetched.
+
+        Returns:
+            Dict[str, Dict[str, Any]]: Performance data keyed by period. Each
+            period contains equity, timestamp, profit_loss, profit_loss_pct,
+            and base_value values returned by Alpaca.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects a portfolio-history
+            request, the account is inaccessible, the network request fails,
+            or any unexpected error occurs.
+        """
         try:
             periods_and_timeframes = [
                 ["1D","5Min"],

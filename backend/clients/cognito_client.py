@@ -1,16 +1,17 @@
 # backend/clients/cognito.py
 
+# Python imports
 from __future__ import annotations
-
 from typing import Any, Dict
 
+# AWS imports
 from botocore.exceptions import BotoCoreError, ClientError, ParamValidationError
     
 
 class CognitoClientError(Exception):
     """Raised when Cognito client operations fail."""
 
-    def __init__(self, message: str, code: str = "COGNITO_CLIENT_ERROR"):
+    def __init__(self, message: str, code: str = "COGNITO_CLIENT_ERROR") -> None:
         """
         Initialize a Cognito client exception with a message and code.
 
@@ -31,7 +32,7 @@ class CognitoClientError(Exception):
 class CognitoClientUserAlreadyExists(CognitoClientError):
     """Raised when a Cognito user already exists for the requested identifier."""
 
-    def __init__(self, identifier: str, identifier_type: str):
+    def __init__(self, identifier: str, identifier_type: str) -> None:
         """
         Initialize a duplicate Cognito user exception.
 
@@ -56,7 +57,7 @@ class CognitoClientUserAlreadyExists(CognitoClientError):
 class CognitoClientCognitoUserNotFound(CognitoClientError):
     """Raised when a Cognito user is not found."""
 
-    def __init__(self, identifier: str, identifier_type: str):
+    def __init__(self, identifier: str, identifier_type: str) -> None:
         """
         Initialize a missing Cognito user exception.
 
@@ -79,8 +80,8 @@ class CognitoClientCognitoUserNotFound(CognitoClientError):
 
 class CognitoClient:
     """
-    Minimal Cognito client wrapper for retrieving User Pool metadata (JWKS).
-    Keep this narrowly scoped; token verification lives in core/security.py.
+    Cognito Identity Provider client wrapper for Baskt user lifecycle lookups
+    and admin user creation. Token verification lives in core/security.py.
     """
 
     def __init__(
@@ -132,15 +133,12 @@ class CognitoClient:
         attributes = {
             attr.get("Name"): attr.get("Value")
             for attr in response.get("UserAttributes", [])
-            if attr.get("Name")
         }
 
         return {
             "cognito_user_id": response.get("Username"),
-            "alpaca_account_id": attributes.get("custom:alpaca_acct_id")
-            or attributes.get("alpaca_acct_id"),
-            "alpaca_account_number": attributes.get("custom:alpaca_acct_num")
-            or attributes.get("alpaca_acct_num"),
+            "alpaca_account_id": attributes.get("custom:alpaca_acct_id"),
+            "alpaca_account_number": attributes.get("custom:alpaca_acct_num"),
             "email_address": attributes.get("email"),
             "cognito_enabled_status": bool(response.get("Enabled", False)),
             "cognito_confirmation_status": response.get("UserStatus"),
@@ -197,8 +195,8 @@ class CognitoClient:
     def create_cognito_user(
         self, 
         account_data: Dict[str, Any], 
-        alpaca_account_id, 
-        alpaca_account_number, 
+        alpaca_account_id: str, 
+        alpaca_account_number: str, 
         password: str | None = None
     ) -> str:
         """
@@ -207,7 +205,12 @@ class CognitoClient:
         Args:
             account_data: Account payload containing contact.email_address and
                 identity.given_name/family_name.
-            password: Optional password used when creating a dev Cognito user.
+            alpaca_account_id: Alpaca broker account ID to store as a Cognito
+                custom attribute.
+            alpaca_account_number: Alpaca broker account number to store as a
+                Cognito custom attribute.
+            password: Password used when creating a dev Cognito user and
+                setting the user's permanent password.
 
         Returns:
             str: Cognito user ID/sub.
@@ -328,6 +331,11 @@ class CognitoClient:
                 message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
                 code="COGNITO_GET_COGNITO_USER_FAILED",
             ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to get cognito user id '{cognito_user_id}': {err}",
+                code="COGNITO_GET_COGNITO_USER_FAILED",
+            ) from err
 
     def get_cognito_user_by_email_address(self, email_address: str) -> Dict[str, Any]:
         """
@@ -344,14 +352,9 @@ class CognitoClient:
         Raises:
             CognitoClientCognitoUserNotFound: If no Cognito user exists for the
             email address.
-            CognitoClientError: If email_address is missing, Cognito fails
-            while fetching the user, or the request cannot be sent.
+            CognitoClientError: If Cognito fails while fetching the user or
+            the request cannot be sent.
         """
-        if not email_address:
-            raise CognitoClientError(
-                message="email_address is required.",
-                code="COGNITO_GET_USER_BY_EMAIL_INVALID_EMAIL",
-            )
 
         try:
             users = self.cognito_client.list_users(

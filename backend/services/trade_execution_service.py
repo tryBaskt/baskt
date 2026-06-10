@@ -270,7 +270,7 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if is_test:
+            if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
@@ -346,7 +346,7 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if is_test:
+            if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
@@ -621,7 +621,7 @@ class TradeExecutionService:
             # Realize filled orders before withdrawing
             print("sodfjoisdjfisdjofisdjofisjdoifjsdoifjsdoif")
             print(is_test)
-            if is_test:
+            if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
@@ -790,6 +790,8 @@ class TradeExecutionService:
         Returns:
             int: Number of newly filled orders
         """ 
+
+        if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id): return
         
         portfolio_allocation_snapshots = self.portfolio_allocation_repository.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]

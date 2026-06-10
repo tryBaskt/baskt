@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from botocore.exceptions import ClientError
 
 # Baskt imports
@@ -11,7 +11,7 @@ from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 
 class ModelPortfolioUpdateLockInternalServerError(Exception):
-	def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_UPDATE_LOCK_INTERNAL_SERVER_ERROR"):
+	def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_UPDATE_LOCK_INTERNAL_SERVER_ERROR") -> None:
 		"""
 		Initialize a model portfolio update lock repository exception.
 
@@ -21,13 +21,16 @@ class ModelPortfolioUpdateLockInternalServerError(Exception):
 
 		Returns:
 			None.
+
+		Raises:
+			No exceptions are intentionally raised by this method.
 		"""
 		super().__init__(message)
 		self.code = code
 
 
 class ModelPortfolioUpdateLockBadGatewayError(ModelPortfolioUpdateLockInternalServerError):
-	def __init__(self, operation: str, portfolio_id: str, *, source: str = "DynamoDB", cause: Exception | None = None):
+	def __init__(self, operation: str, portfolio_id: str, *, source: str, cause: Exception | None = None) -> None:
 		"""
 		Initialize an upstream dependency failure for lock operations.
 
@@ -50,7 +53,7 @@ class ModelPortfolioUpdateLockBadGatewayError(ModelPortfolioUpdateLockInternalSe
 
 
 class ModelPortfolioUpdateLockUnprocessableEntityError(ModelPortfolioUpdateLockInternalServerError):
-	def __init__(self, field_name: str, constraint: str = "is required"):
+	def __init__(self, field_name: str, constraint: str) -> None:
 		"""
 		Initialize an unprocessable error for model portfolio lock.
 
@@ -79,7 +82,7 @@ class ModelPortfolioUpdateLockRepository:
 	  - No sort key
 	"""
 
-	def __init__(self, dynamodb_client: DynamoDBClient):
+	def __init__(self, dynamodb_client: DynamoDBClient) -> None:
 		"""
 		Initialize lock repository with DynamoDB client dependency.
 
@@ -94,7 +97,7 @@ class ModelPortfolioUpdateLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def get_lock(self, portfolio_id: str) -> Optional[Dict[str, Any]]:
+	def get_lock(self, portfolio_id: str) -> Dict[str, Any] | None:
 		"""
 		Fetch the current lock record for a portfolio.
 
@@ -102,22 +105,19 @@ class ModelPortfolioUpdateLockRepository:
 			portfolio_id: Identifier of the portfolio lock to retrieve.
 
 		Returns:
-			Optional[Dict[str, Any]]: Lock item when present, otherwise None.
+			Dict[str, Any] | None: Lock item when present, otherwise None.
 
 		Raises:
-			ModelPortfolioUpdateLockUnprocessableEntityError: If portfolio_id is
-			missing.
 			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
 			loading the lock.
 		"""
-		if not portfolio_id:
-			raise ModelPortfolioUpdateLockUnprocessableEntityError(field_name="portfolio_id")
 		try:
 			return self.lock_table_client.get_item(key={"portfolio_id": str(portfolio_id)})
 		except DynamoDBClientError as e:
 			raise ModelPortfolioUpdateLockBadGatewayError(
 				operation="loading lock",
 				portfolio_id=portfolio_id,
+				source="DynamoDB",
 				cause=e,
 			) from e
 
@@ -134,8 +134,6 @@ class ModelPortfolioUpdateLockRepository:
 			bool: True if acquired, False if another active owner holds the lock.
 
 		Raises:
-			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
-			invalid.
 			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
 			acquiring the lock.
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
@@ -150,7 +148,7 @@ class ModelPortfolioUpdateLockRepository:
 			"owner_token": str(owner_token),
 			"created_at": now,
 			"updated_at": now,
-			"expires_at": expires_at,
+			"expires_at": expires_at
 		}
 
 		try:
@@ -187,8 +185,6 @@ class ModelPortfolioUpdateLockRepository:
 			bool: True if renewed, False if lock is not owned by owner_token.
 
 		Raises:
-			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
-			invalid.
 			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
 			renewing the lock.
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error
@@ -236,8 +232,6 @@ class ModelPortfolioUpdateLockRepository:
 			else.
 
 		Raises:
-			ModelPortfolioUpdateLockUnprocessableEntityError: If inputs are
-			invalid.
 			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while
 			releasing the lock.
 			ModelPortfolioUpdateLockInternalServerError: If an unexpected error

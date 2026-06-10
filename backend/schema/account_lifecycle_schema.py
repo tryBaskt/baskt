@@ -6,17 +6,12 @@ from pydantic import BaseModel
 
 
 class CreateBasktAccountLifecycleRequest(BaseModel):
-    contact: Dict[str, Any]
-    identity: Dict[str, Any]
-    disclosures: Dict[str, Any]
-    agreements: List[Dict[str, Any]]
+    contact: Dict[str, str]
+    identity: Dict[str, str]
+    disclosures: Dict[str, str]
+    agreements: List[Dict[str, str]]
 
     account_type: Optional[str] = None
-    account_sub_type: Optional[str] = None
-    currency: Optional[str] = None
-    enabled_assets: Optional[List[str]] = None
-    trusted_contact: Optional[Dict[str, str]] = None
-    documents: Optional[List[Dict[str, str]]] = None
 
     password: Optional[str] = None
 

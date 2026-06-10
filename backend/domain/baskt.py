@@ -1,6 +1,10 @@
 # backend/domain/baskt_position
+
+# Python imports
 from __future__ import annotations
 from dataclasses import dataclass
+
+# Alpaca imports
 from alpaca.trading.enums import AccountStatus
 
 
@@ -14,12 +18,10 @@ class BasktAsset:
     fractionable: bool
     asset_class: str
 
-
-
 @dataclass(frozen=True)
 class BasktPosition:
     """
-    A filled position through Alpaca
+    A filled position 
     """
     symbol: str
     filled_quantity: float 

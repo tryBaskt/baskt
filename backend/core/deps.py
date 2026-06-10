@@ -217,9 +217,11 @@ def get_trade_execution_service(
 
 def get_account_performance_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
 ) -> AccountPerformanceService:
     return AccountPerformanceService(
         alpaca_broker_client=alpaca_broker_client,
+        portfolio_allocation_repository=portfolio_allocation_repository,
     )
 
 def get_model_portfolio_performance_service(
