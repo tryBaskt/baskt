@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 from datetime import datetime, timezone
-from typing import List, Dict
+from typing import List, Dict, Optional
 from uuid import uuid4
 from decimal import Decimal
 import time
@@ -54,9 +54,9 @@ class ModelPortfolioBadGatewayError(ModelPortfolioInternalServerError):
         source: str,
         operation: str,
         *,
-        portfolio_id: str | None = None,
-        owner_cognito_user_id: str | None = None,
-        cause: Exception | None = None,
+        portfolio_id: Optional[str] = None,
+        owner_cognito_user_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an upstream dependency failure for model portfolio operations.
@@ -117,8 +117,8 @@ class ModelPortfolioUnprocessableEntityError(ModelPortfolioInternalServerError):
         self,
         operation: str,
         *,
-        portfolio_id: str | None = None,
-        cause: Exception | None = None,
+        portfolio_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an invalid stored model portfolio data exception.
@@ -192,7 +192,7 @@ class ModelPortfolioLockedError(ModelPortfolioInternalServerError):
         portfolio_id: str,
         operation: str,
         *,
-        cause: Exception | None = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize a model portfolio update lock exception.
@@ -488,7 +488,7 @@ class ModelPortfolioRepository:
         )
 
 
-    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time: datetime | None = None, description: str | None = None) -> str:
+    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time: Optional[datetime] = None, description: Optional[str] = None) -> str:
         """
         Create and persist a new model portfolio with an initial snapshot.
 
@@ -601,7 +601,7 @@ class ModelPortfolioRepository:
         return portfolio_id
 
 
-    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: datetime | None = None, description: str | None = None) -> bool:
+    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: Optional[datetime] = None, description: Optional[str] = None) -> bool:
         """
         Append a new snapshot and persist updates to an existing model portfolio.
 

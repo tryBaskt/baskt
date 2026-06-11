@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from botocore.exceptions import ClientError
 
 # Baskt imports
@@ -30,7 +30,7 @@ class ModelPortfolioUpdateLockInternalServerError(Exception):
 
 
 class ModelPortfolioUpdateLockBadGatewayError(ModelPortfolioUpdateLockInternalServerError):
-	def __init__(self, operation: str, portfolio_id: str, *, source: str, cause: Exception | None = None) -> None:
+	def __init__(self, operation: str, portfolio_id: str, *, source: str, cause: Optional[Exception] = None) -> None:
 		"""
 		Initialize an upstream dependency failure for lock operations.
 
@@ -97,7 +97,7 @@ class ModelPortfolioUpdateLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def get_lock(self, portfolio_id: str) -> Dict[str, Any] | None:
+	def get_lock(self, portfolio_id: str) -> Optional[Dict[str, Any]]:
 		"""
 		Fetch the current lock record for a portfolio.
 
@@ -105,7 +105,7 @@ class ModelPortfolioUpdateLockRepository:
 			portfolio_id: Identifier of the portfolio lock to retrieve.
 
 		Returns:
-			Dict[str, Any] | None: Lock item when present, otherwise None.
+			Optional[Dict[str, Any]]: Lock item when present, otherwise None.
 
 		Raises:
 			ModelPortfolioUpdateLockBadGatewayError: If DynamoDB fails while

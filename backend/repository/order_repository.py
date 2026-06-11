@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 
@@ -37,9 +37,9 @@ class OrderBadGatewayError(OrderInternalServerError):
         self,
         operation: str,
         *,
-        transaction_id: str | None = None,
-        portfolio_id: str | None = None,
-        cause: Exception | None = None,
+        transaction_id: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an upstream dependency failure for order operations.
@@ -74,7 +74,7 @@ class OrderBadGatewayError(OrderInternalServerError):
 
 
 class OrderUnprocessableEntityError(OrderInternalServerError):
-    def __init__(self, *, field_name: str | None = None, operation: str | None = None, cause: Exception | None = None) -> None:
+    def __init__(self, *, field_name: Optional[str] = None, operation: Optional[str] = None, cause: Optional[Exception] = None) -> None:
         """
         Initialize an invalid order request or parse failure exception.
 
@@ -99,7 +99,7 @@ class OrderUnprocessableEntityError(OrderInternalServerError):
 
 
 class OrderNotFoundError(OrderInternalServerError):
-    def __init__(self, *, transaction_id: str | None = None, portfolio_id: str | None = None) -> None:
+    def __init__(self, *, transaction_id: Optional[str] = None, portfolio_id: Optional[str] = None) -> None:
         """
         Initialize a missing orders exception.
 

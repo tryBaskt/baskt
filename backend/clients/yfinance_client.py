@@ -15,7 +15,17 @@ import yfinance as yf
 class YFinanceClientError(Exception):
     """Raised when yfinance client operations fail."""
 
-    def __init__(self, message: str, code: str = "YFINANCE_CLIENT_ERROR"):
+    def __init__(self, message: str, code: str = "YFINANCE_CLIENT_ERROR") -> None:
+        """
+        Initialize a yfinance client exception.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable error code identifying the failed yfinance operation.
+
+        Returns:
+            None.
+        """
         super().__init__(message)
         self.code = code
 

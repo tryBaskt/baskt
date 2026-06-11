@@ -4,7 +4,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 # Pandas imports
 import pandas as pd
@@ -41,7 +41,7 @@ class ModelPortfolio:
     position_history: List[ModelPortfolioSnapshot]
     created_at: datetime
     updated_at: datetime
-    description: str | None = None
+    description: Optional[str] = None
 
 @dataclass(frozen=True)
 class DeltaPosition:

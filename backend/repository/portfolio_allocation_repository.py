@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from decimal import Decimal
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
@@ -38,9 +38,9 @@ class PortfolioAllocationBadGatewayError(PortfolioAllocationInternalServerError)
         source: str,
         operation: str,
         *,
-        cognito_user_id: str | None = None,
-        portfolio_id: str | None = None,
-        cause: Exception | None = None,
+        cognito_user_id: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an upstream dependency failure for allocation operations.
@@ -99,13 +99,13 @@ class PortfolioAllocationNotFoundError(PortfolioAllocationInternalServerError):
 class PortfolioAllocationUnprocessableEntityError(PortfolioAllocationInternalServerError):
     def __init__(
         self,
-        operation: str | None = None,
+        operation: Optional[str] = None,
         *,
-        field_name: str | None = None,
-        cognito_user_id: str | None = None,
-        portfolio_id: str | None = None,
-        symbol: str | None = None,
-        cause: Exception | None = None,
+        field_name: Optional[str] = None,
+        cognito_user_id: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an invalid allocation request or parse failure exception.
@@ -330,13 +330,19 @@ class PortfolioAllocationRepository:
                 timestamp = to_utc_from_iso(snap["timestamp"])
                 allocation_amount = float(snap["allocation_amount"])
                 transaction_id = str(snap["transaction_id"])
+                order_fill_percent = float(snap["order_fill_percent"])
+                number_orders = int(snap["number_orders"])
+                transaction_type = str(snap["transaction_type"])
 
                 result.append(
                     PortfolioAllocationSnapshot(
                         positions=positions,
                         timestamp=timestamp,
                         allocation_amount=allocation_amount,
-                        transaction_id=transaction_id
+                        transaction_id=transaction_id,
+                        order_fill_percent=order_fill_percent,
+                        number_orders=number_orders,
+                        transaction_type=transaction_type,
                     )
                 )
         except Exception as e:
@@ -440,7 +446,10 @@ class PortfolioAllocationRepository:
                         ],
                         timestamp=datetime.fromisoformat(positions_snapshot["timestamp"]),
                         allocation_amount= float(positions_snapshot["allocation_amount"]),
-                        transaction_id=str(positions_snapshot["transaction_id"])
+                        transaction_id=str(positions_snapshot["transaction_id"]),
+                        order_fill_percent=float(positions_snapshot["order_fill_percent"]),
+                        number_orders=int(positions_snapshot["number_orders"]),
+                        transaction_type=str(positions_snapshot["transaction_type"]),
                     )
                     for positions_snapshot in item["portfolio_allocation_history"]
                 ]
@@ -488,7 +497,10 @@ class PortfolioAllocationRepository:
                         ],
                         "timestamp": positions_snapshot.timestamp.isoformat() if positions_snapshot.timestamp else datetime.utcnow().isoformat(),
                         "allocation_amount": Decimal(str(positions_snapshot.allocation_amount if positions_snapshot.allocation_amount is not None else 0.0)),
-                        "transaction_id": str(positions_snapshot.transaction_id or "")
+                        "transaction_id": str(positions_snapshot.transaction_id),
+                        "order_fill_percent": Decimal(str(positions_snapshot.order_fill_percent)),
+                        "number_orders": Decimal(str(positions_snapshot.number_orders)),
+                        "transaction_type": str(positions_snapshot.transaction_type),
                     }
                     for positions_snapshot in portfolio_allocation.portfolio_allocation_history
                 ],

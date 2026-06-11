@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import List
+from typing import List, Optional, Dict
 from boto3.dynamodb.conditions import Key
 
 # Baskt imports
@@ -33,9 +33,9 @@ class ModelPortfolioFollowerBadGatewayError(ModelPortfolioFollowerInternalServer
         self,
         operation: str,
         *,
-        cognito_user_id: str | None = None,
-        portfolio_id: str | None = None,
-        cause: Exception | None = None,
+        cognito_user_id: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an upstream dependency failure for follower operations.
@@ -95,10 +95,10 @@ class ModelPortfolioFollowerUnprocessableEntityError(ModelPortfolioFollowerInter
     def __init__(
         self,
         *,
-        field_name: str | None = None,
-        operation: str | None = None,
-        portfolio_id: str | None = None,
-        cause: Exception | None = None,
+        field_name: Optional[str] = None,
+        operation: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        cause: Optional[Exception] = None,
     ) -> None:
         """
         Initialize an invalid follower request or parse failure exception.
@@ -181,7 +181,7 @@ class ModelPortfolioFollowerRepository:
                 cause=e,
             ) from e
 
-    def put_model_portfolio_follower(self, cognito_user_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str) -> None:
+    def put_model_portfolio_follower(self, cognito_user_id: str, alpaca_account_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str) -> None:
         """
         Create a follower relation when one does not already exist.
 
@@ -203,7 +203,8 @@ class ModelPortfolioFollowerRepository:
             item = {
                 "cognito_user_id": cognito_user_id,
                 "portfolio_id": portfolio_id,
-                "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id
+                "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
+                "alpaca_account_id": alpaca_account_id
             }
             self.dynamodb.put_item(item=item)
         except DynamoDBClientError as e:
@@ -214,7 +215,7 @@ class ModelPortfolioFollowerRepository:
                 cause=e,
             ) from e
 
-    def get_model_portfolio_followers(self, portfolio_id: str) -> List[str]:
+    def get_model_portfolio_followers(self, portfolio_id: str) -> List[Dict[str, str]]:
         """
         Retrieve follower user IDs for a portfolio using the portfolio_id index.
 
@@ -250,7 +251,7 @@ class ModelPortfolioFollowerRepository:
             )
         
         try:
-            return [item["cognito_user_id"] for item in items if "cognito_user_id" in item]
+            return [{"cognito_user_id": item["cognito_user_id"], "alpaca_account_id": item["alpaca_account_id"]} for item in items if ("cognito_user_id" in item and "alpaca_account_id" in item)]
         except Exception as e:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 operation="parse followers",

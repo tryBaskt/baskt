@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # AWS imports
 from botocore.exceptions import BotoCoreError, ClientError, ParamValidationError
@@ -197,7 +197,7 @@ class CognitoClient:
         account_data: Dict[str, Any], 
         alpaca_account_id: str, 
         alpaca_account_number: str, 
-        password: str | None = None
+        password: Optional[str] = None
     ) -> str:
         """
         Create a user in AWS Cognito.

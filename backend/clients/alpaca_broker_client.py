@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
@@ -131,7 +131,7 @@ class AlpacaBrokerClient:
     ######## ACCOUNT LIFECYCLE ###########
     ######################################
     
-    def create_alpaca_account(self, account_data: Dict[str, Dict[str,str] | List[Dict[str, str]]]) -> Dict[str, str]:
+    def create_alpaca_account(self, account_data: Dict[str, Any]) -> Dict[str, str]:
         """
         Create a broker account from Alpaca account payload sections.
 
@@ -150,7 +150,7 @@ class AlpacaBrokerClient:
             account does not include an id, or any unexpected error occurs.
         """
         try:
-            contact_data: Dict[str,str] = account_data["contact"]
+            contact_data: Dict[str, str] = account_data["contact"]
             identity_data: Dict[str, str] = account_data["identity"]
             disclosures_data: Dict[str, str] = account_data["disclosures"]
             agreements_data: List[Dict[str, str]] = account_data["agreements"]
@@ -168,6 +168,13 @@ class AlpacaBrokerClient:
                 country=contact_data.get("country"),
             )
 
+            funding_source = None
+            funding_source_data = identity_data.get("funding_source")
+            if isinstance(funding_source_data, str):
+                funding_source = [FundingSource(funding_source_data)]
+            elif funding_source_data:
+                funding_source = [FundingSource(source) for source in funding_source_data]
+
             identity = Identity(
                 given_name=identity_data["given_name"],
                 middle_name=identity_data.get("middle_name"),
@@ -182,7 +189,7 @@ class AlpacaBrokerClient:
                 visa_expiration_date=identity_data.get("visa_expiration_date") if "visa_type" in identity_data else None,
                 date_of_departure_from_usa=identity_data.get("date_of_departure_from_usa") if "visa_type" in identity_data else None,
                 permanent_resident=identity_data.get("permanent_resident"),
-                funding_source=[FundingSource(source) for source in identity_data.get("funding_source")] if "funding_source" in identity_data else None,
+                funding_source=funding_source,
                 annual_income_min=identity_data.get("annual_income_min"),
                 annual_income_max=identity_data.get("annual_income_max"),
                 liquid_net_worth_min=identity_data.get("liquid_net_worth_min"),
@@ -326,7 +333,7 @@ class AlpacaBrokerClient:
         bank_account_type: str,
         bank_account_number: str,
         bank_routing_number: str,
-        nickname: str | None = None
+        nickname: Optional[str] = None
     ) -> ACHRelationship:
         """
         Create a direct ACH relationship for an Alpaca broker account.
@@ -488,7 +495,7 @@ class AlpacaBrokerClient:
         direction: str,
         timing: str,
         relationship_id: str,
-        fee_payment_method: str | None = None,
+        fee_payment_method: Optional[str] = None,
     ) -> Transfer:
         """
         Create a direct ACH transfer for an Alpaca broker account.
@@ -541,11 +548,11 @@ class AlpacaBrokerClient:
         bank_code_type: str,
         bank_code: str,
         account_number: str,
-        country: str | None = None,
-        state_province: str | None = None,
-        postal_code: str | None = None,
-        city: str | None = None,
-        street_address: str | None = None
+        country: Optional[str] = None,
+        state_province: Optional[str] = None,
+        postal_code: Optional[str] = None,
+        city: Optional[str] = None,
+        street_address: Optional[str] = None
     ) -> Bank:
         """
         Create a bank relationship for an Alpaca broker account.
@@ -675,8 +682,8 @@ class AlpacaBrokerClient:
         direction: str,
         timing: str,
         bank_id: str,
-        fee_payment_method: str | None = None,
-        additional_information: str | None = None
+        fee_payment_method: Optional[str] = None,
+        additional_information: Optional[str] = None
     ) -> Transfer:
         """
         Create a wire transfer for an Alpaca broker account.
@@ -728,7 +735,7 @@ class AlpacaBrokerClient:
         *,
         cognito_user_id: str,
         alpaca_account_id: str,
-        limit: int | None = None,
+        limit: Optional[int] = None,
         offset: int = 0,
     ) -> List[Transfer]:
         """
@@ -861,7 +868,7 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_EXECUTE_QUANTITY_BUY_FAILED",
             )
 
-    def execute_quantity_fractional_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> List[Order | None]:
+    def execute_quantity_fractional_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> List[Optional[Order]]:
         """
         Reduce a position using a two-step order flow for fractional quantities for a broker account.
 
@@ -875,7 +882,7 @@ class AlpacaBrokerClient:
             cognito_user_id: Cognito user ID (for logging/tracking).
 
         Returns:
-            List[Order | None]: The initial sell order and an optional
+            List[Optional[Order]]: The initial sell order and an optional
             buy-back order. The second item is None when no buy-back is needed.
 
         Raises:

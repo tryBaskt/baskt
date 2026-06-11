@@ -20,6 +20,9 @@ class PortfolioAllocationSnapshot:
     timestamp: datetime
     allocation_amount: float
     transaction_id: str
+    order_fill_percent: float
+    number_orders: int
+    transaction_type: str # DEPOSIT | UPDATE | WITHDRAW
 
 
 

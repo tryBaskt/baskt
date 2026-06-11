@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from botocore.exceptions import ClientError
 
 # Baskt imports
@@ -30,7 +30,7 @@ class UserTradeLockInternalServerError(Exception):
 
 
 class UserTradeLockBadGatewayError(UserTradeLockInternalServerError):
-	def __init__(self, operation: str, cognito_user_id: str, *, source: str, cause: Exception | None = None) -> None:
+	def __init__(self, operation: str, cognito_user_id: str, *, source: str, cause: Optional[Exception] = None) -> None:
 		"""
 		Initialize an upstream dependency failure for user trade lock operations.
 
@@ -102,7 +102,7 @@ class UserTradeLockRepository:
 		"""
 		self.lock_table_client = dynamodb_client
 
-	def get_lock(self, cognito_user_id: str) -> Dict[str, Any] | None:
+	def get_lock(self, cognito_user_id: str) -> Optional[Dict[str, Any]]:
 		"""
 		Fetch the current trade lock for a Cognito user.
 
@@ -110,7 +110,7 @@ class UserTradeLockRepository:
 			cognito_user_id: Cognito user ID whose lock should be fetched.
 
 		Returns:
-			Dict[str, Any] | None: Lock item when present, otherwise None.
+			Optional[Dict[str, Any]]: Lock item when present, otherwise None.
 
 		Raises:
 			UserTradeLockBadGatewayError: If DynamoDB fails while loading the

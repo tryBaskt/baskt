@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import boto3
 from fastapi import Depends, HTTPException, status
@@ -255,7 +255,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> Dict[str, Any]:
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -285,7 +285,7 @@ def get_current_alpaca_account(
     user: Dict[str, Any] = Depends(get_current_user),
     alpaca_account_id: str = Depends(get_current_alpaca_account_id),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-) -> Any:
+) -> Account:
     cognito_user_id = user.get("sub")
     if not cognito_user_id:
         raise HTTPException(
@@ -307,7 +307,7 @@ def get_current_alpaca_account(
 
 def get_current_active_alpaca_account(
     alpaca_account: Account = Depends(get_current_alpaca_account),
-) -> Any:
+) -> Account:
     account_status = alpaca_account.status.name.upper()
 
     if account_status != "ACTIVE":

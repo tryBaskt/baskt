@@ -175,7 +175,7 @@ class CognitoTokenVerifier:
         return claims
 
 
-def verify_jwt_token(token: str) -> str | None:
+def verify_jwt_token(token: str) -> Optional[str]:
     """
     Verify JWT token and return cognito_user_id (sub claim).
     Used for WebSocket authentication.

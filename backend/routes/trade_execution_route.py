@@ -6,6 +6,9 @@ from typing import Any, Dict, List
 import logging
 from starlette import status
 
+# Alpaca imports
+from alpaca.broker.models import Account
+
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -18,7 +21,6 @@ from core.deps import (
 from schema.trade_execution_schema import (
     DepositIntoPortfolioRequest,
     DepositIntoPortfolioResponse,
-    PortfolioInvestmentValueResponse,
     RefreshFilledOrdersRequest,
     RefreshFilledOrdersResponse,
     SellAllPortfolioRequest,
@@ -42,52 +44,36 @@ def _raise_trade_execution_http_exception(err: Exception) -> None:
     ) from err
 
 
-def _extract_order_ids(orders: List[Any]) -> List[str]:
-    order_ids: List[str] = []
-    for order in orders:
-        order_id = getattr(order, "id", None)
-        if order_id is None and isinstance(order, dict):
-            order_id = order.get("id") or order.get("order_id")
-        if order_id is not None:
-            order_ids.append(str(order_id))
-    return order_ids
-
-
 @router.post(
-    "/portfolios/{portfolio_id}/deposits",
+    # fill in another route,
     response_model=DepositIntoPortfolioResponse,
 )
 def deposit_into_portfolio(
-    portfolio_id: str,
     request: DepositIntoPortfolioRequest,
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
     user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
+    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
 ) -> DepositIntoPortfolioResponse:
     try:
         cognito_user_id = user["sub"]
+        alpaca_account_id = user["custom:alpaca_acct_id"]
 
-        orders = trade_execution_service.execute_deposit_to_portfolio(
-            portfolio_id=portfolio_id,
+        trade_execution_service.execute_deposit_to_portfolio(
+            portfolio_id=request.portfolio_id,
             portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
             deposit_amount=request.amount,
             cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id
         )
-        order_ids = _extract_order_ids(orders)
-
-        logger.info(f"Deposit created orders: {order_ids}")
-        return DepositIntoPortfolioResponse(success=True, order_ids=order_ids)
+        return DepositIntoPortfolioResponse(success=True)
     except Exception as e:
         _raise_trade_execution_http_exception(e)
 
-
-
 @router.post(
-    "/portfolios/{portfolio_id}/withdrawals",
+    # fill in another route,
     response_model=WithdrawFromPortfolioResponse,
 )
 def withdraw_from_portfolio(
-    portfolio_id: str,
     request: WithdrawFromPortfolioRequest,
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
     user: Dict[str, Any] = Depends(get_current_user),
@@ -97,26 +83,23 @@ def withdraw_from_portfolio(
     try:
         cognito_user_id = user["sub"]
 
-        orders = trade_execution_service.execute_withdraw_from_portfolio(
-            portfolio_id=portfolio_id,
+        trade_execution_service.execute_withdraw_from_portfolio(
+            portfolio_id=request.portfolio_id,
             portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
             withdraw_amount=request.amount,
             cognito_user_id=cognito_user_id,
         )
-        order_ids = _extract_order_ids(orders)
 
-        logger.info(f"Withdraw created orders: {order_ids}")
-        return WithdrawFromPortfolioResponse(success=True, order_ids=order_ids)
+        return WithdrawFromPortfolioResponse(success=True)
     except Exception as e:
         _raise_trade_execution_http_exception(e)
 
 
 @router.post(
-    "/portfolios/{portfolio_id}/sell-all",
+    # fill in another route,
     response_model=SellAllPortfolioResponse,
 )
 def sell_all_from_portfolio(
-    portfolio_id: str,
     request: SellAllPortfolioRequest,
     trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
     user: Dict[str, Any] = Depends(get_current_user),
@@ -124,36 +107,16 @@ def sell_all_from_portfolio(
 ) -> SellAllPortfolioResponse:
     try:
         cognito_user_id = user["sub"]
+        alpaca_account_id = user["custom:alpaca_acct_id"]
 
         orders = trade_execution_service.execute_withdraw_all_from_portfolio(
-            portfolio_id=portfolio_id,
+            portfolio_id=request.portfolio_id,
             portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
         )
-        order_ids = _extract_order_ids(orders)
 
-        logger.info(f"Sell all created orders: {order_ids}")
-        return SellAllPortfolioResponse(success=True, order_ids=order_ids)
-    except Exception as e:
-        _raise_trade_execution_http_exception(e)
-
-
-@router.get(
-    "/portfolios/{portfolio_id}/investment",
-    response_model=PortfolioInvestmentValueResponse,
-)
-def get_portfolio_investment_value(
-    portfolio_id: str,
-    trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
-) -> PortfolioInvestmentValueResponse:
-    try:
-        invested_amount = trade_execution_service.get_portfolio_invested_amount(
-            cognito_user_id=user["sub"],
-            portfolio_id=portfolio_id,
-        )
-        return PortfolioInvestmentValueResponse(invested_amount=invested_amount)
+        return SellAllPortfolioResponse(success=True)
     except Exception as e:
         _raise_trade_execution_http_exception(e)
 
