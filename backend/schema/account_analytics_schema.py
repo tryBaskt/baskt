@@ -1,19 +1,23 @@
-# backend/schema/account_performance_schema.py
+# backend/schema/account_analytics_schema.py
 
 # Python imports
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict
 
 class EquityGraphRequest(BaseModel):
     alpaca_account_id: str
     cognito_username: str
 
+class EquityGraphResponse(BaseModel):
+    equity: List[float]
+    timestamp: List[int]
 
-class PortfolioAllocationPerformanceResponse(BaseModel):
-    current_value: float
-    allocation_amount: float
-    profit_loss: float
-    profit_loss_pct: float
+class AccountAnalyticsResponse(BaseModel):
+    cash: Optional[str]
+    equity: Optional[str]
+    equity_graph: Dict[str, EquityGraphResponse]
+
+
 
 class PortfolioAllocationTransactionResponse(BaseModel):
     transaction_id: str
@@ -23,4 +27,4 @@ class PortfolioAllocationTransactionResponse(BaseModel):
     transaction_filled_percent: float
 
 class PortfolioAllocationListTransactionResponse(BaseModel):
-    list_transaction: List[PortfolioAllocationTransactionResponse]
+    list_transaction: Optional[List[PortfolioAllocationTransactionResponse]] = None

@@ -37,6 +37,16 @@ function formatPercentValue(value) {
 	return `${numericValue.toFixed(2)}%`;
 }
 
+function formatFilledPercent(value) {
+	const numericValue = Number(value);
+	if (!Number.isFinite(numericValue)) {
+		return "-";
+	}
+
+	const percentValue = Math.abs(numericValue) <= 1 ? numericValue * 100 : numericValue;
+	return `${percentValue.toFixed(2)}%`;
+}
+
 function formatCurrency(value) {
 	const numericValue = Number(value);
 	if (!Number.isFinite(numericValue)) {
@@ -147,6 +157,38 @@ function buildPositionsFromCurrentWeight(currentWeightBySymbol, snapshotPosition
 	});
 }
 
+function calculateInvestedAmountFromTransactions(transactions) {
+	if (!Array.isArray(transactions)) {
+		return 0;
+	}
+
+	return transactions.reduce((total, transaction) => {
+		const amount = Number(transaction?.transaction_amount);
+		if (!Number.isFinite(amount)) {
+			return total;
+		}
+
+		const transactionType = String(transaction?.transaction_type || "").toUpperCase();
+		if (transactionType === "WITHDRAW") {
+			return total - amount;
+		}
+		if (transactionType === "DEPOSIT") {
+			return total + amount;
+		}
+		return total;
+	}, 0);
+}
+
+function normalizePortfolioTransaction(transaction) {
+	return {
+		id: transaction?.transaction_id || "",
+		date: transaction?.transaction_date || "",
+		amount: Number(transaction?.transaction_amount),
+		type: String(transaction?.transaction_type || "-").toUpperCase(),
+		filledPercent: transaction?.transaction_filled_percent,
+	};
+}
+
 function getJwtPayload(token) {
 	if (!token) {
 		return {};
@@ -176,6 +218,7 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 	const [selectedPreviousSnapshotIndex, setSelectedPreviousSnapshotIndex] = useState("");
 	const [investedAmount, setInvestedAmount] = useState(0);
 	const [isInvestmentLoading, setIsInvestmentLoading] = useState(true);
+	const [portfolioTransactions, setPortfolioTransactions] = useState([]);
 	const [tradeModalType, setTradeModalType] = useState(null);
 	const [tradeAmount, setTradeAmount] = useState("");
 	const [sellMode, setSellMode] = useState("amount");
@@ -192,6 +235,26 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 	);
 	const currentUserSub = useMemo(() => getJwtPayload(token)?.sub || "", [token]);
 
+	async function fetchPortfolioTransactions(portfolioId, portfolioOwnerCognitoUserId) {
+		const queryParams = new URLSearchParams({
+			portfolio_owner_cognito_user_id: portfolioOwnerCognitoUserId,
+		});
+		const response = await fetch(
+			`${API_BASE_URL}/account-analytics/portfolios/${portfolioId}/transactions?${queryParams.toString()}`,
+			{
+				method: "GET",
+				headers: {
+					...(token ? { Authorization: `Bearer ${token}` } : {}),
+				},
+			}
+		);
+		const payload = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			throw new Error(payload?.detail || "Failed to load portfolio transactions.");
+		}
+		return Array.isArray(payload?.list_transaction) ? payload.list_transaction : [];
+	}
+
 	useEffect(() => {
 		let isCancelled = false;
 
@@ -200,6 +263,7 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 				setDetails(null);
 				setPerformanceByPeriod({});
 				setAllocationPerformanceByPeriod({});
+				setPortfolioTransactions([]);
 				setErrorMessage("No Baskt selected.");
 				setIsLoading(false);
 				setIsPerformanceLoading(false);
@@ -213,6 +277,7 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 			setPerformanceErrorMessage("");
 			setPerformanceByPeriod({});
 			setAllocationPerformanceByPeriod({});
+			setPortfolioTransactions([]);
 			setAllocationPerformanceErrorMessage("");
 			setIsAllocationPerformanceLoading(false);
 			setSelectedPreviousSnapshotIndex("");
@@ -251,22 +316,6 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 					return payload;
 				});
 
-				const investmentRequest = fetch(
-					`${API_BASE_URL}/trade-execution/portfolios/${selectedBaskt.portfolioId}/investment`,
-					{
-						method: "GET",
-						headers: {
-							...(token ? { Authorization: `Bearer ${token}` } : {}),
-						},
-					}
-				).then(async (response) => {
-					const payload = await response.json().catch(() => ({}));
-					if (!response.ok) {
-						throw new Error(payload?.detail || `Failed to load invested amount (${response.status}).`);
-					}
-					return payload;
-				});
-
 				const handledPerformanceRequest = performanceRequest
 					.then((performancePayload) => {
 						if (!isCancelled) {
@@ -290,25 +339,6 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 					});
 				void handledPerformanceRequest;
 
-				const handledInvestmentRequest = investmentRequest
-					.then((investmentPayload) => {
-						if (!isCancelled) {
-							const nextInvestedAmount = Number(investmentPayload?.invested_amount);
-							setInvestedAmount(Number.isFinite(nextInvestedAmount) ? nextInvestedAmount : 0);
-						}
-					})
-					.catch(() => {
-						if (!isCancelled) {
-							setInvestedAmount(0);
-						}
-					})
-					.finally(() => {
-						if (!isCancelled) {
-							setIsInvestmentLoading(false);
-						}
-					});
-				void handledInvestmentRequest;
-
 				const payload = await detailsRequest;
 
 				const history = Array.isArray(payload?.position_history) ? payload.position_history : [];
@@ -327,9 +357,11 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 							: [],
 					}));
 
+				const portfolioOwnerCognitoUserId = payload?.portfolio_owner_cognito_user_id || "";
+
 				if (!isCancelled) {
 					setDetails({
-						portfolioOwnerCognitoUserId: payload?.portfolio_owner_cognito_user_id || "",
+						portfolioOwnerCognitoUserId,
 						portfolioName: payload?.portfolio_name || selectedBaskt?.portfolioName || "Untitled Baskt",
 						description: payload?.description ?? selectedBaskt?.description ?? "",
 						createdAt: payload?.created_at,
@@ -338,10 +370,37 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 						previousSnapshots,
 					});
 				}
+
+				if (portfolioOwnerCognitoUserId) {
+					try {
+						const transactions = await fetchPortfolioTransactions(
+							selectedBaskt.portfolioId,
+							portfolioOwnerCognitoUserId
+						);
+						if (!isCancelled) {
+							setPortfolioTransactions(transactions.map(normalizePortfolioTransaction));
+							setInvestedAmount(Math.max(0, calculateInvestedAmountFromTransactions(transactions)));
+						}
+					} catch {
+						if (!isCancelled) {
+							setPortfolioTransactions([]);
+							setInvestedAmount(0);
+						}
+					} finally {
+						if (!isCancelled) {
+							setIsInvestmentLoading(false);
+						}
+					}
+				} else if (!isCancelled) {
+					setPortfolioTransactions([]);
+					setInvestedAmount(0);
+					setIsInvestmentLoading(false);
+				}
 			} catch (error) {
 				if (!isCancelled) {
 					setErrorMessage(error?.message || "Unable to load baskt details.");
 					setDetails(null);
+					setPortfolioTransactions([]);
 					setIsPerformanceLoading(false);
 					setIsInvestmentLoading(false);
 				}
@@ -429,29 +488,21 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 		setTradeErrorMessage("");
 	}
 
-	async function refreshInvestedAmount() {
-		if (!selectedBaskt?.portfolioId) {
+	async function refreshPortfolioTransactions() {
+		if (!selectedBaskt?.portfolioId || !details?.portfolioOwnerCognitoUserId) {
 			return;
 		}
 
 		try {
 			setIsInvestmentLoading(true);
-			const response = await fetch(
-				`${API_BASE_URL}/trade-execution/portfolios/${selectedBaskt.portfolioId}/investment`,
-				{
-					method: "GET",
-					headers: {
-						...(token ? { Authorization: `Bearer ${token}` } : {}),
-					},
-				}
+			const transactions = await fetchPortfolioTransactions(
+				selectedBaskt.portfolioId,
+				details.portfolioOwnerCognitoUserId
 			);
-			const payload = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				throw new Error(payload?.detail || "Failed to refresh invested amount.");
-			}
-			const nextInvestedAmount = Number(payload?.invested_amount);
-			setInvestedAmount(Number.isFinite(nextInvestedAmount) ? nextInvestedAmount : 0);
+			setPortfolioTransactions(transactions.map(normalizePortfolioTransaction));
+			setInvestedAmount(Math.max(0, calculateInvestedAmountFromTransactions(transactions)));
 		} catch {
+			setPortfolioTransactions([]);
 			setInvestedAmount(0);
 		} finally {
 			setIsInvestmentLoading(false);
@@ -511,7 +562,7 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 			setTradeStatusMessage(tradeModalType === "invest" ? "Investment submitted." : "Sell order submitted.");
 			setTradeModalType(null);
 			setTradeAmount("");
-			await refreshInvestedAmount();
+			await refreshPortfolioTransactions();
 		} catch (error) {
 			setTradeErrorMessage(error?.message || "Trade submission failed.");
 		} finally {
@@ -610,6 +661,16 @@ export default function BasktPage({ selectedBaskt, onBack, onUpdateBaskt }) {
 										: modelPortfolioMetricDefinitions
 								}
 							/>
+							<div className="baskt-transactions">
+								<h2>Transactions</h2>
+								{isInvestmentLoading ? (
+									<p className="baskt-meta">Loading transactions...</p>
+								) : portfolioTransactions.length === 0 ? (
+									<p className="baskt-meta">No transactions yet.</p>
+								) : (
+									<TransactionsTable transactions={portfolioTransactions} />
+								)}
+							</div>
 						</div>
 
 						<div className="baskt-positions-panel">
@@ -761,6 +822,33 @@ function PositionsTable({ positions }) {
 							<td>{position.direction}</td>
 							<td>{formatWeightPercentage(position.weight)}</td>
 							<td>{position.leverage}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
+function TransactionsTable({ transactions }) {
+	return (
+		<div className="baskt-table-wrap">
+			<table>
+				<thead>
+					<tr>
+						<th>Date</th>
+						<th>Amount</th>
+						<th>Type</th>
+						<th>Filled</th>
+					</tr>
+				</thead>
+				<tbody>
+					{transactions.map((transaction, index) => (
+						<tr key={transaction.id || `${transaction.date}-${index}`}>
+							<td>{formatDate(transaction.date)}</td>
+							<td>{formatCurrency(transaction.amount)}</td>
+							<td>{transaction.type}</td>
+							<td>{formatFilledPercent(transaction.filledPercent)}</td>
 						</tr>
 					))}
 				</tbody>

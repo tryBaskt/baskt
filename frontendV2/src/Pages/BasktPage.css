@@ -95,6 +95,8 @@
 }
 
 .baskt-performance {
+	display: grid;
+	gap: 1rem;
 	min-width: 0;
 }
 
@@ -147,6 +149,16 @@
 }
 
 .baskt-positions h2 {
+	margin: 0;
+	font-size: 1.05rem;
+}
+
+.baskt-transactions {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.baskt-transactions h2 {
 	margin: 0;
 	font-size: 1.05rem;
 }

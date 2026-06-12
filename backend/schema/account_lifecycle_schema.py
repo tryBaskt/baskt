@@ -65,6 +65,7 @@ class BasktTradeAccountResponse(BaseModel):
 
 
 class BasktACHRelationshipResponse(BaseModel):
+    relationship_id: str # UUID
     alpaca_account_id: str #UUID
     created_at: str #datetime
     updated_at: Optional[str] = None #datetime
@@ -81,6 +82,7 @@ class BasktListACHRelationshipResponse(BaseModel):
     list_ach_relationship: List[BasktACHRelationshipResponse]
 
 class BasktBankResponse(BaseModel):
+    bank_id: str # UUID
     alpaca_account_id: str # UUID
     created_at: str # datetime
     updated_at: Optional[str] = None # datetime

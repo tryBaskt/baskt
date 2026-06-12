@@ -24,7 +24,7 @@ from repository.model_portfolio_follower_repository import ModelPortfolioFollowe
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
-from services.account_performance_service import AccountPerformanceService
+from services.account_analytics_service import AccountAnalyticsService
 from services.model_portfolio_performance_service import ModelPortfolioPerformanceService
 
 from alpaca.broker.models import Account
@@ -215,11 +215,11 @@ def get_trade_execution_service(
         account_lifecycle_service=account_lifecycle_service
     )
 
-def get_account_performance_service(
+def get_account_analytics_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
-) -> AccountPerformanceService:
-    return AccountPerformanceService(
+) -> AccountAnalyticsService:
+    return AccountAnalyticsService(
         alpaca_broker_client=alpaca_broker_client,
         portfolio_allocation_repository=portfolio_allocation_repository,
     )

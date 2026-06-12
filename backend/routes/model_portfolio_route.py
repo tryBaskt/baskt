@@ -119,33 +119,6 @@ def get_model_portfolio(
     )
 
 
-@router.get("/{portfolio_id}/performance", response_model=ModelPortfolioPerformanceResponse, status_code=HTTP_200_OK)
-def get_model_portfolio_performance(
-    portfolio_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
-    service: ModelPortfolioPerformanceService = Depends(get_model_portfolio_performance_service),
-) -> ModelPortfolioPerformanceResponse:
-    """
-    Retrieve snapshot-aware performance for one model portfolio.
-
-    Args:
-        portfolio_id: Identifier of the model portfolio to evaluate.
-        user: Authenticated user claims resolved by dependency injection.
-        service: Performance service dependency.
-
-    Returns:
-        Dict: Performance keyed by account-performance-style periods. Each
-        period contains graph timestamps, cumulative return percentages, and
-        model portfolio performance metrics.
-    """
-    try:
-        return ModelPortfolioPerformanceResponse(
-            service.get_model_portfolio_performance(portfolio_id=portfolio_id)
-        )
-    except Exception as e:
-        _raise_model_portfolio_http_exception(e)
-
-
 @router.post("", response_model=None, status_code=HTTP_201_CREATED)
 def create_model_portfolio(
     request: CreateModelPortfolioRequest,

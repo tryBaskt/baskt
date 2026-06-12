@@ -95,6 +95,7 @@ def _to_ach_relationship_response(alpaca_account_id: str, ach_relationship: ACHR
 	Convert an Alpaca ACH relationship model into the API response schema.
 	"""
 	return BasktACHRelationshipResponse(
+		relationship_id=str(ach_relationship.id),
 		alpaca_account_id=alpaca_account_id,
 		created_at=ach_relationship.created_at.isoformat(),
 		updated_at=ach_relationship.updated_at.isoformat() if ach_relationship.updated_at else None,
@@ -113,6 +114,7 @@ def _to_bank_response(alpaca_account_id: str, bank: Bank) -> BasktBankResponse:
 	Convert an Alpaca bank model into the API response schema.
 	"""
 	return BasktBankResponse(
+		bank_id=str(bank.id),
 		alpaca_account_id=alpaca_account_id,
 		created_at=bank.created_at.isoformat(),
 		updated_at=bank.updated_at.isoformat() if bank.updated_at else None,

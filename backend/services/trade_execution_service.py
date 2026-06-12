@@ -761,7 +761,8 @@ class TradeExecutionService:
             int: Number of newly filled orders
         """ 
 
-        if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id): return
+        if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id): 
+            return
         
         portfolio_allocation_snapshots = self.portfolio_allocation_repository.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]

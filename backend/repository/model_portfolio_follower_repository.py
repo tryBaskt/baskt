@@ -4,6 +4,7 @@
 from __future__ import annotations
 from typing import List, Optional, Dict
 from boto3.dynamodb.conditions import Key
+from datetime import datetime, timezone
 
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
@@ -204,7 +205,8 @@ class ModelPortfolioFollowerRepository:
                 "cognito_user_id": cognito_user_id,
                 "portfolio_id": portfolio_id,
                 "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
-                "alpaca_account_id": alpaca_account_id
+                "alpaca_account_id": alpaca_account_id,
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
             self.dynamodb.put_item(item=item)
         except DynamoDBClientError as e:

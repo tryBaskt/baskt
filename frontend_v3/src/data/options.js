@@ -1,0 +1,90 @@
+export const countryOptions = [
+  { value: "USA", label: "United States" },
+  { value: "CAN", label: "Canada" },
+  { value: "GBR", label: "United Kingdom" },
+  { value: "IND", label: "India" },
+  { value: "AUS", label: "Australia" },
+  { value: "MEX", label: "Mexico" },
+  { value: "BRA", label: "Brazil" },
+  { value: "DEU", label: "Germany" },
+  { value: "FRA", label: "France" },
+  { value: "JPN", label: "Japan" },
+];
+
+export const usStateOptions = [
+  "AL",
+  "AK",
+  "AZ",
+  "AR",
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "GA",
+  "HI",
+  "IA",
+  "ID",
+  "IL",
+  "IN",
+  "KS",
+  "KY",
+  "LA",
+  "MA",
+  "MD",
+  "MI",
+  "MN",
+  "MO",
+  "NC",
+  "NJ",
+  "NY",
+  "OH",
+  "OR",
+  "PA",
+  "TN",
+  "TX",
+  "VA",
+  "WA",
+];
+
+export const taxIdTypeOptions = [
+  { value: "USA_SSN", label: "US SSN" },
+  { value: "USA_ITIN", label: "US ITIN" },
+  { value: "PASSPORT", label: "Passport" },
+  { value: "NATIONAL_ID", label: "National ID" },
+  { value: "PERMANENT_RESIDENT", label: "Permanent resident card" },
+  { value: "OTHER_GOV_ID", label: "Other government ID" },
+];
+
+export const visaTypeOptions = [
+  "B1",
+  "B2",
+  "DACA",
+  "E1",
+  "E2",
+  "E3",
+  "F1",
+  "G4",
+  "H1B",
+  "J1",
+  "L1",
+  "O1",
+  "TN1",
+  "OTHER",
+];
+
+export const fundingSourceOptions = [
+  { value: "employment_income", label: "Employment income" },
+  { value: "investments", label: "Investments" },
+  { value: "business_income", label: "Business income" },
+  { value: "inheritance", label: "Inheritance" },
+  { value: "savings", label: "Savings" },
+  { value: "family", label: "Family" },
+];
+
+export const employmentStatusOptions = [
+  { value: "EMPLOYED", label: "Employed" },
+  { value: "UNEMPLOYED", label: "Unemployed" },
+  { value: "RETIRED", label: "Retired" },
+  { value: "STUDENT", label: "Student" },
+];

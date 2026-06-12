@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import List
-
 from pydantic import BaseModel, Field
 
 
-class _PortfolioTradeRequest(BaseModel):
-    portfolio_id: str
+class _PortfolioOwnerRequest(BaseModel):
     portfolio_owner_cognito_user_id: str
+
+
+class _PortfolioTradeRequest(_PortfolioOwnerRequest):
     amount: float = Field(gt=0)
 
 
@@ -20,23 +20,14 @@ class DepositIntoPortfolioRequest(_PortfolioTradeRequest):
 class WithdrawFromPortfolioRequest(_PortfolioTradeRequest):
     pass
 
+class WithdrawAllPortfolioRequest(_PortfolioOwnerRequest):
+    pass
+
 class DepositIntoPortfolioResponse(_PortfolioTradeResponse):
     pass
 
 class WithdrawFromPortfolioResponse(_PortfolioTradeResponse):
     pass
 
-class SellAllPortfolioRequest(_PortfolioTradeRequest):
+class WithdrawAllPortfolioResponse(_PortfolioTradeResponse):
     pass
-
-class SellAllPortfolioResponse(_PortfolioTradeResponse):
-    pass
-
-
-class RefreshFilledOrdersRequest(BaseModel):
-    cognito_user_id: str
-    portfolio_id: str
-
-
-class RefreshFilledOrdersResponse(BaseModel):
-    newly_filled_order_count: int

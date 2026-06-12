@@ -12,14 +12,11 @@ from alpaca.broker.models import (
     Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Bank, Transfer, TradeAccount, 
     TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
 )
-from alpaca.trading.requests import GetAssetsRequest
-from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.models import Asset, Order, FailedClosePositionDetails
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest, GetPortfolioHistoryRequest
+from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, TimeInForce
+from alpaca.trading.models import Asset, Order, FailedClosePositionDetails, PortfolioHistory
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockLatestQuoteRequest
-from alpaca.trading.requests import GetPortfolioHistoryRequest
 
 # Baskt imports
 from domain.baskt import BasktPosition
@@ -1058,19 +1055,19 @@ class AlpacaBrokerClient:
             )
 
     #############################   
-    #### ACCOUNT PERFORMANCE ####
+    #### ACCOUNT ANALYTICS ####
     #############################
         
-    def get_account_performance(self, alpaca_account_id: str) -> Dict[str, Dict[str, Any]]:
+    def get_portfolio_history(self, alpaca_account_id: str) -> Dict[str, PortfolioHistory]:
         """
-        Fetch Alpaca portfolio history for the standard account performance periods.
+        Fetch Alpaca portfolio history for the standard portfolio history periods.
 
         Args:
             alpaca_account_id: Alpaca broker account ID whose portfolio history
                 should be fetched.
 
         Returns:
-            Dict[str, Dict[str, Any]]: Performance data keyed by period. Each
+            Dict[str, Dict[str, Any]]: Portfolio history data keyed by period. Each
             period contains equity, timestamp, profit_loss, profit_loss_pct,
             and base_value values returned by Alpaca.
 
@@ -1088,7 +1085,7 @@ class AlpacaBrokerClient:
                 ["1A", "1D"]
             ]
 
-            account_performance = {}
+            portfolio_history_dict = {}
 
             for period, timeframe in periods_and_timeframes:
 
@@ -1100,20 +1097,14 @@ class AlpacaBrokerClient:
                     )
                 )
 
-                account_performance[period] = {
-                    "equity": portfolio_history.equity,
-                    "timestamp": portfolio_history.timestamp,
-                    "profit_loss": portfolio_history.profit_loss,
-                    "profit_loss_pct": portfolio_history.profit_loss_pct,
-                    "base_value": portfolio_history.base_value
-                }
+                portfolio_history_dict[period] = portfolio_history
 
-            return account_performance
+            return portfolio_history_dict
 
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to get account performance for alpaca account id '{alpaca_account_id}': {e}",
-                code="ALPACA_BROKER_GET_ACCOUNT_PERFORMANCE_FAILED"
+                message=f"Failed to get portfolio_history for alpaca account id '{alpaca_account_id}': {e}",
+                code="ALPACA_BROKER_GET_PORTFOLIO_HISTORY_FAILED"
             ) from e
 
 
