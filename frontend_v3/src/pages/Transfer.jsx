@@ -23,6 +23,56 @@ const initialBank = {
   street_address: "",
 };
 
+function achToForm(ach) {
+  return {
+    account_owner_name: ach?.account_owner_name || "",
+    bank_account_type: ach?.bank_account_type || "CHECKING",
+    bank_account_number: ach?.bank_account_number || "",
+    bank_routing_number: ach?.bank_routing_number || "",
+    nickname: ach?.nickname || "",
+  };
+}
+
+function bankToForm(bank) {
+  return {
+    name: bank?.name || "",
+    bank_code_type: bank?.bank_code_type || "ABA",
+    bank_code: bank?.bank_code || "",
+    account_number: bank?.alpaca_account_number || bank?.account_number || "",
+    country: bank?.country || "USA",
+    state_province: bank?.state_province || "",
+    postal_code: bank?.postal_code || "",
+    city: bank?.city || "",
+    street_address: bank?.street_address || "",
+  };
+}
+
+function statusClassName(status) {
+  const normalizedStatus = String(status || "").toLowerCase();
+  if (["approved", "active", "verified"].includes(normalizedStatus)) {
+    return "status-pill success";
+  }
+
+  if (["pending", "submitted", "queued"].includes(normalizedStatus)) {
+    return "status-pill pending";
+  }
+
+  if (["rejected", "failed", "cancelled", "canceled", "inactive"].includes(normalizedStatus)) {
+    return "status-pill danger";
+  }
+
+  return "status-pill";
+}
+
+function StatusPill({ status }) {
+  return (
+    <span className={statusClassName(status)}>
+      <span aria-hidden="true" />
+      {status || "Unknown"}
+    </span>
+  );
+}
+
 export default function Transfer() {
   const [achRelationships, setAchRelationships] = useState([]);
   const [banks, setBanks] = useState([]);
@@ -39,6 +89,8 @@ export default function Transfer() {
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditingAch, setIsEditingAch] = useState(false);
+  const [isEditingBank, setIsEditingBank] = useState(false);
 
   async function loadFunding() {
     const [achPayload, bankPayload, transferPayload] = await Promise.all([
@@ -86,6 +138,7 @@ export default function Transfer() {
       });
       setSuccess("ACH relationship saved.");
       await loadFunding();
+      setIsEditingAch(false);
     } catch (achError) {
       setError(achError?.message || "Could not save ACH relationship.");
     } finally {
@@ -106,6 +159,7 @@ export default function Transfer() {
       });
       setSuccess("Bank saved.");
       await loadFunding();
+      setIsEditingBank(false);
     } catch (bankError) {
       setError(bankError?.message || "Could not save bank.");
     } finally {
@@ -149,6 +203,8 @@ export default function Transfer() {
 
   const ach = achRelationships[0];
   const bank = banks[0];
+  const shouldShowAchForm = !ach || isEditingAch;
+  const shouldShowBankForm = !bank || isEditingBank;
 
   return (
     <div className="page-stack">
@@ -162,9 +218,25 @@ export default function Transfer() {
               <p className="eyebrow">ACH relationship</p>
               <h2>{ach ? "Connected ACH" : "Connect ACH"}</h2>
             </div>
+            {ach && !isEditingAch ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => {
+                  setAchForm(achToForm(ach));
+                  setIsEditingAch(true);
+                }}
+              >
+                Change
+              </button>
+            ) : null}
           </div>
-          {ach ? (
+          {!shouldShowAchForm ? (
             <div className="details-list">
+              <div className="funding-status-row">
+                <span>Status</span>
+                <StatusPill status={ach.status} />
+              </div>
               <span>Owner <strong>{ach.account_owner_name}</strong></span>
               <span>Nickname <strong>{ach.nickname || "None"}</strong></span>
               <span>Routing <strong>{ach.bank_routing_number}</strong></span>
@@ -180,7 +252,24 @@ export default function Transfer() {
               <input placeholder="Account number" value={achForm.bank_account_number} onChange={(e) => setAchForm((c) => ({ ...c, bank_account_number: e.target.value }))} required />
               <input placeholder="Routing number" value={achForm.bank_routing_number} onChange={(e) => setAchForm((c) => ({ ...c, bank_routing_number: e.target.value }))} required />
               <input placeholder="Nickname" value={achForm.nickname} onChange={(e) => setAchForm((c) => ({ ...c, nickname: e.target.value }))} />
-              <button className="primary-button" type="submit" disabled={isSubmitting}>Connect ACH</button>
+              <div className="button-row">
+                {ach ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setAchForm(initialAch);
+                      setIsEditingAch(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                <button className="primary-button" type="submit" disabled={isSubmitting}>
+                  {ach ? "Save ACH changes" : "Connect ACH"}
+                </button>
+              </div>
             </div>
           )}
         </form>
@@ -191,9 +280,25 @@ export default function Transfer() {
               <p className="eyebrow">Bank</p>
               <h2>{bank ? "Connected bank" : "Connect bank"}</h2>
             </div>
+            {bank && !isEditingBank ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => {
+                  setBankForm(bankToForm(bank));
+                  setIsEditingBank(true);
+                }}
+              >
+                Change
+              </button>
+            ) : null}
           </div>
-          {bank ? (
+          {!shouldShowBankForm ? (
             <div className="details-list">
+              <div className="funding-status-row">
+                <span>Status</span>
+                <StatusPill status={bank.status} />
+              </div>
               <span>Name <strong>{bank.name}</strong></span>
               <span>Bank code <strong>{bank.bank_code}</strong></span>
               <span>Account <strong>{bank.alpaca_account_number}</strong></span>
@@ -204,7 +309,24 @@ export default function Transfer() {
               <input placeholder="Bank code" value={bankForm.bank_code} onChange={(e) => setBankForm((c) => ({ ...c, bank_code: e.target.value }))} required />
               <input placeholder="Account number" value={bankForm.account_number} onChange={(e) => setBankForm((c) => ({ ...c, account_number: e.target.value }))} required />
               <input placeholder="City" value={bankForm.city} onChange={(e) => setBankForm((c) => ({ ...c, city: e.target.value }))} />
-              <button className="primary-button" type="submit" disabled={isSubmitting}>Connect bank</button>
+              <div className="button-row">
+                {bank ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setBankForm(initialBank);
+                      setIsEditingBank(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                <button className="primary-button" type="submit" disabled={isSubmitting}>
+                  {bank ? "Save bank changes" : "Connect bank"}
+                </button>
+              </div>
             </div>
           )}
         </form>

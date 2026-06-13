@@ -5,6 +5,20 @@ import { apiRequest, toQuery } from "../lib/api";
 import { percent } from "../lib/format";
 
 const defaultPosition = { symbol: "", target_weight: 100, direction: 1, leverage: 1 };
+const MIN_BACKTEST_DATE = "1970-01-01";
+
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultBacktestStartDate() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() - 1);
+  return formatDateInput(date);
+}
 
 function getAllocationTone(totalWeight) {
   if (Math.abs(totalWeight - 100) < 0.01) {
@@ -46,6 +60,8 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     editingBaskt?.position_history?.at(-1)?.positions?.map(normalizePosition) || []
   );
   const [stockSearch, setStockSearch] = useState("");
+  const [backtestStartDate, setBacktestStartDate] = useState(getDefaultBacktestStartDate);
+  const [backtestEndDate, setBacktestEndDate] = useState(() => formatDateInput(new Date()));
   const [assets, setAssets] = useState([]);
   const [backtest, setBacktest] = useState(null);
   const [error, setError] = useState("");
@@ -76,6 +92,9 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
       .slice(0, 8);
   }, [assets, positions, stockSearch]);
   const allocationTone = getAllocationTone(totalWeight);
+  const todayDate = useMemo(() => formatDateInput(new Date()), []);
+  const isBacktestDateRangeValid = backtestStartDate && backtestEndDate && backtestEndDate >= backtestStartDate;
+  const isFullyAllocated = Math.abs(totalWeight - 100) < 0.01;
 
   useEffect(() => {
     let ignore = false;
@@ -103,7 +122,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
   }, []);
 
   useEffect(() => {
-    if (!validPositions.length) {
+    if (!validPositions.length || !isBacktestDateRangeValid || !isFullyAllocated) {
       setBacktest(null);
       return undefined;
     }
@@ -112,12 +131,9 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     const timeout = window.setTimeout(async () => {
       try {
         setIsBacktesting(true);
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setFullYear(endDate.getFullYear() - 1);
         const query = toQuery({
-          start_date: startDate.toISOString().slice(0, 10),
-          end_date: endDate.toISOString().slice(0, 10),
+          start_date: backtestStartDate,
+          end_date: backtestEndDate,
           positions: JSON.stringify(validPositions),
         });
         const payload = await apiRequest(`/backtest${query}`, { signal: controller.signal });
@@ -135,7 +151,18 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [validPositions]);
+  }, [validPositions, backtestStartDate, backtestEndDate, isBacktestDateRangeValid, isFullyAllocated]);
+
+  function updateBacktestStartDate(value) {
+    setBacktestStartDate(value);
+    setBacktestEndDate((currentEndDate) => {
+      if (currentEndDate && currentEndDate >= value) {
+        return currentEndDate;
+      }
+
+      return value;
+    });
+  }
 
   function updatePosition(index, field, value) {
     setPositions((current) =>
@@ -379,24 +406,52 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
           <div className="section-heading">
             <div>
               <p className="eyebrow">Backtest</p>
-              <h2>{isBacktesting ? "Running..." : "1 year result"}</h2>
+              <h2>{isBacktesting && isFullyAllocated ? "Running..." : "Backtest result"}</h2>
             </div>
           </div>
-          <EquityChart equity={backtest?.cumulative_returns || []} />
-          <div className="backtest-metrics">
-            <div>
-              <span>Return</span>
-              <strong>{percent(Number(backtest?.metrics?.final_cumulative_return || 0) * 100)}</strong>
-            </div>
-            <div>
-              <span>CAGR</span>
-              <strong>{percent(Number(backtest?.metrics?.cagr || 0) * 100)}</strong>
-            </div>
-            <div>
-              <span>Volatility</span>
-              <strong>{percent(Number(backtest?.metrics?.annualized_volatility || 0) * 100)}</strong>
-            </div>
+          <div className="backtest-date-grid">
+            <label className="field">
+              <span>Start date</span>
+              <input
+                type="date"
+                min={MIN_BACKTEST_DATE}
+                max={todayDate}
+                value={backtestStartDate}
+                onChange={(event) => updateBacktestStartDate(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>End date</span>
+              <input
+                type="date"
+                min={backtestStartDate || MIN_BACKTEST_DATE}
+                max={todayDate}
+                value={backtestEndDate}
+                onChange={(event) => setBacktestEndDate(event.target.value)}
+              />
+            </label>
           </div>
+          {isFullyAllocated ? (
+            <>
+              <EquityChart equity={backtest?.cumulative_returns || []} />
+              <div className="backtest-metrics">
+                <div>
+                  <span>Return</span>
+                  <strong>{percent(Number(backtest?.metrics?.final_cumulative_return || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>CAGR</span>
+                  <strong>{percent(Number(backtest?.metrics?.cagr || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>Volatility</span>
+                  <strong>{percent(Number(backtest?.metrics?.annualized_volatility || 0) * 100)}</strong>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="backtest-blank" aria-live="polite" />
+          )}
         </section>
       </aside>
     </form>

@@ -128,6 +128,8 @@ a {
 .brand-lockup strong {
   display: block;
   font-size: 18px;
+  color: var(--purple-700);
+  font-weight: 900;
 }
 
 .brand-lockup small {
@@ -141,9 +143,15 @@ a {
   border-radius: 8px;
   display: grid;
   place-items: center;
-  color: #fff;
-  font-weight: 900;
-  background: var(--purple-700);
+  background: #fff;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .eyebrow {
@@ -894,6 +902,20 @@ textarea:focus {
   padding: 18px;
 }
 
+.backtest-date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.backtest-blank {
+  min-height: 260px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fbfaff;
+}
+
 .backtest-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1006,6 +1028,52 @@ summary {
 .details-list strong {
   display: block;
   color: var(--ink);
+}
+
+.funding-status-row {
+  display: grid;
+  gap: 6px;
+}
+
+.funding-status-row > span:first-child {
+  color: var(--muted);
+}
+
+.status-pill {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f2eef9;
+  color: var(--purple-900);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.status-pill span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.status-pill.success {
+  background: #eafaf1;
+  color: #067647;
+}
+
+.status-pill.pending {
+  background: #fff8e6;
+  color: #946200;
+}
+
+.status-pill.danger {
+  background: #fff1f1;
+  color: var(--danger);
 }
 
 .transfer-form {
@@ -1147,6 +1215,10 @@ summary {
   }
 
   .backtest-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-date-grid {
     grid-template-columns: 1fr;
   }
 

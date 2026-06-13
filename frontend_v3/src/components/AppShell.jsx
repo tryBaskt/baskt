@@ -10,10 +10,11 @@ export default function AppShell({ currentPage, onNavigate, onLogout, children }
     <div className="app-shell">
       <aside className="sidebar">
         <button className="brand-lockup" type="button" onClick={() => onNavigate("home")}>
-          <span className="brand-mark">B</span>
+          <span className="brand-mark">
+            <img src="/BasktLogo.png" alt="" />
+          </span>
           <span>
             <strong>Baskt</strong>
-            <small>Portfolio studio</small>
           </span>
         </button>
 
@@ -45,12 +46,8 @@ export default function AppShell({ currentPage, onNavigate, onLogout, children }
       <div className="main-stack">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Baskt investing</p>
             <h1>{navItems.find((item) => item.id === currentPage)?.label || "Baskt"}</h1>
           </div>
-          <button className="primary-button" type="button" onClick={() => onNavigate("make")}>
-            New Baskt
-          </button>
         </header>
         <main className="content-area">{children}</main>
       </div>

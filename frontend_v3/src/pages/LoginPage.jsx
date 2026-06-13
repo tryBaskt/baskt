@@ -59,7 +59,9 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
     <main className="auth-page">
       <section className="auth-hero">
         <div className="brand-lockup static">
-          <span className="brand-mark">B</span>
+          <span className="brand-mark">
+            <img src="/BasktLogo.png" alt="" />
+          </span>
           <span>
             <strong>Baskt</strong>
             <small>Modern portfolio automation</small>
