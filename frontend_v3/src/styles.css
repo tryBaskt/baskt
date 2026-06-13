@@ -501,6 +501,41 @@ textarea:focus {
   font-size: 28px;
 }
 
+.analytics-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.analytics-bar div {
+  padding: 18px 20px;
+  border-right: 1px solid var(--line);
+}
+
+.analytics-bar div:last-child {
+  border-right: 0;
+}
+
+.analytics-bar span,
+.analytics-bar small {
+  display: block;
+  color: var(--muted);
+}
+
+.analytics-bar span {
+  font-weight: 800;
+}
+
+.analytics-bar strong {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 26px;
+}
+
 .panel,
 .builder-panel,
 .insights-panel {
@@ -973,6 +1008,10 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 620px;
+}
+
+.transactions-table {
+  min-width: 980px;
 }
 
 th,

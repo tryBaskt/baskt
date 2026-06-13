@@ -7,6 +7,7 @@ import { getCurrentUserClaims } from "../lib/session";
 
 export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const [baskt, setBaskt] = useState(null);
+  const [allocationAnalytics, setAllocationAnalytics] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
@@ -17,6 +18,13 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
   const latestSnapshot = baskt?.position_history?.at(-1);
+  const hasAllocationMetrics =
+    allocationAnalytics?.equity !== null &&
+    allocationAnalytics?.equity !== undefined &&
+    allocationAnalytics?.profit_loss !== null &&
+    allocationAnalytics?.profit_loss !== undefined &&
+    allocationAnalytics?.profit_loss_pct !== null &&
+    allocationAnalytics?.profit_loss_pct !== undefined;
 
   async function loadBaskt() {
     const payload = await apiRequest(`/model-portfolios/${portfolioId}`);
@@ -25,10 +33,11 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     const query = toQuery({
       portfolio_owner_cognito_user_id: payload.portfolio_owner_cognito_user_id,
     });
-    const transactionPayload = await apiRequest(
-      `/account-analytics/portfolios/${portfolioId}/transactions${query}`
+    const allocationPayload = await apiRequest(
+      `/account-analytics/portfolios/${portfolioId}/analytics${query}`
     );
-    setTransactions(transactionPayload?.list_transaction || []);
+    setAllocationAnalytics(allocationPayload || null);
+    setTransactions(allocationPayload?.list_transaction || []);
   }
 
   useEffect(() => {
@@ -121,6 +130,26 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
         </div>
       </section>
 
+      {hasAllocationMetrics ? (
+        <section className="analytics-bar" aria-label="Baskt allocation analytics">
+          <div>
+            <span>Allocation equity</span>
+            <strong>{currency(allocationAnalytics?.equity, "Not available")}</strong>
+            <small>Basis {currency(allocationAnalytics?.total_filled_amount, "Not available")}</small>
+          </div>
+          <div>
+            <span>Profit/Loss</span>
+            <strong>{currency(allocationAnalytics?.profit_loss, "Not available")}</strong>
+            <small>Current value minus basis</small>
+          </div>
+          <div>
+            <span>Profit/Loss %</span>
+            <strong>{percent(Number(allocationAnalytics.profit_loss_pct) * 100)}</strong>
+            <small>Return on allocated basis</small>
+          </div>
+        </section>
+      ) : null}
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -176,22 +205,32 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
             </div>
           </div>
           <div className="table-wrap compact-table">
-            <table>
+            <table className="transactions-table">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Amount</th>
+                  <th>Created</th>
                   <th>Filled</th>
-                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Requested</th>
+                  <th>Filled amount</th>
+                  <th>Fill percent</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {transactions.map((transaction) => (
                   <tr key={transaction.transaction_id}>
+                    <td>{formatDateTime(transaction.created_at)}</td>
+                    <td>{formatDateTime(transaction.filled_at)}</td>
                     <td>{transaction.transaction_type}</td>
-                    <td>{currency(transaction.transaction_amount)}</td>
-                    <td>{percent(transaction.transaction_filled_percent)}</td>
-                    <td>{formatDateTime(transaction.transaction_date)}</td>
+                    <td>
+                      {transaction.requested_amount === null || transaction.requested_amount === undefined
+                        ? "Withdraw all"
+                        : currency(transaction.requested_amount)}
+                    </td>
+                    <td>{currency(transaction.filled_amount)}</td>
+                    <td>{percent(transaction.order_fill_percent)}</td>
+                    <td>{transaction.status}</td>
                   </tr>
                 ))}
               </tbody>

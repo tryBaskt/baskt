@@ -17,7 +17,7 @@ from services.account_lifecycle_service import AccountLifecycleService, AccountL
 import uuid
 from math import floor, ceil
 from clients.alpaca_broker_client import AlpacaBrokerClient
-MARGIN = 0.0007
+MARGIN = 0.001
 EPS = 1e-6
 LOCK_LEASE_SECONDS = 30
 
@@ -212,21 +212,6 @@ class TradeExecutionService:
                 cognito_user_id=cognito_user_id
             )
             order_results.extend(planned_orders)
-        
-        transaction_id = str(uuid.uuid4())
-
-        # New transaction snapshot
-        new_transaction_snapshot = PortfolioAllocationTransactionSnapshot(
-            transaction_id=transaction_id,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-            requested_amount=requested_amount,
-            number_orders=len(order_results),
-            transaction_type=transaction_type,
-            filled_amount=0.0,
-            order_fill_percent=0.0,
-            status="QUEUED",
-        )
 
         portfolio_allocation = PortfolioAllocation(
             portfolio_id=portfolio_id,
@@ -238,6 +223,21 @@ class TradeExecutionService:
         )
         if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+
+
+        # New transaction snapshot
+        transaction_id = str(uuid.uuid4())
+        new_transaction_snapshot = PortfolioAllocationTransactionSnapshot(
+            transaction_id=transaction_id,
+            created_at=datetime.now(timezone.utc),
+            filled_at=datetime.now(timezone.utc),
+            requested_amount=requested_amount,
+            number_orders=len(order_results),
+            transaction_type=transaction_type,
+            filled_amount=0.0,
+            order_fill_percent=0.0,
+            status="QUEUED",
+        )
 
         portfolio_allocation.transaction_history.append(new_transaction_snapshot)
 
@@ -346,6 +346,7 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 transaction_type="WITHDRAW_ALL",
+                requested_amount=None,
             )
 
             # Remove follower from model portfolio
@@ -445,6 +446,7 @@ class TradeExecutionService:
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="WITHDRAW",
+                requested_amount=withdraw_amount,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
@@ -603,6 +605,7 @@ class TradeExecutionService:
                 alpaca_account_id=follower_alpaca_account_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 transaction_type="UPDATE",
+                requested_amount=None,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
@@ -722,6 +725,7 @@ class TradeExecutionService:
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="DEPOSIT",
+                requested_amount=deposit_amount,
             )
         
             # Add user as follower to model portfolio
@@ -816,96 +820,235 @@ class TradeExecutionService:
             int: Number of newly filled orders
         """ 
 
+        # If user has not deposit/withdraw in portfolio at all
         if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id): 
-            return
+            return 0
         
-        portfolio_allocation_snapshots = self.portfolio_allocation_repository.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
-        curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]
-        curr_transaction_id = curr_portfolio_allocation_snapshot.transaction_id
-        curr_positions = curr_portfolio_allocation_snapshot.positions if curr_portfolio_allocation_snapshot.positions else []
-        curr_allocation_amount = curr_portfolio_allocation_snapshot.allocation_amount if curr_portfolio_allocation_snapshot.allocation_amount else 0
-        curr_positions_dict = {
-            pos.symbol: 
-                {"filled_avg_price": pos.filled_avg_price, "filled_quantity": pos.filled_quantity, "direction": pos.direction} 
-            for pos in curr_positions
-        }
-
-        unfilled_orders = self.order_repository.get_unfilled_orders_by_transaction(transaction_id=curr_transaction_id)
-        if len(unfilled_orders) == 0: return 0
-        newly_filled_orders: List[Order] = []
-        for unfilled_order in unfilled_orders:
-            order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=unfilled_order["order_id"], cognito_user_id=cognito_user_id)
-            if str(order.status.name) != "FILLED": continue
-            newly_filled_orders.append(order)
-
-        # apply fills in chronological order, not DynamoDB query order.
-        newly_filled_orders.sort(
-            key=lambda order: (
-                str(order.filled_at.isoformat()) if getattr(order, "filled_at", None) else ""
-            )
+        # Getting current portfolio allocation
+        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            cognito_user_id=cognito_user_id, portfolio_id=portfolio_id
         )
 
-        for order in newly_filled_orders:
-            order_symbol = order.symbol
+        # Current positions in portfolio (if any)
+        curr_positions = portfolio_allocation.position_history[-1].positions if portfolio_allocation.position_history else []
+        curr_positions_dict = {
+            position.symbol: {"filled_avg_price": position.filled_avg_price, "filled_quantity": position.filled_quantity, "direction": position.direction} 
+            for position in curr_positions
+        }
 
+        # Current filled amount
+        curr_total_filled_amount = portfolio_allocation.total_filled_amount
+
+        # Check all transactions for newly filled orders
+        total_newly_filled_orders: List[Order] = []
+        has_transaction_updates = False
+        for transaction_snapshot in portfolio_allocation.transaction_history:
+            # Continue if transaction is fully filled or cancelled
+            if transaction_snapshot.status.upper() in ["CANCELLED", "FULLY_FILLED"]:
+                continue
+
+            # Each individual transaction
+            curr_transaction_id = transaction_snapshot.transaction_id
+            curr_number_orders = transaction_snapshot.number_orders
+            curr_filled_amount = transaction_snapshot.filled_amount
+            curr_order_fill_percent = transaction_snapshot.order_fill_percent
+
+            # unfilled orders from dynamodb
+            unfilled_orders = self.order_repository.get_unfilled_orders_by_transaction(
+                transaction_id=curr_transaction_id
+            )
+
+            # Continue out of transaction if no unfilled orders (everything is filled)
+            if len(unfilled_orders)==0:
+                transaction_snapshot.filled_at = datetime.now(timezone.utc)
+                transaction_snapshot.order_fill_percent = 100.0
+                transaction_snapshot.status = "FULLY_FILLED"
+                has_transaction_updates = True
+                continue
+
+            # Collect newly filled orders from transaction
+            newly_filled_orders: List[Order] = []
+            for unfilled_order in unfilled_orders:
+                order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=unfilled_order["order_id"])
+                if order.status.name.upper() != "FILLED":
+                    continue
+                newly_filled_orders.append(order)
+            
+            if newly_filled_orders:
+                # Put newly filled orders in dynamodb
+                self.order_repository.put_orders(
+                    portfolio_id=portfolio_id,
+                    cognito_user_id=cognito_user_id,
+                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                    transaction_id=curr_transaction_id,
+                    orders=newly_filled_orders
+                )
+
+                # Calculate new transaction attributes
+                newly_filled_amount = 0.0
+                latest_filled_at = datetime(year=1960, month=1,day=1, tzinfo=timezone.utc)
+                for order in newly_filled_orders:
+                    newly_filled_amount += float(order.filled_avg_price) * float(order.filled_qty)
+                    latest_filled_at = max(latest_filled_at, order.filled_at)
+
+                newly_order_filled_percent = min(100.0, curr_order_fill_percent + ((len(newly_filled_orders) / curr_number_orders)*100.0))
+                newly_status = "QUEUED"
+                if newly_order_filled_percent >= 100.0:
+                    newly_status = "FULLY_FILLED"
+                elif 0.0 < newly_order_filled_percent < 100.0:
+                    newly_status = "PARTIALLY_FILLED"
+                
+                # Update transaction with new attributes
+                transaction_snapshot.filled_at = latest_filled_at
+                transaction_snapshot.filled_amount = curr_filled_amount + newly_filled_amount
+                transaction_snapshot.order_fill_percent = newly_order_filled_percent
+                transaction_snapshot.status = newly_status
+                has_transaction_updates = True
+
+
+                total_newly_filled_orders.extend(newly_filled_orders)
+
+        if not total_newly_filled_orders:
+            if has_transaction_updates:
+                self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=portfolio_allocation)
+            return 0
+
+        total_newly_filled_orders.sort(
+            key=lambda order: (str(order.filled_at.isoformat()) if getattr(order, "filled_at", None) else "")
+        )
+
+        for order in total_newly_filled_orders:
+            order_symbol = order.symbol
             order_direction = 1 if str(order.side.name)=="BUY" else -1
             order_filled_avg_price = float(order.filled_avg_price)
             order_filled_quantity = float(order.filled_qty)
-            curr_allocation_amount = self._apply_filled_order_to_positions(
+            curr_total_filled_amount = self._apply_filled_order_to_positions(
                 curr_positions_dict=curr_positions_dict,
-                curr_allocation_amount=curr_allocation_amount,
+                curr_allocation_amount=curr_total_filled_amount,
                 order_symbol=order_symbol,
                 order_direction=order_direction,
                 order_filled_avg_price=order_filled_avg_price,
                 order_filled_quantity=order_filled_quantity,
             )
 
-        if newly_filled_orders:
+        new_position_snapshot = PortfolioAllocationPositionSnapshot(
+            timestamp=datetime.now(timezone.utc),
+            positions=[
+                PortfolioAllocationPosition(
+                    symbol=symbol,
+                    filled_avg_price=curr_positions_dict[symbol]["filled_avg_price"],
+                    filled_quantity=curr_positions_dict[symbol]["filled_quantity"],
+                    direction=curr_positions_dict[symbol]["direction"]
+                )
+                for symbol in curr_positions_dict
+            ]
+        )
 
-            self.order_repository.put_orders(
-                portfolio_id=portfolio_id, 
-                cognito_user_id=cognito_user_id, 
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
-                transaction_id=curr_transaction_id,
-                orders=newly_filled_orders
-            )
+        portfolio_allocation.position_history.append(new_position_snapshot)
+        portfolio_allocation.total_filled_amount = curr_total_filled_amount
 
-            updated_portfolio_allocation_snapshot = PortfolioAllocationSnapshot(
-                positions=[
-                    PortfolioAllocationPosition(
-                        filled_avg_price=curr_positions_dict[symbol]["filled_avg_price"],
-                        symbol=symbol, filled_quantity=curr_positions_dict[symbol]["filled_quantity"], 
-                        direction=curr_positions_dict[symbol]["direction"]
-                    ) 
-                    for symbol in curr_positions_dict
-                ],
-                timestamp=datetime.now(timezone.utc),
-                allocation_amount=curr_allocation_amount,
-                transaction_id=curr_transaction_id,
-                order_fill_percent=min(
-                    1.0,
-                    max(
-                        0.0,
-                        (
-                            curr_portfolio_allocation_snapshot.number_orders
-                            - (len(unfilled_orders) - len(newly_filled_orders))
-                        )
-                        / curr_portfolio_allocation_snapshot.number_orders
-                    )
-                    if curr_portfolio_allocation_snapshot.number_orders
-                    else 1.0,
-                ),
-                number_orders=curr_portfolio_allocation_snapshot.number_orders,
-                transaction_type=curr_portfolio_allocation_snapshot.transaction_type,
-            )
-            portfolio_allocation_snapshots[-1] = updated_portfolio_allocation_snapshot
+        self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=portfolio_allocation)
 
-            updated_portfolio_allocation = PortfolioAllocation(
-                portfolio_id=portfolio_id,
-                portfolio_allocation_history=portfolio_allocation_snapshots,
-                cognito_user_id=cognito_user_id
-            )
-            self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=updated_portfolio_allocation)
+        return len(total_newly_filled_orders)
+
+
+
+
+
+
+
+
+
+
+
+        
+        # portfolio_allocation_snapshots = self.portfolio_allocation_repository.get_portfolio_allocation_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        # curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]
+        # curr_transaction_id = curr_portfolio_allocation_snapshot.transaction_id
+        # curr_positions = curr_portfolio_allocation_snapshot.positions if curr_portfolio_allocation_snapshot.positions else []
+        # curr_allocation_amount = curr_portfolio_allocation_snapshot.allocation_amount if curr_portfolio_allocation_snapshot.allocation_amount else 0
+        # curr_positions_dict = {
+        #     pos.symbol: 
+        #         {"filled_avg_price": pos.filled_avg_price, "filled_quantity": pos.filled_quantity, "direction": pos.direction} 
+        #     for pos in curr_positions
+        # }
+
+        # unfilled_orders = self.order_repository.get_unfilled_orders_by_transaction(transaction_id=curr_transaction_id)
+        # if len(unfilled_orders) == 0: return 0
+        # newly_filled_orders: List[Order] = []
+        # for unfilled_order in unfilled_orders:
+        #     order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=unfilled_order["order_id"], cognito_user_id=cognito_user_id)
+        #     if str(order.status.name) != "FILLED": continue
+        #     newly_filled_orders.append(order)
+
+        # # apply fills in chronological order, not DynamoDB query order.
+        # newly_filled_orders.sort(
+        #     key=lambda order: (
+        #         str(order.filled_at.isoformat()) if getattr(order, "filled_at", None) else ""
+        #     )
+        # )
+
+        # for order in newly_filled_orders:
+        #     order_symbol = order.symbol
+
+        #     order_direction = 1 if str(order.side.name)=="BUY" else -1
+        #     order_filled_avg_price = float(order.filled_avg_price)
+        #     order_filled_quantity = float(order.filled_qty)
+        #     curr_allocation_amount = self._apply_filled_order_to_positions(
+        #         curr_positions_dict=curr_positions_dict,
+        #         curr_allocation_amount=curr_allocation_amount,
+        #         order_symbol=order_symbol,
+        #         order_direction=order_direction,
+        #         order_filled_avg_price=order_filled_avg_price,
+        #         order_filled_quantity=order_filled_quantity,
+        #     )
+
+        # if newly_filled_orders:
+
+        #     self.order_repository.put_orders(
+        #         portfolio_id=portfolio_id, 
+        #         cognito_user_id=cognito_user_id, 
+        #         portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
+        #         transaction_id=curr_transaction_id,
+        #         orders=newly_filled_orders
+        #     )
+
+        #     updated_portfolio_allocation_snapshot = PortfolioAllocationSnapshot(
+        #         positions=[
+        #             PortfolioAllocationPosition(
+        #                 filled_avg_price=curr_positions_dict[symbol]["filled_avg_price"],
+        #                 symbol=symbol, filled_quantity=curr_positions_dict[symbol]["filled_quantity"], 
+        #                 direction=curr_positions_dict[symbol]["direction"]
+        #             ) 
+        #             for symbol in curr_positions_dict
+        #         ],
+        #         timestamp=datetime.now(timezone.utc),
+        #         allocation_amount=curr_allocation_amount,
+        #         transaction_id=curr_transaction_id,
+        #         order_fill_percent=min(
+        #             1.0,
+        #             max(
+        #                 0.0,
+        #                 (
+        #                     curr_portfolio_allocation_snapshot.number_orders
+        #                     - (len(unfilled_orders) - len(newly_filled_orders))
+        #                 )
+        #                 / curr_portfolio_allocation_snapshot.number_orders
+        #             )
+        #             if curr_portfolio_allocation_snapshot.number_orders
+        #             else 1.0,
+        #         ),
+        #         number_orders=curr_portfolio_allocation_snapshot.number_orders,
+        #         transaction_type=curr_portfolio_allocation_snapshot.transaction_type,
+        #     )
+        #     portfolio_allocation_snapshots[-1] = updated_portfolio_allocation_snapshot
+
+        #     updated_portfolio_allocation = PortfolioAllocation(
+        #         portfolio_id=portfolio_id,
+        #         portfolio_allocation_history=portfolio_allocation_snapshots,
+        #         cognito_user_id=cognito_user_id
+        #     )
+        #     self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=updated_portfolio_allocation)
             
 
-        return len(newly_filled_orders)
+        # return len(newly_filled_orders)

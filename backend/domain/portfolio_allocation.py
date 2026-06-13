@@ -25,42 +25,40 @@ from typing import List, Optional
 #     number_orders: int
 #     transaction_type: str # DEPOSIT | UPDATE | WITHDRAW
 
-@dataclass(frozen=True)
+@dataclass
 class PortfolioAllocationTransactionSnapshot:
     transaction_id: str
     created_at: datetime
-    updated_at: datetime
-    requested_amount: Optional[float] # if None, it is withdraw all
+    filled_at: datetime
+    requested_amount: float # if None, it is withdraw all
     number_orders: int
     transaction_type: str # DEPOSIT | UPDATE | WITHDRAW | WITHDRAW_ALL
     filled_amount: float
     order_fill_percent: float
-    status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED 
+    status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED
 
 
-@dataclass(frozen=True)
+@dataclass
 class PortfolioAllocationPosition:
     symbol: str
     filled_quantity: float
     direction: int
     filled_avg_price: float
 
-@dataclass(frozen=True)
+
+@dataclass
 class PortfolioAllocationPositionSnapshot:
     positions: List[PortfolioAllocationPosition]
+    timestamp: datetime
 
 
-
-
-
-@dataclass(frozen=True)
+@dataclass
 class PortfolioAllocation:
     portfolio_id: str
     cognito_user_id: str
     position_history: List[PortfolioAllocationPositionSnapshot]
     transaction_history: List[PortfolioAllocationTransactionSnapshot]
     total_filled_amount: float
-
 
 
 
