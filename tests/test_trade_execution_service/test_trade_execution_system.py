@@ -2,22 +2,16 @@ import uuid
 
 import pytest
 
+from typing import List
+
 from conftest import TestEngine
 
-from backend.domain.baskt import BasktAccount
-
-FUNDED_ACCOUNT_EMAIL = "baskt_testuser_46ec47e2@example.com"
-
-
-def _get_funded_baskt_account(test_engine: TestEngine):
-    return test_engine.account_lifecycle_service.get_baskt_account_by_email_address(
-        email_address=FUNDED_ACCOUNT_EMAIL
-    )
-
+FUNDED_ALPACA_ACCOUNT_ID = "004989ae-a5eb-4ea1-b525-3eab8bf5a5aa"
+FUNDED_COGNITO_USER_ID = "c46894f8-e091-7088-e0fd-35d1d15bffb7"
 
 def _create_portfolio(
     test_engine: TestEngine,
-    baskt_account: BasktAccount,
+    portfolio_owner_cognito_user_id: str,
     *,
     portfolio_name_prefix: str,
     symbols: list[str],
@@ -31,23 +25,30 @@ def _create_portfolio(
         target_weights=target_weights,
         leverages=leverages,
         portfolio_name=f"{portfolio_name_prefix}-{uuid.uuid4()}",
-        portfolio_owner_cognito_user_id=baskt_account.cognito_user_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
     )
 
 
-def _deposit(test_engine: TestEngine, baskt_account, portfolio_id: str, amount: float) -> None:
-    test_engine.test_deposit(
+def _deposit(
+    test_engine: TestEngine, 
+    alpaca_account_id: str,
+    cognito_user_id: str,
+    portfolio_owner_cognito_user_id: str,
+    portfolio_id: str, 
+    amount: float
+) -> str:
+    return test_engine.test_deposit(
         deposit_amount=amount,
         portfolio_id=portfolio_id,
-        cognito_user_id=baskt_account.cognito_user_id,
-        alpaca_account_id=baskt_account.alpaca_account_id,
-        portfolio_owner_cognito_user_id=baskt_account.cognito_user_id,
+        cognito_user_id=cognito_user_id,
+        alpaca_account_id=alpaca_account_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
     )
 
 
 def _update(
     test_engine: TestEngine,
-    baskt_account: BasktAccount,
+    portfolio_owner_cognito_user_id: str,
     portfolio_id: str,
     *,
     symbols: list[str],
@@ -56,7 +57,7 @@ def _update(
     leverages: list[float],
 ) -> dict:
     updated_orders_dict = test_engine.test_update(
-        portfolio_owner_cognito_user_id=baskt_account.cognito_user_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
         portfolio_id=portfolio_id,
         new_symbols=symbols,
         new_directions=directions,
@@ -65,7 +66,7 @@ def _update(
     )
 
     test_engine.test_update_effect(
-        portfolio_owner_cognito_user_id=baskt_account.cognito_user_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
         portfolio_id=portfolio_id,
         ud_orders_dict=updated_orders_dict,
     )
@@ -74,91 +75,117 @@ def _update(
 
 
 def _withdraw(
-        test_engine: TestEngine, 
-        baskt_account: BasktAccount, 
-        portfolio_id: str, 
-        amount: float
-    ) -> None:
+    test_engine: TestEngine, 
+    alpaca_account_id: str,
+    cognito_user_id: str,
+    portfolio_owner_cognito_user_id: str,
+    portfolio_id: str, 
+    amount: float
+) -> None:
     test_engine.test_withdraw(
-        portfolio_owner_cognito_user_id=baskt_account.cognito_user_id,
-        cognito_user_id=baskt_account.cognito_user_id,
-        alpaca_account_id=baskt_account.alpaca_account_id,
+        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+        cognito_user_id=cognito_user_id,
+        alpaca_account_id=alpaca_account_id,
         portfolio_id=portfolio_id,
-        withdraw_amount=amount,
+        withdraw_amount=amount
     )
 
 
 def _cleanup(
-        test_engine: TestEngine, 
-        baskt_account: BasktAccount, 
-        portfolio_id: str
+        test_engine: TestEngine,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+        portfolio_id: str,
+        transaction_ids: List[str] | None = None
     ) -> None:
+    transaction_ids = transaction_ids or []
+
     test_engine.alpaca_broker_client.execute_close_all_position(
-        alpaca_account_id=baskt_account.alpaca_account_id,
-        cognito_user_id=baskt_account.cognito_user_id,
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
     )
     test_engine.model_portfolio_repository.dynamodb.delete_item(
         key={"portfolio_id": portfolio_id}
     )
     test_engine.model_portfolio_follower_repository.delete_model_portfolio_follower(
-        cognito_user_id=baskt_account.cognito_user_id,
+        cognito_user_id=cognito_user_id,
         portfolio_id=portfolio_id,
     )
     test_engine.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
         key={
-            "cognito_user_id": baskt_account.cognito_user_id,
+            "cognito_user_id": cognito_user_id,
             "portfolio_id": portfolio_id,
         }
     )
+    for transaction_id in transaction_ids:
+        for order in test_engine.order_repository.get_orders_by_transaction(transaction_id=transaction_id):
+            test_engine.order_repository.order_table_client.delete_item(
+                key={
+                    "transaction_id": transaction_id,
+                    "order_id": order["order_id"],
+                }
+            )
+
+
+@pytest.mark.integration
+def test_basic_deposit(test_engine: TestEngine):
+    portfolio_id = _create_portfolio(
+        test_engine,
+        FUNDED_COGNITO_USER_ID,
+        portfolio_name_prefix="pytest-basic-deposit",
+        symbols=["AAPL"],
+        directions=[1],
+        target_weights=[1.00],
+        leverages=[1.0],
+    )
+
+    try:
+        transaction_id = _deposit(
+            test_engine=test_engine,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            portfolio_owner_cognito_user_id=FUNDED_COGNITO_USER_ID,
+            portfolio_id=portfolio_id,
+            amount=100.00,
+        )
+    finally:
+        _cleanup(
+            test_engine=test_engine,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            portfolio_id=portfolio_id,
+            transaction_ids=[transaction_id] if "transaction_id" in locals() else [],
+        )
 
 
 # @pytest.mark.integration
-# def test_basic_deposit(test_engine: TestEngine):
+# def test_multi_symbol_direction_switch(test_engine: TestEngine):
+#     """Test multiple symbols switching directions simultaneously (long -> short)."""
 #     baskt_account = _get_funded_baskt_account(test_engine)
 #     portfolio_id = _create_portfolio(
 #         test_engine,
 #         baskt_account,
-#         portfolio_name_prefix="pytest-basic-deposit",
-#         symbols=["AAPL"],
-#         directions=[1],
-#         target_weights=[1.00],
-#         leverages=[1.0],
+#         portfolio_name_prefix="pytest-multi-dir-switch",s
+#         symbols=["AAPL", "GOOG", "MSFT"],
+#         directions=[1, 1, 1],
+#         target_weights=[0.33, 0.33, 0.34],
+#         leverages=[1.0, 1.0, 1.0],
 #     )
 
 #     try:
-#         _deposit(test_engine, baskt_account, portfolio_id, 100.00)
+#         _deposit(test_engine, baskt_account, portfolio_id, 300.00)
+#         _update(
+#             test_engine,
+#             baskt_account,
+#             portfolio_id,
+#             symbols=["AAPL", "GOOG", "MSFT"],
+#             directions=[-1, -1, -1],
+#             target_weights=[0.33, 0.33, 0.34],
+#             leverages=[1.0, 1.0, 1.0],
+#         )
+#         _withdraw(test_engine, baskt_account, portfolio_id, 50.00)
 #     finally:
 #         _cleanup(test_engine, baskt_account, portfolio_id)
-
-
-@pytest.mark.integration
-def test_multi_symbol_direction_switch(test_engine: TestEngine):
-    """Test multiple symbols switching directions simultaneously (long -> short)."""
-    baskt_account = _get_funded_baskt_account(test_engine)
-    portfolio_id = _create_portfolio(
-        test_engine,
-        baskt_account,
-        portfolio_name_prefix="pytest-multi-dir-switch",
-        symbols=["AAPL", "GOOG", "MSFT"],
-        directions=[1, 1, 1],
-        target_weights=[0.33, 0.33, 0.34],
-        leverages=[1.0, 1.0, 1.0],
-    )
-
-    try:
-        _deposit(test_engine, baskt_account, portfolio_id, 300.00)
-        _update(
-            test_engine,
-            baskt_account,
-            portfolio_id,
-            symbols=["AAPL", "GOOG", "MSFT"],
-            directions=[-1, -1, -1],
-            target_weights=[0.33, 0.33, 0.34],
-            leverages=[1.0, 1.0, 1.0],
-        )
-        _withdraw(test_engine, baskt_account, portfolio_id, 50.00)
-    finally:
-        _cleanup(test_engine, baskt_account, portfolio_id)
 
 
 # @pytest.mark.integration
