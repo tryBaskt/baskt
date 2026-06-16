@@ -253,7 +253,7 @@ class ModelPortfolioFollowerRepository:
             )
         
         try:
-            return [{"cognito_user_id": item["cognito_user_id"], "alpaca_account_id": item["alpaca_account_id"]} for item in items if ("cognito_user_id" in item and "alpaca_account_id" in item)]
+            return [{"alpaca_account_id": item["alpaca_account_id"], "cognito_user_id": item["cognito_user_id"]} for item in items if ("cognito_user_id" in item and "alpaca_account_id" in item)]
         except Exception as e:
             raise ModelPortfolioFollowerUnprocessableEntityError(
                 operation="parse followers",

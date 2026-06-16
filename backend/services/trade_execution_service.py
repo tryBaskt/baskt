@@ -90,6 +90,9 @@ class TradeExecutionService:
 
         return first_execution_delta_positions + second_execution_delta_positions
 
+    def _append_close_order(self, order_results: List[Order], symbol: str, alpaca_account_id: str, cognito_user_id: str) -> None:
+        order = self.alpaca_broker_client.execute_close_position(symbol=symbol, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        order_results.append(order)
 
     def _append_buy_order(self, order_results: List[Order], symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> None:
         order = self.alpaca_broker_client.execute_quantity_buy(symbol=symbol, quantity=quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
@@ -129,10 +132,11 @@ class TradeExecutionService:
 
         # Full direction flip with equal quantity: close current position.
         if abs(curr_quantity - delta_quantity) <= EPS and curr_direction != delta_direction:
-            if curr_direction == 1:
-                self._append_sell_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-            else:
-                self._append_buy_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+            self._append_close_order(order_results=order_results, symbol=symbol, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+            # if curr_direction == 1:
+            #     self._append_sell_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+            # else:
+            #     self._append_buy_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             return order_results
 
         # long -> short crossing through flat.

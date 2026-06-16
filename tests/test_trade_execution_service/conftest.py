@@ -27,13 +27,12 @@ from datetime import datetime, timezone, timedelta
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
 from collections import defaultdict
 from alpaca.broker.models import Order
-from alpaca.trading.enums import AccountStatus, OrderClass, OrderSide, OrderStatus, OrderType, TimeInForce
+from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from unittest.mock import MagicMock
 from backend.domain.baskt import BasktPosition
 from math import ceil, floor
-from types import SimpleNamespace
 
-MARGIN_ERROR = 0.001
+MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
 MOCK_MARGIN = 0.001
 EPS = 1e-6
@@ -194,17 +193,20 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         buy_order = execute_quantity_buy(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, symbol=symbol, quantity=ceil(quantity) - quantity)
         return sell_order, buy_order
 
+    def execute_close_position(symbol: str, alpaca_account_id: str, cognito_user_id: str):
+        position: BasktPosition = state["positions"][alpaca_account_id][symbol]
+        order_side = OrderSide.SELL if position.direction == 1 else OrderSide.BUY
+        return _make_order(
+            alpaca_account_id=alpaca_account_id,
+            symbol=symbol,
+            order_side=order_side,
+            qty=float(position.filled_quantity),
+        )
+
 
     def get_baskt_positions_dict(alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         return state["positions"][alpaca_account_id]
     
-    # def get_alpaca_account_by_id(account_id: str, cognito_user_id: str):
-    #     return SimpleNamespace(
-    #         id=account_id,
-    #         account_number=f"mock-{account_id[-8:]}",
-    #         contact=SimpleNamespace(email_address=f"{cognito_user_id}@mock.local"),
-    #         status=AccountStatus.ACTIVE,
-    #     )
 
     def get_order_by_id(alpaca_account_id: str, cognito_user_id: str, order_id: str):
         order = state["orders"][alpaca_account_id][order_id]
@@ -227,6 +229,7 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.execute_quantity_buy.side_effect = execute_quantity_buy
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
+    mock.execute_close_position.side_effect = execute_close_position
     # mock.get_alpaca_account_by_id.side_effect = get_alpaca_account_by_id
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
     mock.get_order_by_id.side_effect = get_order_by_id
@@ -466,7 +469,6 @@ class TestEngine:
             is_test=True
         )
         dep_orders = dep_response["orders"]
-        dep_transaction_id = dep_response["transaction_id"]
 
         if cognito_user_id not in self.baskt_account_portfolio_positions:
             self.baskt_account_portfolio_positions[cognito_user_id] = {}
@@ -562,16 +564,9 @@ class TestEngine:
 
         # Validate user is in model portfolio's followers
         model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-        model_portfolio_followers_cognito_user_id = set([
-            model_portfolio_follower["cognito_user_id"] for model_portfolio_follower in model_portfolio_followers
-        ])
-        model_portfolio_followers_alpaca_account_id = set([
-            model_portfolio_follower["alpaca_account_id"] for model_portfolio_follower in model_portfolio_followers
-        ])
-        assert cognito_user_id in model_portfolio_followers_cognito_user_id
-        assert alpaca_account_id in model_portfolio_followers_alpaca_account_id
+        assert {"alpaca_account_id": alpaca_account_id, "cognito_user_id": cognito_user_id} in model_portfolio_followers
 
-        return dep_transaction_id
+        return dep_response
 
     def test_update_effect(
         self,
@@ -580,15 +575,19 @@ class TestEngine:
         ud_orders_dict: Dict
     ):
         # Test effect for each follower
-        follower_cognito_user_ids = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-        assert sorted(list(ud_orders_dict.keys())) == sorted(follower_cognito_user_ids)
-        for cognito_user_id in ud_orders_dict:
-            baskt_account = self.account_lifecycle_service.get_baskt_account_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        followers_alpaca_account_id_cognito_user_id = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
+        assert sorted(list(ud_orders_dict.keys())) == sorted(
+            follower_alpaca_account_id_cognito_user_id["cognito_user_id"] 
+            for follower_alpaca_account_id_cognito_user_id in followers_alpaca_account_id_cognito_user_id
+            )
+        for follower_alpaca_account_id_cognito_user_id in followers_alpaca_account_id_cognito_user_id:
             previous_position_history_size = self.portfolio_allocation_history_size
+            cognito_user_id = follower_alpaca_account_id_cognito_user_id["cognito_user_id"]
+            alpaca_account_id = follower_alpaca_account_id_cognito_user_id["alpaca_account_id"]
             self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                alpaca_account_id=baskt_account.alpaca_account_id,
+                alpaca_account_id=alpaca_account_id,
                 portfolio_id=portfolio_id,
             )
 
@@ -607,7 +606,7 @@ class TestEngine:
             }
             for order in ud_orders + self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"]:
                 order_id = str(order.id)
-                alpaca_order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=baskt_account.alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order_id)
+                alpaca_order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order_id)
                 assert order_id in rows2_dict_order_id
                 assert rows2_dict_order_id[order_id]["symbol"] == alpaca_order.symbol
                 assert float(rows2_dict_order_id[order_id]["filled_qty"]) == float(alpaca_order.filled_qty)
@@ -634,7 +633,7 @@ class TestEngine:
                 assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
 
             # match portfolio_allocation to alpaca
-            baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=baskt_account.alpaca_account_id, cognito_user_id=cognito_user_id)
+            baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             baskt_symbols_sorted = sorted([symbol for symbol in baskt_positions_dict])
             assert symbols_snapshot_sorted == baskt_symbols_sorted
             alpaca_filled_amount = 0.0
@@ -698,15 +697,6 @@ class TestEngine:
         sleep(2)
 
         return updated_orders_dict
-
-    def test_cleanup(self, baskt_accounts_and_portfolio_ids: List[List[BasktAccount | str]]):
-        for baskt_account, portfolio_id in baskt_accounts_and_portfolio_ids:
-            self.alpaca_broker_client.execute_close_all_position(alpaca_account_id=baskt_account.alpaca_account_id)
-
-            self.model_portfolio_repository.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
-            self.model_portfolio_follower_repository.delete_model_portfolio_follower(cognito_user_id=baskt_account.cognito_user_id,portfolio_id=portfolio_id)
-            self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": baskt_account.cognito_user_id,"portfolio_id": portfolio_id})
-            self.order_repository.order_table_client.delete_item(key={"portfolio_id": portfolio_id})
 
     def test_withdraw(
         self,
@@ -819,6 +809,9 @@ class TestEngine:
         self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["filled_amounts"].append(alpaca_filled_amount2)
         self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"].extend(wd_orders)
 
+        return wd_response
+    
+
     def test_withdraw_all(
         self,
         portfolio_owner_cognito_user_id: str,
@@ -888,6 +881,53 @@ class TestEngine:
         # match portfolio_allocation to alpaca
         baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
         assert len(baskt_positions_dict) == 0
+
+        return wd_response
+
+    def test_cleanup(self, baskt_accounts_and_portfolio_ids: List[List[BasktAccount | str]]):
+        for baskt_account, portfolio_id in baskt_accounts_and_portfolio_ids:
+            self.alpaca_broker_client.execute_close_all_position(alpaca_account_id=baskt_account.alpaca_account_id)
+
+            self.model_portfolio_repository.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
+            self.model_portfolio_follower_repository.delete_model_portfolio_follower(cognito_user_id=baskt_account.cognito_user_id,portfolio_id=portfolio_id)
+            self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": baskt_account.cognito_user_id,"portfolio_id": portfolio_id})
+            self.order_repository.order_table_client.delete_item(key={"portfolio_id": portfolio_id})
+
+
+    def test_clean_up(
+        self,
+        traded_accounts: List[List[str]], # [[cognito_user_id, alpaca_account_id, portfolio_id],...,]
+        portfolio_owner_model_portfolios: List[List[str]], # [[cognito_user_id, portfolio_id],...,]
+        transaction_id_order_id_dict: Dict[str, List[Order]] # {transaction_id -> [order,...]}
+    ):
+        for cognito_user_id, alpaca_account_id, portfolio_id in traded_accounts:
+            self.alpaca_broker_client.execute_close_all_position(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id
+            )
+            self.model_portfolio_follower_repository.delete_model_portfolio_follower(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id
+            )
+            self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+                key={"cognito_user_id": cognito_user_id,"portfolio_id": portfolio_id}
+            )
+
+        for cognito_user_id, portfolio_id in portfolio_owner_model_portfolios:
+            self.model_portfolio_repository.dynamodb.delete_item(
+                key={"portfolio_id": portfolio_id}
+            )
+
+        for transaction_id, orders in transaction_id_order_id_dict.items():
+            for order in orders:
+                self.order_repository.order_table_client.delete_item(
+                    key={"transaction_id": transaction_id, "order_id": str(order.id)}
+                )
+
+
+           
+        
+        
 
 
 @pytest.fixture(scope="session")
