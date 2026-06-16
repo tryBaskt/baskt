@@ -8,7 +8,7 @@ from alpaca.trading.models import Order
 
 from conftest import TestEngine
 
-FUNDED_ALPACA_ACCOUNT_ID = "004989ae-a5eb-4ea1-b525-3eab8bf5a5aa"
+FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
 FUNDED_COGNITO_USER_ID = "c46894f8-e091-7088-e0fd-35d1d15bffb7"
 
 def _create_portfolio(
@@ -310,7 +310,7 @@ def test_mixed_symbol_operations(test_engine: TestEngine):
             test_engine,
             FUNDED_COGNITO_USER_ID,
             portfolio_id,
-            symbols=["AAPL", "MSFT", "NVDA", "META"],
+            symbols=["AAPL", "MSFT", "UBER", "LLY"],
             directions=[1, 1, -1, 1],
             target_weights=[0.30, 0.30, 0.20, 0.20],
             leverages=[1.0, 1.0, 1.0, 1.0],
@@ -382,7 +382,7 @@ def test_change_everything_simultaneously(test_engine: TestEngine):
             test_engine,
             FUNDED_COGNITO_USER_ID,
             portfolio_id,
-            symbols=["MSFT", "NVDA", "TSLA"],
+            symbols=["MSFT", "UBER", "LLY"],
             directions=[-1, 1, -1],
             target_weights=[0.40, 0.35, 0.25],
             leverages=[1.0, 1.0, 1.0],
@@ -474,18 +474,20 @@ def test_deposit_after_partial_withdrawal(test_engine: TestEngine):
             test_engine,
             FUNDED_COGNITO_USER_ID,
             portfolio_id,
-            symbols=["AAPL", "MSFT", "NVDA"],
+            symbols=["AAPL", "MSFT", "LLY"],
             directions=[-1, 1, 1],
             target_weights=[0.50, 0.25, 0.25],
             leverages=[1.0, 1.0, 1.0],
         )
         second_withdraw_response = _withdraw(test_engine, FUNDED_ALPACA_ACCOUNT_ID, FUNDED_COGNITO_USER_ID, FUNDED_COGNITO_USER_ID, portfolio_id, 200.00)
+        first_withdraw_all_response = _withdraw_all(test_engine, FUNDED_ALPACA_ACCOUNT_ID, FUNDED_COGNITO_USER_ID, FUNDED_COGNITO_USER_ID, portfolio_id,)
     finally:
         transaction_id_order_id_dict = {}
         _record_order_response(transaction_id_order_id_dict, first_deposit_response)
         _record_order_response(transaction_id_order_id_dict, first_withdraw_response)
         _record_order_response(transaction_id_order_id_dict, second_deposit_response)
         _record_order_response(transaction_id_order_id_dict, second_withdraw_response)
+        _record_order_response(transaction_id_order_id_dict, first_withdraw_all_response)
         _record_update_order_response(transaction_id_order_id_dict, first_update_response)
         _record_update_order_response(transaction_id_order_id_dict, second_update_response)
         _cleanup_funded_test(test_engine, portfolio_id, transaction_id_order_id_dict)

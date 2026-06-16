@@ -119,7 +119,7 @@ class AlpacaBrokerClient:
         tradeable: List[Asset] = []
         for asset in assets:
             asset_class = getattr(asset.asset_class, "name", asset.asset_class)
-            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False):
+            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False) and getattr(asset, "shortable", False):
                 tradeable.append(asset)
 
         return tradeable
@@ -889,7 +889,7 @@ class AlpacaBrokerClient:
             error occurs while submitting either order.
         """
         from math import ceil
-        from time import sleep
+        from time import monotonic, sleep
 
         order_req = MarketOrderRequest(
             symbol=symbol,
@@ -909,8 +909,25 @@ class AlpacaBrokerClient:
             return [order1, None]
 
         order1_id = order1.id
-        while self.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order1_id).status.name != "FILLED":
-            sleep(0.25)
+        timeout_seconds = 30.0
+        poll_interval_seconds = 0.25
+        deadline = monotonic() + timeout_seconds
+        latest_status = None
+        while monotonic() < deadline:
+            latest_order = self.get_order_by_id(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+                order_id=order1_id,
+            )
+            latest_status = getattr(latest_order.status, "name", latest_order.status)
+            if latest_status.upper() == "FILLED":
+                break
+            sleep(poll_interval_seconds)
+        else:
+            raise AlpacaBrokerClientError(
+                message=f"Timed out waiting for initial fractional sell for '{symbol}' to fill for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}'. Last status: {latest_status}",
+                code="ALPACA_BROKER_FRACTIONAL_SELL_FILL_TIMEOUT",
+            )
 
         order_req = MarketOrderRequest(
             symbol=symbol,
@@ -1023,7 +1040,7 @@ class AlpacaBrokerClient:
             position.symbol: BasktPosition(
                 symbol=position.symbol, 
                 filled_avg_price=float(position.avg_entry_price), 
-                filled_quantity=float(position.qty),
+                filled_quantity=abs(float(position.qty)),
                 direction=1 if position.side.name == "LONG" else -1
             )
             for position in positions

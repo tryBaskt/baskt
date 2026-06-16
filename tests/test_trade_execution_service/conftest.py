@@ -27,7 +27,8 @@ from datetime import datetime, timezone, timedelta
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
 from collections import defaultdict
 from alpaca.broker.models import Order
-from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, TimeInForce
+from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
 from backend.domain.baskt import BasktPosition
 from math import ceil, floor
@@ -62,6 +63,7 @@ def pytest_addoption(parser):
 
 def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerClient:
     mock = MagicMock(spec=AlpacaBrokerClient)
+    mock.client = MagicMock()
 
     state: Dict[str, Dict[str,Order | BasktPosition | float]] = {
         "positions": defaultdict(dict), # alpaca_account_id -> position.symbol -> position
@@ -225,6 +227,18 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         state["positions"][alpaca_account_id].clear()
         return True
 
+    def get_orders_for_account(account_id: str, filter: GetOrdersRequest | None = None):
+        orders = list(state["orders"][account_id].values())
+        if filter is not None and filter.status == QueryOrderStatus.OPEN:
+            return [order for order in orders if order.status != OrderStatus.FILLED]
+        return orders
+
+    def cancel_order_for_account_by_id(account_id: str, order_id: str):
+        order = state["orders"][account_id][order_id]
+        order.status = OrderStatus.CANCELED
+        state["orders"][account_id][order_id] = order
+        return True
+
     mock.get_latest_price.side_effect = get_latest_price
     mock.execute_quantity_buy.side_effect = execute_quantity_buy
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
@@ -234,6 +248,8 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position
+    mock.client.get_orders_for_account.side_effect = get_orders_for_account
+    mock.client.cancel_order_for_account_by_id.side_effect = cancel_order_for_account_by_id
 
     return mock
 
@@ -901,6 +917,24 @@ class TestEngine:
         transaction_id_order_id_dict: Dict[str, List[Order]] # {transaction_id -> [order,...]}
     ):
         for cognito_user_id, alpaca_account_id, portfolio_id in traded_accounts:
+            # delete any unfilled orders
+            try:
+                open_orders = self.alpaca_broker_client.client.get_orders_for_account(
+                    account_id=alpaca_account_id,
+                    filter=GetOrdersRequest(status=QueryOrderStatus.OPEN),
+                )
+            except Exception:
+                open_orders = []
+
+            for order in open_orders:
+                try:
+                    self.alpaca_broker_client.client.cancel_order_for_account_by_id(
+                        account_id=alpaca_account_id,
+                        order_id=str(order.id),
+                    )
+                except Exception:
+                    continue
+
             self.alpaca_broker_client.execute_close_all_position(
                 alpaca_account_id=alpaca_account_id,
                 cognito_user_id=cognito_user_id
@@ -923,6 +957,7 @@ class TestEngine:
                 self.order_repository.order_table_client.delete_item(
                     key={"transaction_id": transaction_id, "order_id": str(order.id)}
                 )
+
 
 
            
