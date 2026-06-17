@@ -269,6 +269,8 @@ def alpaca_broker_client(request) -> AlpacaBrokerClient:
                 "PLTR": 25.0,
                 "SPY": 500.0,
                 "QQQ": 430.0,
+                "UBER": 100.0,
+                "LLY": 95.0
             }
         )
 
