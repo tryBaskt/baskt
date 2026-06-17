@@ -9,7 +9,7 @@ from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
 from core.deps import (
     get_current_user,
-    get_model_portfolio_performance_service,
+    get_model_portfolio_analytics_service,
     get_model_portfolio_repository,
 )
 from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot
@@ -27,15 +27,15 @@ from schema.model_portfolio_schema import (
     CreateModelPortfolioRequest, 
     UpdateModelPortfolioRequest,
     ModelPortfolioResponse,
-    ModelPortfolioPerformanceResponse,
+    ModelPortfolioAnalyticsResponse,
     ModelPortfolioPositionResponse,
     ModelPortfolioSnapshotResponse,
     ModelPortfolioMetadataResponse,
     ListUserModelPortfoliosResponse
 )
-from services.model_portfolio_performance_service import (
-    ModelPortfolioPerformanceService,
-    ModelPortfolioPerformanceServiceError,
+from services.model_portfolio_analytics_service import (
+    ModelPortfolioAnalyticsService,
+    ModelPortfolioAnalyticsServiceError,
 )
 
 
@@ -50,7 +50,7 @@ MODEL_PORTFOLIO_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
     (ModelPortfolioUnprocessableEntityError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (ModelPortfolioBadGatewayError, status.HTTP_502_BAD_GATEWAY),
     (ModelPortfolioInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
-    (ModelPortfolioPerformanceServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    (ModelPortfolioAnalyticsServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 )
 
 
@@ -223,6 +223,31 @@ def list_user_model_portfolios(
                 )
                 for portfolio_metadata in portfolios_meta_data
             ]
+        )
+    except Exception as e:
+        _raise_model_portfolio_http_exception(e)
+
+
+@router.get("/{portfolio_id}/analytics", response_model=ModelPortfolioAnalyticsResponse, status_code=HTTP_200_OK)
+def get_model_portfolio_analytics(
+    portfolio_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+    service: ModelPortfolioAnalyticsService = Depends(get_model_portfolio_analytics_service),
+) -> ModelPortfolioAnalyticsResponse:
+    """
+    Get model portfolio cumulative return series for standard periods.
+
+    Args:
+        portfolio_id: Identifier of the model portfolio to analyze.
+        user: Authenticated user claims resolved by dependency injection.
+        service: Analytics service dependency for model portfolio returns.
+
+    Returns:
+        ModelPortfolioAnalyticsResponse: Return series keyed by period.
+    """
+    try:
+        return ModelPortfolioAnalyticsResponse(
+            service.get_model_portfolio_bars(portfolio_id=portfolio_id)
         )
     except Exception as e:
         _raise_model_portfolio_http_exception(e)

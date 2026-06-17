@@ -536,6 +536,43 @@ textarea:focus {
   font-size: 26px;
 }
 
+.analytics-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.analytics-side-bar {
+  display: grid;
+  grid-template-columns: 1fr;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.analytics-side-bar div {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.analytics-side-bar div:last-child {
+  border-bottom: 0;
+}
+
+.analytics-side-bar span {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.analytics-side-bar strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 24px;
+}
+
 .panel,
 .builder-panel,
 .insights-panel {
@@ -1162,6 +1199,7 @@ summary {
   .app-shell,
   .make-layout,
   .split-grid,
+  .analytics-layout,
   .hero-band {
     grid-template-columns: 1fr;
   }

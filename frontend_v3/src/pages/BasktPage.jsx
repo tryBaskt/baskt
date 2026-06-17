@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import EquityChart from "../components/EquityChart";
 import PositionsTable from "../components/PositionsTable";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
@@ -8,6 +9,8 @@ import { getCurrentUserClaims } from "../lib/session";
 export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const [baskt, setBaskt] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
+  const [modelAnalytics, setModelAnalytics] = useState(null);
+  const [modelAnalyticsPeriod, setModelAnalyticsPeriod] = useState("1D");
   const [transactions, setTransactions] = useState([]);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
@@ -18,6 +21,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
   const latestSnapshot = baskt?.position_history?.at(-1);
+  const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A"];
+  const selectedModelAnalytics =
+    modelAnalytics?.[modelAnalyticsPeriod] ||
+    modelAnalytics?.[modelAnalyticsPeriod.toLowerCase()];
   const hasAllocationMetrics =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined &&
@@ -25,6 +32,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     allocationAnalytics?.profit_loss !== undefined &&
     allocationAnalytics?.profit_loss_pct !== null &&
     allocationAnalytics?.profit_loss_pct !== undefined;
+
+  function analyticsPercent(value) {
+    return value === null || value === undefined ? "Not available" : percent(value);
+  }
 
   async function loadBaskt() {
     const payload = await apiRequest(`/model-portfolios/${portfolioId}`);
@@ -38,6 +49,15 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     );
     setAllocationAnalytics(allocationPayload || null);
     setTransactions(allocationPayload?.list_transaction || []);
+
+    const modelAnalyticsPayload = await apiRequest(`/model-portfolios/${portfolioId}/analytics`);
+    setModelAnalytics(modelAnalyticsPayload || null);
+    if (!modelAnalyticsPayload?.[modelAnalyticsPeriod]) {
+      const availablePeriod = modelAnalyticsPeriods.find((period) => modelAnalyticsPayload?.[period]);
+      if (availablePeriod) {
+        setModelAnalyticsPeriod(availablePeriod);
+      }
+    }
   }
 
   useEffect(() => {
@@ -149,6 +169,58 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           </div>
         </section>
       ) : null}
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Model performance</p>
+            <h2>Cumulative returns</h2>
+          </div>
+          <div className="segmented-control" aria-label="Model portfolio analytics period">
+            {modelAnalyticsPeriods.map((period) => (
+              <button
+                key={period}
+                className={modelAnalyticsPeriod === period ? "active" : ""}
+                type="button"
+                onClick={() => setModelAnalyticsPeriod(period)}
+              >
+                {period}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="analytics-layout">
+          <EquityChart
+            equity={selectedModelAnalytics?.cumulative_returns || []}
+            ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
+            emptyMessage="Model portfolio returns will appear here once price bars are available."
+          />
+          <div className="analytics-side-bar">
+            <div>
+              <span>Total return</span>
+              <strong>{analyticsPercent(selectedModelAnalytics?.total_cumulative_return)}</strong>
+            </div>
+            <div>
+              <span>CAGR</span>
+              <strong>{analyticsPercent(selectedModelAnalytics?.cagr)}</strong>
+            </div>
+            <div>
+              <span>Annualized volatility</span>
+              <strong>{analyticsPercent(selectedModelAnalytics?.annualized_volatility)}</strong>
+            </div>
+            <div>
+              <span>Net direction</span>
+              <strong>
+                {selectedModelAnalytics?.leverage_adjusted_direction === null ||
+                selectedModelAnalytics?.leverage_adjusted_direction === undefined
+                  ? "Not available"
+                  : `${Number(selectedModelAnalytics.leverage_adjusted_direction).toFixed(2)}x`}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="panel">
         <div className="section-heading">

@@ -17,14 +17,18 @@ function buildPath(values, width, height, padding) {
     .join(" ");
 }
 
-export default function EquityChart({ equity = [] }) {
+export default function EquityChart({
+  equity = [],
+  ariaLabel = "Account equity chart",
+  emptyMessage = "Equity history will appear here once data is available.",
+}) {
   const values = equity.map(Number).filter(Number.isFinite);
   const path = buildPath(values, 720, 260, 24);
 
   return (
     <div className="chart-frame">
       {values.length ? (
-        <svg viewBox="0 0 720 260" role="img" aria-label="Account equity chart">
+        <svg viewBox="0 0 720 260" role="img" aria-label={ariaLabel}>
           <defs>
             <linearGradient id="equityFill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="rgba(124, 58, 237, 0.32)" />
@@ -35,7 +39,7 @@ export default function EquityChart({ equity = [] }) {
           <path d={path} fill="none" stroke="#7c3aed" strokeLinecap="round" strokeWidth="4" />
         </svg>
       ) : (
-        <div className="chart-empty">Equity history will appear here once data is available.</div>
+        <div className="chart-empty">{emptyMessage}</div>
       )}
     </div>
   );

@@ -46,7 +46,7 @@ class ModelPortfolioResponse(BaseModel):
     positions_current_weight: Dict[str, float]
 
 
-class ModelPortfolioPerformancePeriodResponse(BaseModel):
+class ModelPortfolioAnalyticsPeriodResponse(BaseModel):
     timeframe: str
     timestamp: List[str]
     cumulative_returns: List[float]
@@ -56,7 +56,7 @@ class ModelPortfolioPerformancePeriodResponse(BaseModel):
     leverage_adjusted_direction: Optional[float] = None
 
 
-class ModelPortfolioPerformanceResponse(RootModel[Dict[str, ModelPortfolioPerformancePeriodResponse]]):
+class ModelPortfolioAnalyticsResponse(RootModel[Dict[str, ModelPortfolioAnalyticsPeriodResponse]]):
     pass
 
 class ModelPortfolioMetadataResponse(BaseModel):

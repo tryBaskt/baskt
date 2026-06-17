@@ -5,7 +5,7 @@ import { ErrorBanner, LoadingState } from "../components/Status";
 import { apiRequest } from "../lib/api";
 import { currency } from "../lib/format";
 
-const periods = ["1D", "1W", "1M", "3M", "1A"];
+const periods = ["1D", "1W", "1M", "3M", "1A", "ALL"];
 
 export default function HomePage() {
   const [analytics, setAnalytics] = useState(null);
