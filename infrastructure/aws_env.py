@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 _AWS_ENV_KEYS = (
     "AWS_ACCESS_KEY_ID",
@@ -14,7 +15,7 @@ _AWS_ENV_KEYS = (
 )
 
 
-def _find_workspace_env(start: Path) -> Path | None:
+def _find_workspace_env(start: Path) -> Optional[Path]:
     for parent in [start, *start.parents]:
         candidate = parent / ".env"
         if candidate.exists() and candidate.is_file():

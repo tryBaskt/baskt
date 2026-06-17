@@ -15,7 +15,17 @@ import yfinance as yf
 class YFinanceClientError(Exception):
     """Raised when yfinance client operations fail."""
 
-    def __init__(self, message: str, code: str = "YFINANCE_CLIENT_ERROR"):
+    def __init__(self, message: str, code: str = "YFINANCE_CLIENT_ERROR") -> None:
+        """
+        Initialize a yfinance client exception.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable error code identifying the failed yfinance operation.
+
+        Returns:
+            None.
+        """
         super().__init__(message)
         self.code = code
 
@@ -30,9 +40,15 @@ class YFinanceClient:
 
     progress: bool = False
 
-    def fetch_history(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def fetch_history(
+        self,
+        ticker: str,
+        start_date: str,
+        end_date: str,
+        interval: str = "1d",
+    ) -> pd.DataFrame:
         """
-        Fetch daily OHLCV between start_date and end_date (YYYY-MM-DD).
+        Fetch OHLCV between start_date and end_date (YYYY-MM-DD).
 
         IMPORTANT: yfinance treats `end` as exclusive, so we add +1 day
         to make end_date inclusive.
@@ -41,6 +57,7 @@ class YFinanceClient:
             ticker: Asset ticker symbol (for example, "AAPL").
             start_date: Inclusive start date in YYYY-MM-DD format.
             end_date: Inclusive end date in YYYY-MM-DD format.
+            interval: yfinance interval string. Defaults to "1d".
 
         Returns:
             pd.DataFrame: Normalized OHLCV frame with datetime index and
@@ -69,6 +86,7 @@ class YFinanceClient:
                 str(ticker).upper(),
                 start=start_ts.date().isoformat(),
                 end=end_exclusive.date().isoformat(),
+                interval=interval,
                 progress=self.progress,
             )
         except Exception as e:

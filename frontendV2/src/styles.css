@@ -63,6 +63,18 @@ body {
   animation: enter 500ms ease-out;
 }
 
+.signup-card {
+  width: min(760px, 94vw);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(2px);
+  padding: 1.65rem;
+  z-index: 1;
+  animation: enter 500ms ease-out;
+}
+
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
@@ -94,6 +106,14 @@ h1 {
   color: #5a2ed9;
 }
 
+h2 {
+  font-family: "Manrope", sans-serif;
+  margin: 0.16rem 0 0;
+  font-size: 1.34rem;
+  line-height: 1.18;
+  color: #2a2f35;
+}
+
 .subtitle {
   margin: 0.7rem 0 1.2rem;
   line-height: 1.45;
@@ -106,13 +126,234 @@ h1 {
   gap: 0.52rem;
 }
 
+.signup-form {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.signup-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.72rem 0.9rem;
+}
+
+.field-group {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.field-group label {
+  margin-top: 0;
+}
+
+.field-span {
+  grid-column: 1 / -1;
+}
+
+.appendable-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.appendable-add-button {
+  min-height: 44px;
+  padding-inline: 1rem;
+}
+
+.selected-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.selected-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(110, 63, 242, 0.18);
+  border-radius: 999px;
+  background: rgba(110, 63, 242, 0.08);
+  color: #4020a8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.38rem 0.42rem 0.38rem 0.68rem;
+}
+
+.selected-pill button {
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(64, 32, 168, 0.12);
+  color: #4020a8;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.76rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.field-hint,
+.field-error {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.field-hint {
+  color: var(--muted);
+}
+
+.field-error {
+  color: #8f1e1e;
+}
+
+.address-autocomplete {
+  position: relative;
+}
+
+.address-suggestions {
+  position: absolute;
+  top: calc(100% + 0.32rem);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  overflow: hidden;
+  border: 1px solid rgba(115, 127, 139, 0.28);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 32px rgba(30, 35, 40, 0.16);
+}
+
+.address-suggestion {
+  width: 100%;
+  margin: 0;
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.86rem;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(115, 127, 139, 0.16);
+  background: #ffffff;
+  color: #2a2f35;
+  text-align: left;
+  font: 700 0.9rem "Manrope", sans-serif;
+}
+
+.address-suggestion:last-child {
+  border-bottom: 0;
+}
+
+.address-suggestion small {
+  color: var(--muted);
+  font: 500 0.78rem "Plus Jakarta Sans", sans-serif;
+}
+
+.address-suggestion:hover {
+  background: #f6f2ff;
+  color: #2a2f35;
+  filter: none;
+  transform: none;
+}
+
+.signup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.login-return-button {
+  margin-right: auto;
+}
+
+.agreement-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.agreement-row {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.72rem;
+  align-items: start;
+  padding: 0.9rem;
+  border: 1px solid rgba(115, 127, 139, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.agreement-row input {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.18rem;
+  padding: 0;
+}
+
+.agreement-row a {
+  color: #5a2ed9;
+  font-weight: 800;
+  text-underline-offset: 2px;
+}
+
 label {
   margin-top: 0.44rem;
   font-size: 0.82rem;
   font-weight: 700;
 }
 
-input {
+.required-marker {
+  color: #8f1e1e;
+}
+
+.tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.tooltip-trigger {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0 0.08rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(115, 127, 139, 0.46);
+  background: #ffffff;
+  color: #5a2ed9;
+  font: 800 0.7rem "Manrope", sans-serif;
+}
+
+.tooltip-content {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.45rem);
+  z-index: 40;
+  width: min(260px, 72vw);
+  padding: 0.58rem 0.68rem;
+  border-radius: 8px;
+  background: #2a2f35;
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(30, 35, 40, 0.2);
+  font: 600 0.75rem/1.35 "Plus Jakarta Sans", sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0.18rem);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.tooltip-wrapper:hover .tooltip-content,
+.tooltip-wrapper:focus-within .tooltip-content {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+input,
+select {
   width: 100%;
   border-radius: 10px;
   border: 1px solid rgba(115, 127, 139, 0.36);
@@ -123,7 +364,8 @@ input {
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   border-color: var(--accent);
   outline: none;
   box-shadow: 0 0 0 3px rgba(110, 63, 242, 0.2);
@@ -195,6 +437,76 @@ button:active {
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   cursor: pointer;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(30, 35, 40, 0.46);
+}
+
+.signup-modal {
+  width: min(620px, 94vw);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  border: 1px solid rgba(115, 127, 139, 0.28);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 58px rgba(30, 35, 40, 0.26);
+  padding: 1.35rem;
+}
+
+.modal-heading-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.icon-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(115, 127, 139, 0.28);
+  background: #ffffff;
+  color: #2a2f35;
+  font: 800 1rem "Manrope", sans-serif;
+}
+
+.contact-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.86rem;
+}
+
+.form-grid label {
+  margin-top: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
+.secondary-button {
+  border: 1px solid rgba(115, 127, 139, 0.34);
+  background: #ffffff;
+  color: #2a2f35;
 }
 
 .home-shell {
@@ -337,6 +649,30 @@ button:active {
     border-radius: 18px;
   }
 
+  .signup-card {
+    padding: 1.25rem;
+  }
+
+  .signup-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .signup-actions {
+    display: grid;
+  }
+
+  .login-return-button {
+    margin-right: 0;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-actions {
+    display: grid;
+  }
+
   .aux-row {
     flex-direction: column;
     align-items: flex-start;
@@ -351,4 +687,3 @@ button:active {
     border-bottom: 1px solid rgba(115, 127, 139, 0.22);
   }
 }
-

@@ -21,7 +21,7 @@ load_aws_env()
 configurations = {
     "table_name": "dev_model_portfolio_follower_dynamodb",
     "region": "us-east-1",
-    "partition_key": "user_id",
+    "partition_key": "cognito_user_id",
     "partition_key_attribute_type": "S",
     "partition_key_key_type": "HASH",
     "sort_key": "portfolio_id",
@@ -29,10 +29,10 @@ configurations = {
     "sort_key_key_type": "RANGE",
     "gsi": [
         {
-            "gsi_name": "portfolio_id-index",
+            "gsi_name": "portfolio_id_index",
             "gsi_partition_key": "portfolio_id",
             "gsi_partition_key_type": "HASH",
-            "gsi_sort_key": "user_id",
+            "gsi_sort_key": "cognito_user_id",
             "gsi_sort_key_type": "RANGE",
         }
     ]

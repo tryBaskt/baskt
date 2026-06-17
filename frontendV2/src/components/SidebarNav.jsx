@@ -1,11 +1,27 @@
 export default function SidebarNav({ onLogout, currentPage, onSelectPage }) {
+  const isHomeActive = currentPage === "home";
   const isMakeBasktActive = currentPage === "make-baskt";
   const isMyBasktsActive = currentPage === "my-baskts";
+  const isTransfersActive = currentPage === "transfers";
 
   return (
     <aside className="home-sidebar" aria-label="Primary navigation">
       <div className="home-brand">Baskt</div>
       <nav className="home-nav">
+        <button
+          type="button"
+          className={`home-nav-button${isHomeActive ? " is-active" : ""}`}
+          aria-current={isHomeActive ? "page" : undefined}
+          onClick={() => onSelectPage("home")}
+        >
+          <span className="home-nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M4 19h16v1.5H4V19zm1-2.5l4.2-4.7 3.2 2.8 5.2-6.8 1.4 1.1-6.5 8.4-3.1-2.7-3.2 3.6L5 16.5z" />
+            </svg>
+          </span>
+          <span>Home</span>
+        </button>
+
         <button
           type="button"
           className={`home-nav-button${isMakeBasktActive ? " is-active" : ""}`}
@@ -32,6 +48,20 @@ export default function SidebarNav({ onLogout, currentPage, onSelectPage }) {
             </svg>
           </span>
           <span>My Baskts</span>
+        </button>
+
+        <button
+          type="button"
+          className={`home-nav-button${isTransfersActive ? " is-active" : ""}`}
+          aria-current={isTransfersActive ? "page" : undefined}
+          onClick={() => onSelectPage("transfers")}
+        >
+          <span className="home-nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M4 9.25L12 4l8 5.25V11H4V9.25zm2 3.25h2v5H6v-5zm5 0h2v5h-2v-5zm5 0h2v5h-2v-5zM4.75 19h14.5v1.5H4.75V19z" />
+            </svg>
+          </span>
+          <span>Transfers</span>
         </button>
       </nav>
       <button type="button" className="home-logout" onClick={onLogout}>

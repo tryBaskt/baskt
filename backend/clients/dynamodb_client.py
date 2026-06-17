@@ -1,7 +1,7 @@
 # backend/clients/dynamodb.py
 
+# Python imports
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
 
 
@@ -9,6 +9,16 @@ class DynamoDBClientError(Exception):
     """Raised when DynamoDB client operations fail."""
 
     def __init__(self, message: str, code: str = "DYNAMODB_CLIENT_ERROR"):
+        """
+        Initialize a DynamoDB client exception with a message and code.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable application error code identifying the failed operation.
+
+        Returns:
+            None.
+        """
         super().__init__(message)
         self.code = code
 
@@ -18,7 +28,7 @@ class DynamoDBClient:
     Client for interacting with DynamoDB tables.
     """
 
-    def __init__(self, table):
+    def __init__(self, table) -> None:
         """
         Initialize a DynamoDB client wrapper around a table resource.
 
@@ -36,7 +46,7 @@ class DynamoDBClient:
         Insert or replace an item in the DynamoDB table.
 
         Args:
-            item: Full item payload to write.
+            item: Full DynamoDB item payload to write.
 
         Returns:
             None.
@@ -54,8 +64,9 @@ class DynamoDBClient:
         Check whether an item exists for the provided primary key.
 
         Args:
-            key: Primary key map for the item to check.
-            consistent_read: Whether to use strongly consistent reads.
+            key: DynamoDB primary key map for the item to check.
+            consistent_read: Whether DynamoDB should use a strongly consistent
+                read.
 
         Returns:
             bool: True if the item exists, otherwise False.
@@ -77,9 +88,9 @@ class DynamoDBClient:
         Retrieve a single item by primary key.
 
         Args:
-            key: Primary key map for the item to retrieve.
+            key: DynamoDB primary key map for the item to retrieve.
             projection_expression: Optional DynamoDB projection expression
-                (for example, "position_history").
+                limiting which attributes are returned.
 
         Returns:
             Optional[Dict[str, Any]]: The item if found, otherwise None.
@@ -102,8 +113,7 @@ class DynamoDBClient:
 
         Args:
             key_condition: DynamoDB KeyConditionExpression.
-            **kwargs: Additional boto3 query parameters (for example,
-                IndexName, FilterExpression, Limit, ScanIndexForward).
+            **kwargs: Additional boto3 query parameters.
 
         Returns:
             List[Dict[str, Any]]: Matching items for the query.
@@ -123,8 +133,7 @@ class DynamoDBClient:
 
         Args:
             filter_expression: Optional DynamoDB FilterExpression.
-            **kwargs: Additional boto3 scan parameters (for example,
-                ProjectionExpression, Limit, ExclusiveStartKey).
+            **kwargs: Additional boto3 scan parameters.
 
         Returns:
             List[Dict[str, Any]]: Items returned by the scan operation.
@@ -146,7 +155,7 @@ class DynamoDBClient:
         Delete an item by primary key.
 
         Args:
-            key: Primary key map for the item to delete.
+            key: DynamoDB primary key map for the item to delete.
 
         Returns:
             None.

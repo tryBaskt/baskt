@@ -2,32 +2,78 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, Type
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
-from schema.model_portfolio_request import CreateModelPortfolioRequest, UpdateModelPortfolioRequest
-from core.deps import get_current_user, get_model_portfolio_repository
+from starlette.status import HTTP_200_OK, HTTP_201_CREATED
+from core.deps import (
+    get_current_user,
+    get_model_portfolio_performance_service,
+    get_model_portfolio_repository,
+)
 from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot
-from repository.model_portfolio_repository import (ModelPortfolioRepository,
-                                                   ModelPortfolioNotFoundError, 
-                                                   ModelPortfolioPositionHistoryNotFoundError,
-                                                   ModelPortfolioInternalServerError,
-                                                   ModelPortfolioUnprocessableEntityError,
-                                                   ModelPortfolioTooManyRequestsError,
-                                                   ModelPortfolioBadGatewayError,
-                                                   ModelPortfolioLockedError)
+from repository.model_portfolio_repository import (
+    ModelPortfolioRepository,
+    ModelPortfolioNotFoundError, 
+    ModelPortfolioPositionHistoryNotFoundError,
+    ModelPortfolioInternalServerError,
+    ModelPortfolioUnprocessableEntityError,
+    ModelPortfolioTooManyRequestsError,
+    ModelPortfolioBadGatewayError,
+    ModelPortfolioLockedError
+)
+from schema.model_portfolio_schema import (
+    CreateModelPortfolioRequest, 
+    UpdateModelPortfolioRequest,
+    ModelPortfolioResponse,
+    ModelPortfolioPerformanceResponse,
+    ModelPortfolioPositionResponse,
+    ModelPortfolioSnapshotResponse,
+    ModelPortfolioMetadataResponse,
+    ListUserModelPortfoliosResponse
+)
+from services.model_portfolio_performance_service import (
+    ModelPortfolioPerformanceService,
+    ModelPortfolioPerformanceServiceError,
+)
 
 
-router = APIRouter()
+router = APIRouter(prefix="/model-portfolios", tags=["model-portfolios"])
 
 
-@router.get("/model-portfolio/{portfolio_id}")
+MODEL_PORTFOLIO_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
+    (ModelPortfolioNotFoundError, status.HTTP_404_NOT_FOUND),
+    (ModelPortfolioPositionHistoryNotFoundError, status.HTTP_404_NOT_FOUND),
+    (ModelPortfolioLockedError, status.HTTP_423_LOCKED),
+    (ModelPortfolioTooManyRequestsError, status.HTTP_429_TOO_MANY_REQUESTS),
+    (ModelPortfolioUnprocessableEntityError, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    (ModelPortfolioBadGatewayError, status.HTTP_502_BAD_GATEWAY),
+    (ModelPortfolioInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    (ModelPortfolioPerformanceServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+)
+
+
+def _raise_model_portfolio_http_exception(err: Exception) -> None:
+    if isinstance(err, HTTPException):
+        raise err
+
+    for exception_type, status_code in MODEL_PORTFOLIO_ERROR_STATUS_MAP:
+        if isinstance(err, exception_type):
+            raise HTTPException(status_code=status_code, detail=str(err)) from err
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Unexpected model portfolio error: {err}",
+    ) from err
+
+
+@router.get("/{portfolio_id}", response_model=ModelPortfolioResponse, status_code=HTTP_200_OK)
 def get_model_portfolio(
     portfolio_id: str,
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-):
+) -> ModelPortfolioResponse:
     """
     Retrieve a single model portfolio and its latest computed current weights.
 
@@ -37,62 +83,48 @@ def get_model_portfolio(
         service: Repository dependency for model portfolio operations.
 
     Returns:
-        Dict: Portfolio payload including metadata, full position history,
-        and `positions_current_weight` for the latest snapshot.
+        ModelPortfolioResponse: Portfolio payload including metadata, full
+        position history, and current weights for the latest snapshot.
     """
     try:
         model_portfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
         model_portfolio_current_snapshot: ModelPortfolioSnapshot = model_portfolio.position_history[-1]
         positions_current_weight,_,_ = service.calculate_positions_current_weight(model_portfolio_snapshot=model_portfolio_current_snapshot)
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
+        _raise_model_portfolio_http_exception(e)
     
-    return {
-        "portfolio_id": model_portfolio.portfolio_id,
-        "portfolio_owner_id": model_portfolio.portfolio_owner_id,
-        "portfolio_name": model_portfolio.portfolio_name,
-        "description": model_portfolio.description,
-        "position_history": [
-            {
-                "positions": [
-                    {
-                        "symbol": pos.symbol,
-                        "target_weight": pos.target_weight,
-                        "direction": pos.direction,
-                        "leverage": pos.leverage
-                    }
+    return ModelPortfolioResponse(
+        portfolio_id=model_portfolio.portfolio_id,
+        portfolio_owner_cognito_user_id=model_portfolio.portfolio_owner_cognito_user_id,
+        portfolio_name=model_portfolio.portfolio_name,
+        description=model_portfolio.description,
+        position_history=[
+            ModelPortfolioSnapshotResponse(
+                positions=[
+                    ModelPortfolioPositionResponse(
+                        symbol=pos.symbol,
+                        target_weight=pos.target_weight,
+                        direction=pos.direction,
+                        leverage=pos.leverage,
+                    )
                     for pos in snap.positions
                 ],
-                "timestamp": snap.timestamp.isoformat(),
-            }
+                timestamp=snap.timestamp.isoformat(),
+            )
             for snap in model_portfolio.position_history
         ],
-        "created_at": model_portfolio.created_at.isoformat(),
-        "updated_at": model_portfolio.updated_at.isoformat(),
-        "positions_current_weight": positions_current_weight
-    }
+        created_at=model_portfolio.created_at.isoformat(),
+        updated_at=model_portfolio.updated_at.isoformat(),
+        positions_current_weight=positions_current_weight,
+    )
 
 
-@router.post("/model-portfolio", response_model=Dict[str, str])
+@router.post("", response_model=None, status_code=HTTP_201_CREATED)
 def create_model_portfolio(
     request: CreateModelPortfolioRequest,
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-):
+) -> None:
     """
     Create a new model portfolio for the authenticated user.
 
@@ -102,45 +134,30 @@ def create_model_portfolio(
         service: Repository dependency for model portfolio operations.
 
     Returns:
-        Dict[str, str]: Newly created portfolio identifier in the form
-        `{ "portfolio_id": "..." }`.
+        None.
     """
 
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
 
     try:
-        portfolio_id = service.create_model_portfolio(
-            portfolio_owner_id=user_id, 
+        service.create_model_portfolio(
+            portfolio_owner_cognito_user_id=cognito_user_id, 
             portfolio_name=request.name, 
             positions_request=request.positions,
             description=request.description
         )
-        return {"portfolio_id": portfolio_id}
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        return
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
+        _raise_model_portfolio_http_exception(e)
 
 
-@router.put("/model-portfolio/{portfolio_id}", response_model=Dict[str, str])
+@router.put("/{portfolio_id}", response_model=None, status_code=HTTP_201_CREATED)
 def update_model_portfolio(
     portfolio_id: str,
     request: UpdateModelPortfolioRequest,
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-):
+) -> None:
     """
     Update an existing model portfolio by appending a new snapshot.
 
@@ -151,61 +168,38 @@ def update_model_portfolio(
         service: Repository dependency for model portfolio operations.
 
     Returns:
-        Dict[str, str]: Success message in the form
-        `{ "message": "Portfolio updated" }`.
+        None.
     """
     # Check ownership
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
     try:
         portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
+        _raise_model_portfolio_http_exception(e)
     
-    if portfolio.portfolio_owner_id != user["sub"]:
+    if portfolio.portfolio_owner_cognito_user_id != cognito_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     try:
-        updated = service.update_model_portfolio(portfolio_id=portfolio_id, positions_request=request.positions)
+        updated = service.update_model_portfolio(
+            portfolio_id=portfolio_id,
+            positions_request=request.positions,
+            description=request.description,
+        )
         if not updated:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio not found")
-        return {"message": "Portfolio updated"}
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        return
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
+        _raise_model_portfolio_http_exception(e)
 
 
-@router.get("/user-model-portfolios", response_model=List[Dict])
+@router.get("", response_model=ListUserModelPortfoliosResponse, status_code=HTTP_200_OK)
 def list_user_model_portfolios(
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-):
+) -> ListUserModelPortfoliosResponse:
     """
     List all model portfolios owned by the authenticated user.
 
@@ -214,72 +208,21 @@ def list_user_model_portfolios(
         service: Repository dependency for model portfolio operations.
 
     Returns:
-        List[Dict]: Collection of user portfolio summaries.
+        ListUserModelPortfoliosResponse: Collection of user portfolio
+        summaries.
     """
-    user_id = user["sub"]
+    cognito_user_id = user["sub"]
     try:
-        portfolio_ids_names = service.list_user_model_portfolio_names(portfolio_owner_id=user_id)
-        return portfolio_ids_names
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        portfolios_meta_data = service.list_user_model_portfolio_names(portfolio_owner_cognito_user_id=cognito_user_id)
+        return ListUserModelPortfoliosResponse(
+            list_model_portfolio_metadata=[
+                ModelPortfolioMetadataResponse(
+                    portfolio_id=portfolio_metadata["portfolio_id"],
+                    portfolio_name=portfolio_metadata["portfolio_name"],
+                    description=portfolio_metadata.get("description"),
+                )
+                for portfolio_metadata in portfolios_meta_data
+            ]
+        )
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
-
-
-@router.delete("/model-portfolio/{portfolio_id}")
-def delete_model_portfolio(
-    portfolio_id: str,
-    user: Dict[str, str] = Depends(get_current_user),
-    service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-):
-    """
-    Delete a model portfolio owned by the authenticated user.
-
-    Args:
-        portfolio_id: Identifier of the portfolio to delete.
-        user: Authenticated user claims resolved by dependency injection.
-        service: Repository dependency for model portfolio operations.
-
-    Returns:
-        Dict[str, str]: Success message in the form
-        `{ "message": "Portfolio deleted" }`.
-    """
-    user_id = user["sub"]  # Assuming Cognito sub as user_id
-    # First, get the portfolio to check ownership
-    try:
-        model_portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
-    except ModelPortfolioNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioPositionHistoryNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ModelPortfolioLockedError as e:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(e))
-    except ModelPortfolioTooManyRequestsError as e:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
-    except ModelPortfolioUnprocessableEntityError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except ModelPortfolioInternalServerError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except ModelPortfolioBadGatewayError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
-    
-    if model_portfolio.portfolio_owner_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    deleted = service.delete_model_portfolio(portfolio_id=portfolio_id, portfolio_owner_id=user_id)
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unexpected model portfolio error: {str(e)}")
-    return {"message": "Portfolio deleted"}
+        _raise_model_portfolio_http_exception(e)

@@ -54,7 +54,7 @@ export default function LoginPage({
       <div className="aux-row">
         <a href={forgotPasswordUrl}>Forgot password?</a>
         <button type="button" className="link-button" onClick={onShowSignUp}>
-          Create account
+          Sign up
         </button>
       </div>
     </section>

@@ -27,8 +27,8 @@ configurations = {
     "partition_key_key_type": "HASH",
     "gsi": [
         {
-            "gsi_name": "portfolio-owner-id-index",
-            "gsi_partition_key": "portfolio_owner_id",
+            "gsi_name": "portfolio_owner_cognito_user_id_index",
+            "gsi_partition_key": "portfolio_owner_cognito_user_id",
             "gsi_partition_key_key_type": "HASH",
             "gsi_partition_key_attribute_type": "S",
 

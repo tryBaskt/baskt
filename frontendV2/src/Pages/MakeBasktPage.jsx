@@ -48,7 +48,53 @@ function buildLinePath(points, width, height, padding) {
 		.join(" ");
 }
 
-export default function MakeBasktPage() {
+function directionToSide(direction) {
+	const normalizedDirection = String(direction ?? "").toLowerCase();
+
+	if (direction === -1 || normalizedDirection === "-1" || normalizedDirection === "short") {
+		return "short";
+	}
+
+	return "long";
+}
+
+function weightToPercent(weight) {
+	const numericWeight = Number(weight);
+
+	if (!Number.isFinite(numericWeight)) {
+		return 0;
+	}
+
+	return numericWeight <= 1 ? numericWeight * 100 : numericWeight;
+}
+
+function buildSavedStocksFromBaskt(editingBaskt) {
+	const positions = Array.isArray(editingBaskt?.latestPositions) ? editingBaskt.latestPositions : [];
+	const stocks = positions
+		.filter((position) => position?.symbol)
+		.map((position) => ({
+			symbol: position.symbol,
+			side: directionToSide(position.direction),
+			weightPct: Number(weightToPercent(position.weight).toFixed(2)),
+			leverage: Number(position.leverage || 1),
+		}));
+
+	if (stocks.length === 0) {
+		return stocks;
+	}
+
+	const totalWeight = stocks.reduce((total, stock) => total + Number(stock.weightPct || 0), 0);
+	const roundedDelta = Number((100 - totalWeight).toFixed(2));
+
+	if (roundedDelta !== 0) {
+		const lastStock = stocks[stocks.length - 1];
+		lastStock.weightPct = Number(Math.max(0, Number(lastStock.weightPct || 0) + roundedDelta).toFixed(2));
+	}
+
+	return stocks;
+}
+
+export default function MakeBasktPage({ editingBaskt = null }) {
 	const [assets, setAssets] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorMessage, setErrorMessage] = useState("");
@@ -70,10 +116,10 @@ export default function MakeBasktPage() {
 		[]
 	);
 	const totalWeight = useMemo(
-		() => savedStocks.reduce((total, stock) => total + Number(stock.weightPct || 0), 0),
+		() => Number(savedStocks.reduce((total, stock) => total + Number(stock.weightPct || 0), 0).toFixed(2)),
 		[savedStocks]
 	);
-	const isAllocationBalanced = totalWeight === 100;
+	const isAllocationBalanced = Math.abs(totalWeight - 100) < 0.01;
 	const hasBacktestDateRange = backtestStartDate <= backtestEndDate;
 	const canRunBacktest = savedStocks.length > 0 && isAllocationBalanced && hasBacktestDateRange;
 	const backtestChartPath = useMemo(() => {
@@ -81,6 +127,18 @@ export default function MakeBasktPage() {
 		return Array.isArray(series) && series.length > 0 ? buildLinePath(series, 640, 260, 16) : "";
 	}, [backtestResult]);
 	const latestBacktestReturn = backtestResult?.cumulative_returns?.at(-1) ?? null;
+
+	useEffect(() => {
+		if (!editingBaskt) {
+			return;
+		}
+
+		setSavedStocks(buildSavedStocksFromBaskt(editingBaskt));
+		setBasktName(editingBaskt.portfolioName || "");
+		setBasktDescription(editingBaskt.description || "");
+		setBacktestResult(null);
+		setBacktestError("");
+	}, [editingBaskt]);
 
 	useEffect(() => {
 		let isCancelled = false;
@@ -91,7 +149,7 @@ export default function MakeBasktPage() {
 
 			try {
 				const response = await fetch(
-					`${API_BASE_URL}/get_tradeable_fractionable_US_baskt_assets`,
+					`${API_BASE_URL}/backtest/tradeable-fractionable-us-baskt-assets`,
 					{
 						method: "GET",
 						headers: {
@@ -248,7 +306,7 @@ export default function MakeBasktPage() {
 	}
 
 	function onSetStockWeight(symbol, nextWeight) {
-		const parsedWeight = Number.parseInt(nextWeight, 10);
+		const parsedWeight = Number.parseFloat(nextWeight);
 		const safeWeight = Number.isFinite(parsedWeight)
 			? Math.min(100, Math.max(0, parsedWeight))
 			: 0;
@@ -263,7 +321,7 @@ export default function MakeBasktPage() {
 	async function onConfirmFormBaskt() {
 		setFormBasktError("");
 
-		if (!basktName.trim()) {
+		if (!editingBaskt && !basktName.trim()) {
 			setFormBasktError("Please enter a Baskt name.");
 			return;
 		}
@@ -273,38 +331,51 @@ export default function MakeBasktPage() {
 			return;
 		}
 
-		const payload = {
-			name: basktName.trim(),
-			description: basktDescription.trim() || null,
-			positions: savedStocks.map((stock) => ({
+		const positions = savedStocks.map((stock) => ({
 				symbol: stock.symbol,
 				target_weight: Number(stock.weightPct || 0),
 				direction: stock.side === "short" ? -1 : 1,
 				leverage: Number(stock.leverage || 1),
-			})),
-		};
+			}));
+		const payload = editingBaskt
+			? {
+				description: basktDescription.trim() || null,
+				positions,
+			}
+			: {
+				name: basktName.trim(),
+				description: basktDescription.trim() || null,
+				positions,
+			};
 
 		try {
 			setIsCreatingBaskt(true);
-			const response = await fetch(`${API_BASE_URL}/portfolios`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					...(token ? { Authorization: `Bearer ${token}` } : {}),
-				},
-				body: JSON.stringify(payload),
-			});
+			const response = await fetch(
+				editingBaskt
+					? `${API_BASE_URL}/model-portfolios/${editingBaskt.portfolioId}`
+					: `${API_BASE_URL}/model-portfolios`,
+				{
+					method: editingBaskt ? "PUT" : "POST",
+					headers: {
+						"Content-Type": "application/json",
+						...(token ? { Authorization: `Bearer ${token}` } : {}),
+					},
+					body: JSON.stringify(payload),
+				}
+			);
 
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(result?.detail || `Failed to create Baskt (${response.status}).`);
+				throw new Error(result?.detail || `Failed to ${editingBaskt ? "update" : "create"} Baskt (${response.status}).`);
 			}
 
 			setIsFormBasktModalOpen(false);
-			setBasktName("");
-			setBasktDescription("");
+			if (!editingBaskt) {
+				setBasktName("");
+				setBasktDescription("");
+			}
 		} catch (error) {
-			setFormBasktError(error?.message || "Unable to create Baskt.");
+			setFormBasktError(error?.message || `Unable to ${editingBaskt ? "update" : "create"} Baskt.`);
 		} finally {
 			setIsCreatingBaskt(false);
 		}
@@ -356,8 +427,8 @@ export default function MakeBasktPage() {
 
 				<section className="new-baskt-box" aria-labelledby="saved-stocks-title">
 					<div className="saved-stocks-box-heading">
-						<h2 id="saved-stocks-title">New Baskt</h2>
-						<span className={`total-weight-badge${totalWeight === 100 ? " is-balanced" : totalWeight > 100 ? " is-over" : ""}`}>Total weight: {totalWeight}%</span>
+						<h2 id="saved-stocks-title">{editingBaskt ? "Update Baskt" : "New Baskt"}</h2>
+						<span className={`total-weight-badge${isAllocationBalanced ? " is-balanced" : totalWeight > 100 ? " is-over" : ""}`}>Total weight: {totalWeight}%</span>
 					</div>
 					{savedStocks.length === 0 ? (
 						<p className="baskt-empty-state">Click a stock to add it here.</p>
@@ -395,7 +466,7 @@ export default function MakeBasktPage() {
 												type="number"
 												min="0"
 												max="100"
-												step="1"
+												step="0.01"
 												inputMode="numeric"
 												value={stock.weightPct ?? 0}
 												aria-label={`Weight for ${stock.symbol}`}
@@ -483,7 +554,7 @@ export default function MakeBasktPage() {
 						className="form-baskt-button"
 						onClick={() => setIsFormBasktModalOpen(true)}
 					>
-						Form Baskt
+						{editingBaskt ? "Update Baskt" : "Form Baskt"}
 					</button>
 				</section>
 			</div>
@@ -496,17 +567,18 @@ export default function MakeBasktPage() {
 					onClick={() => setIsFormBasktModalOpen(false)}
 				>
 					<div className="form-baskt-modal" onClick={(event) => event.stopPropagation()}>
-						<h3 id="form-baskt-title">Form Baskt</h3>
+						<h3 id="form-baskt-title">{editingBaskt ? "Update Baskt" : "Form Baskt"}</h3>
 						{formBasktError ? <p className="make-baskt-error">{formBasktError}</p> : null}
 						<label htmlFor="baskt-name">
 							<span>Baskt name</span>
 							<input
 								id="baskt-name"
 								type="text"
-								value={basktName}
-								onChange={(event) => setBasktName(event.target.value)}
-								placeholder="e.g. Tech Growth"
-							/>
+									value={basktName}
+									onChange={(event) => setBasktName(event.target.value)}
+									placeholder="e.g. Tech Growth"
+									disabled={Boolean(editingBaskt)}
+								/>
 							<small className="baskt-name-note">you can't change this later</small>
 						</label>
 						<label htmlFor="baskt-description">
@@ -534,7 +606,7 @@ export default function MakeBasktPage() {
 								disabled={isCreatingBaskt}
 								onClick={onConfirmFormBaskt}
 							>
-								{isCreatingBaskt ? "Creating..." : "Confirm"}
+									{isCreatingBaskt ? (editingBaskt ? "Updating..." : "Creating...") : (editingBaskt ? "Update Baskt" : "Confirm")}
 							</button>
 						</div>
 					</div>

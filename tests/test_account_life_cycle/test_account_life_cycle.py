@@ -1,76 +1,104 @@
-from datetime import datetime, timezone
-import uuid
-from time import sleep
-from backend.services.account_lifecycle_service import AccountLifecycleService
 import pytest
+from conftest import TestEngine
+from time import sleep
 
-def test_create_deactivate_account(account_lifecycle_service: AccountLifecycleService):
-	unique_suffix = uuid.uuid4().hex[:8]
-	signed_at = datetime.now(timezone.utc).isoformat()
+@pytest.mark.integration
+def test_ach_create_transfer_delete(test_engine: TestEngine):
 
-	account_data = {
-		"contact": {
-			"email_address": f"baskt_testuser_{unique_suffix}@example.com",
-			"phone_number": "+15555551234",
-			"street_address": ["123 Market St"],
-			"unit": "9A",
-			"city": "San Francisco",
-			"state": "CA",
-			"postal_code": "94105",
-			"country": "USA",
-		},
-		"identity": {
-			"given_name": "Jane",
-			"middle_name": "Q",
-			"family_name": "Tester",
-			"date_of_birth": "1990-01-01",
-			"tax_id": "999-99-1234",
-			"tax_id_type": "USA_SSN",
-			"country_of_citizenship": "USA",
-			"country_of_birth": "USA",
-			"country_of_tax_residence": "USA",
-			"funding_source": ["employment_income"],
-			"annual_income_min": 50000,
-			"annual_income_max": 120000,
-			"liquid_net_worth_min": 10000,
-			"liquid_net_worth_max": 50000,
-			"total_net_worth_min": 50000,
-			"total_net_worth_max": 200000,
-		},
-		"disclosures": {
-			"is_control_person": False,
-			"is_affiliated_exchange_or_finra": False,
-			"is_politically_exposed": False,
-			"immediate_family_exposed": False,
-		},
-		"agreements": [
-			{
-				"agreement": "customer_agreement",
-				"signed_at": signed_at,
-				"ip_address": "127.0.0.1",
-			}
-		],
-	}
+    baskt_account = test_engine.test_create_baskt_account()
 
-	password = uuid.uuid4().hex[:15]
-	password = "TEST_"+ password
+    alpaca_account_id = baskt_account.alpaca_account_id
+    cognito_user_id = baskt_account.cognito_user_id
 
-	create_account_response = account_lifecycle_service.create_baskt_account(account_data=account_data, password=password)
+    test_engine._clean_up_achs_banks(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+    )
+    print("Creating Baskt Account")
+    sleep(120)
 
-	assert create_account_response is not None
-	assert create_account_response["email_address"] == account_data["contact"]["email_address"]
-	baskt_account = account_lifecycle_service.get_baskt_account(email_address=create_account_response["email_address"])
+    # ACH
+    ach_relationship = test_engine.test_create_direct_ach_relationship(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+        account_owner_name="acct_lifecycle_account",
+        bank_account_type="checking",
+        bank_account_number="123456789",
+        bank_routing_number="121000358",
+        nickname="Sandbox Checking"
 
-	assert baskt_account.alpaca_account_status.name == "SUBMITTED"
-	assert baskt_account.cognito_enabled_status == True
+    )
+    print("\nWaiting 120 seconds for creating ach relationship...\n")
+    sleep(120)
+    ach_relationships = test_engine.test_get_ach_relationships(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+    assert len(ach_relationships) == 1
+    assert str(ach_relationships[0].id) == str(ach_relationship.id)
+    assert str(ach_relationships[0].account_id) == str(ach_relationship.account_id)
+    assert ach_relationships[0].account_owner_name == ach_relationship.account_owner_name
+    assert ach_relationships[0].bank_account_type == ach_relationship.bank_account_type
+    assert ach_relationships[0].bank_account_number == ach_relationship.bank_account_number
+    assert ach_relationships[0].bank_routing_number == ach_relationship.bank_routing_number
+    assert ach_relationships[0].status.name.upper() == "APPROVED"
+    ach_relationship_id = str(ach_relationships[0].id)
 
-	sleep(120)
+    # ACH TRANSFER
+    transfer = test_engine.test_create_ach_transfer(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+        amount="20000",
+        direction="INCOMING",
+        timing="IMMEDIATE",
+        fee_payment_method="USER",
+        relationship_id=ach_relationship_id
+    )
 
-	is_deactivated = account_lifecycle_service.deactivate_baskt_account(email_address=create_account_response["email_address"])
-	assert is_deactivated == True
-	with pytest.raises(Exception):
-		account_lifecycle_service.get_baskt_account(email_address=create_account_response["email_address"])
+    # DELETE ACH
+    test_engine.test_delete_ach_relationship(alpaca_account_id=alpaca_account_id,cognito_user_id=cognito_user_id, ach_relationship_id=ach_relationship_id)
+    ach_relationships = test_engine.test_get_ach_relationships(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+    assert len(ach_relationships) == 0
 
 
+@pytest.mark.integration
+def test_bank_create_delete(test_engine: TestEngine):
 
+    baskt_account = test_engine.test_create_baskt_account()
 
+    alpaca_account_id = baskt_account.alpaca_account_id
+    cognito_user_id = baskt_account.cognito_user_id
+
+    test_engine._clean_up_achs_banks(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+    )
+    print("Creating Baskt Account")
+    sleep(120)
+
+    # BANK
+    bank = test_engine.test_create_bank(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+        name="Sandbox Bank",
+        bank_code_type="ABA",
+        bank_code="121000358",
+        account_number="987654321"
+    )
+    print("\nWaiting 120 seconds for creating bank...\n")
+    sleep(120)
+    banks = test_engine.test_get_banks(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+    assert len(banks) == 1
+    assert str(banks[0].id) == str(bank.id)
+    assert str(banks[0].account_id) == str(bank.account_id)
+    assert banks[0].name == bank.name
+    assert banks[0].bank_code_type == bank.bank_code_type
+    assert banks[0].bank_code == bank.bank_code
+    assert banks[0].status.name.upper() == "APPROVED"
+    bank_id = str(banks[0].id)
+
+    test_engine.test_delete_bank(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+        bank_id=bank_id
+    )
+    banks = test_engine.test_get_banks(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+    assert len(banks) == 0
+    

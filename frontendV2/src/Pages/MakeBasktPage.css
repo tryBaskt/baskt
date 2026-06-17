@@ -462,6 +462,12 @@
   margin-top: 0px;
 }
 
+.form-baskt-modal input:disabled {
+  background: #f6f7f8;
+  color: rgba(0, 0, 0, 0.62);
+  cursor: not-allowed;
+}
+
 .form-baskt-modal textarea {
   width: 100%;
   border-radius: 10px;

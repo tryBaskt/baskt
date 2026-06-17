@@ -55,7 +55,35 @@ export function signIn(email, password) {
         });
       },
       onFailure: (err) => reject(err),
-      newPasswordRequired: () => reject(new Error("New password required.")),
+      newPasswordRequired: (userAttributes, requiredAttributes) => {
+        const error = new Error("New password required.");
+        error.name = "NewPasswordRequired";
+        error.cognitoUser = user;
+        error.userAttributes = userAttributes;
+        error.requiredAttributes = requiredAttributes;
+        reject(error);
+      },
+    });
+  });
+}
+
+export function completeNewPassword(cognitoUser, newPassword, userAttributes = {}) {
+  const attributes = { ...userAttributes };
+  delete attributes.email;
+  delete attributes.email_verified;
+  delete attributes.phone_number;
+  delete attributes.phone_number_verified;
+
+  return new Promise((resolve, reject) => {
+    cognitoUser.completeNewPasswordChallenge(newPassword, attributes, {
+      onSuccess: (session) => {
+        resolve({
+          idToken: session.getIdToken().getJwtToken(),
+          accessToken: session.getAccessToken().getJwtToken(),
+          refreshToken: session.getRefreshToken().getToken(),
+        });
+      },
+      onFailure: (err) => reject(err),
     });
   });
 }

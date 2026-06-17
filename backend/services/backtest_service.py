@@ -1,78 +1,169 @@
 # backend/services/backtest_service.py
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Any, Dict, List, Optional, TypeAlias
 import pandas as pd
 from domain.backtest import BacktestPosition
 from clients.yfinance_client import YFinanceClient, YFinanceClientError
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
+from domain.baskt import BasktAsset
 
+BacktestMetricsDict: TypeAlias = Dict[str, Optional[float]]
+BacktestRunResult: TypeAlias = Dict[str, List[str] | List[float] | BacktestMetricsDict]
+BacktestPositionConfig: TypeAlias = Dict[str, Any]
 
 class BacktestServiceError(Exception):
     """Base error for backtest service failures."""
 
-    def __init__(self, message: str, code: str = "BACKTEST_SERVICE_ERROR"):
+    def __init__(self, message: str, code: str = "BACKTEST_SERVICE_ERROR") -> None:
+        """
+        Initialize a backtest service exception.
+
+        Args:
+            message: Human-readable error details.
+            code: Stable error code identifying the failed operation.
+
+        Returns:
+            None.
+        """
         super().__init__(message)
         self.code = code
 
 
 class BacktestServiceValidationError(BacktestServiceError):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
+        """
+        Initialize a backtest validation exception.
+
+        Args:
+            message: Human-readable validation details.
+
+        Returns:
+            None.
+        """
         super().__init__(message=message, code="BACKTEST_SERVICE_VALIDATION_ERROR")
 
 
 class BacktestServiceDataError(BacktestServiceError):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
+        """
+        Initialize a backtest market-data exception.
+
+        Args:
+            message: Human-readable data retrieval details.
+
+        Returns:
+            None.
+        """
         super().__init__(message=message, code="BACKTEST_SERVICE_DATA_ERROR")
 
 
 class BacktestServiceCalculationError(BacktestServiceError):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
+        """
+        Initialize a backtest calculation exception.
+
+        Args:
+            message: Human-readable calculation failure details.
+
+        Returns:
+            None.
+        """
         super().__init__(message=message, code="BACKTEST_SERVICE_CALCULATION_ERROR")
 
 
 class BacktestService:
     """Service layer for building and evaluating a basket backtest."""
 
-    def __init__(self, *, market_data: YFinanceClient, periods_per_year: int = 252) -> None:
+    def __init__(
+        self, 
+        *, 
+        yfinance_client: YFinanceClient, 
+        alpaca_broker_client: AlpacaBrokerClient,
+        periods_per_year: int = 252
+    ) -> None:
         """
         Initialize the backtest service.
 
         Args:
-            market_data: Market data client used to fetch historical price series.
+            yfinance_client: Market data client used to fetch historical price
+                series.
+            alpaca_broker_client: Alpaca client used to fetch tradable Baskt
+                assets.
             periods_per_year: Number of return periods in one year (252 for trading days).
 
         Returns:
             None.
         """
-        self.market_data = market_data
+        self.market_data = yfinance_client
         self.periods_per_year = periods_per_year
+        self.alpaca_broker_client = alpaca_broker_client
+
+
+    def get_tradeable_fractionable_US_baskt_assets(
+        self
+    ) -> List[BasktAsset]:
+        """
+        Get active US equity assets that can be traded fractionally in Baskt.
+
+        Args:
+            None.
+
+        Returns:
+            List[BasktAsset]: Tradable, fractionable US equity assets.
+
+        Raises:
+            BacktestServiceError: If Alpaca fails while fetching assets.
+        """
+        try:
+            assets = self.alpaca_broker_client.get_tradeable_fractionable_US_assets()
+            baskt_assets = [
+                BasktAsset(
+                    symbol=asset.symbol,
+                    tradable=asset.tradable,
+                    fractionable=asset.fractionable,
+                    asset_class=str(getattr(asset.asset_class, "name", asset.asset_class))
+                )
+                for asset in assets
+            ]
+            return baskt_assets
+        except AlpacaBrokerClientError as err:
+            raise BacktestServiceError(
+                message=f"Failed to get tradeable, fractionable, US baskt assets: {err}",
+                code="BACKTEST_GET_TRADEABLE_FRACTIONABLE_US_BASKT_ASSETS_FAILED"
+            ) from err
+
 
     def run_backtest(
         self,
         *,
         start_date: str,
         end_date: str,
-        positions_conf: List[dict],
+        positions_conf: List[BacktestPositionConfig],
         price_col: str = "close",
-    ) -> Dict[str, List[Any] | Dict[str, Any]]:
+    ) -> BacktestRunResult:
         """
         Run a backtest for the given portfolio configuration and date window.
 
         Args:
             start_date: Inclusive start date in ISO format (YYYY-MM-DD).
             end_date: Inclusive end date in ISO format (YYYY-MM-DD).
-            positions_conf: List of input position dictionaries. Each entry should include
-                symbol, weight, direction, and optional leverage.
+            positions_conf: List of input position dictionaries. Each entry
+                should include symbol, direction, optional leverage, and either
+                weight as a fraction or target_weight as a percent/fraction.
             price_col: Price column to use from historical bars (default: "close").
 
         Returns:
-            Dictionary with:
-                - dates: list[str] of ISO dates
-                - cumulative_returns: list[float] cumulative return series
-                - metrics: dict[str, float | None] summary metrics
+            BacktestRunResult: Dictionary containing dates, cumulative_returns,
+            and metrics.
 
         Raises:
-            ValueError: If no positions are provided or no price data is available.
+            BacktestServiceValidationError: If the position configuration is
+            missing required fields or contains invalid values.
+            BacktestServiceDataError: If market data cannot be fetched or no
+            usable price data exists.
+            BacktestServiceCalculationError: If returns or metrics cannot be
+            calculated for the requested date range.
         """
         if not positions_conf:
             raise BacktestServiceValidationError("At least one position is required")
@@ -83,6 +174,14 @@ class BacktestService:
         for p in positions_conf:
             try:
                 sym = str(p["symbol"]).upper()
+                raw_weight = p["weight"] if p.get("weight") is not None else p["target_weight"]
+                weight = float(raw_weight)
+                if abs(weight) > 1:
+                    weight = weight / 100.0
+                direction = int(p["direction"])
+                if direction not in {-1, 1}:
+                    raise ValueError("direction must be 1 for long or -1 for short")
+                leverage = float(p.get("leverage", 1.0))
                 ts = self.market_data.fetch_history(sym, start_date, end_date)
             except KeyError as e:
                 raise BacktestServiceValidationError(
@@ -104,9 +203,9 @@ class BacktestService:
                 BacktestPosition(
                     symbol=sym,
                     time_series=ts,
-                    weight=float(p["weight"]),
-                    direction=int(p["direction"]),
-                    leverage=int(p.get("leverage", 1)),
+                    weight=weight,
+                    direction=direction,
+                    leverage=leverage,
                 )
             )
 
@@ -130,7 +229,7 @@ class BacktestService:
         return {
             "dates": [d.strftime("%Y-%m-%d") for d in cum_ret_series.index],
             "cumulative_returns": [float(x) for x in cum_ret_series.values],
-            "metrics": metrics
+            "metrics": metrics,
         }
 
 
@@ -139,7 +238,7 @@ class BacktestService:
         *,
         positions: List[BacktestPosition],
         price_col: str = "close",
-    ) -> Tuple[pd.Series, pd.DataFrame]:
+    ) -> pd.Series:
         """
         Compute portfolio daily returns by aligning all position series on common dates.
 
@@ -148,12 +247,11 @@ class BacktestService:
             price_col: Price column used to compute percentage returns.
 
         Returns:
-            A tuple of:
-                - portfolio_returns: pd.Series with aggregated daily portfolio returns
-                - component_returns: pd.DataFrame with one return series per symbol
+            pd.Series: Aggregated daily portfolio returns indexed by date.
 
         Raises:
-            ValueError: If positions is empty or symbols have no overlapping dates.
+            BacktestServiceValidationError: If positions is empty.
+            BacktestServiceCalculationError: If symbols have no overlapping dates.
         """
         if not positions:
             raise BacktestServiceValidationError("positions list is empty")
@@ -191,7 +289,7 @@ class BacktestService:
         daily_ret: pd.Series,
         backtest_start_date: str,
         backtest_end_date: str,
-    ) -> Tuple[pd.Series, Dict[str, Optional[float]]]:
+    ) -> tuple[pd.Series, BacktestMetricsDict]:
         """
         Calculate cumulative return series and summary metrics for a backtest slice.
 
@@ -208,7 +306,8 @@ class BacktestService:
                   leverage_adjusted_direction, and annualized_volatility
 
         Raises:
-            ValueError: If the sliced return series is empty.
+            BacktestServiceCalculationError: If the sliced return series is
+            empty.
         """
         sliced_ret = daily_ret.loc[backtest_start_date:backtest_end_date]
 
@@ -230,10 +329,11 @@ class BacktestService:
         )
 
         # Annualized volatility
-        annualized_volatility = float(sliced_ret.std(ddof=1) * (self.periods_per_year ** 0.5))
+        annualized_volatility_raw = sliced_ret.std(ddof=1) * (self.periods_per_year ** 0.5)
+        annualized_volatility = None if pd.isna(annualized_volatility_raw) else float(annualized_volatility_raw)
 
         # Store metrics
-        metrics: Dict[str, Optional[float]] = {
+        metrics: BacktestMetricsDict = {
             "final_cumulative_return": float(total_return),
             "cagr": float(cagr) if cagr is not None else None,
             "leverage_adjusted_direction": leverage_adjusted_direction,
