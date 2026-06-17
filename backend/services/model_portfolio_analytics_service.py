@@ -3,14 +3,18 @@
 # Python imports
 from __future__ import annotations
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from math import sqrt
+from collections import defaultdict
 
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from domain.model_portfolio import ModelPortfolioSnapshot
 from repository.model_portfolio_repository import ModelPortfolioRepository
+from domain.model_portfolio_analytics import ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
 
+# import pandas
+import pandas as pd
 
 
 class ModelPortfolioAnalyticsServiceError(Exception):
@@ -39,251 +43,81 @@ class ModelPortfolioAnalyticsService:
         self.model_portfolio_repository = model_portfolio_repository
 
 
-    def _ensure_utc(self, value: datetime) -> datetime:
-        """
-        Normalize a datetime to UTC.
-
-        Args:
-            value: Datetime value to normalize.
-
-        Returns:
-            datetime: Timezone-aware UTC datetime.
-        """
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-
-    def _get_period_snapshots(
+    def get_positions_updated_weights(
         self,
-        *,
-        snapshots: List[ModelPortfolioSnapshot],
-        period_start: datetime,
-    ) -> List[ModelPortfolioSnapshot]:
+        model_porfolio_snapshot: ModelPortfolioSnapshot,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> Dict[str, float]:
         """
-        Get snapshots needed to calculate one period of returns.
+        Calculate updated position weights between two timestamps.
 
         Args:
-            snapshots: Full model portfolio position history.
-            period_start: Start datetime for the requested return period.
+            model_porfolio_snapshot: Model portfolio snapshot whose positions
+                should be reweighted.
+            start_datetime: Timestamp to use for the starting position values.
+            end_datetime: Timestamp to use for the ending position values.
 
         Returns:
-            List[ModelPortfolioSnapshot]: The snapshot active at period_start
-            followed by snapshots created during the period.
+            Dict[str, float]: Updated ending weight by symbol.
+
+        Raises:
+            ModelPortfolioAnalyticsServiceError: If Alpaca price lookup fails,
+            a symbol price is missing, or the updated total value is zero.
         """
-        sorted_snapshots = sorted(
-            snapshots,
-            key=lambda snapshot: self._ensure_utc(snapshot.timestamp),
-        )
-
-        active_snapshot = None
-        period_snapshots: List[ModelPortfolioSnapshot] = []
-        for snapshot in sorted_snapshots:
-            snapshot_timestamp = self._ensure_utc(snapshot.timestamp)
-            if snapshot_timestamp <= period_start:
-                active_snapshot = snapshot
-            else:
-                period_snapshots.append(snapshot)
-
-        if active_snapshot is not None:
-            return [active_snapshot] + period_snapshots
-
-        return period_snapshots
-
-    def _get_active_snapshot_index(
-        self,
-        *,
-        snapshots: List[ModelPortfolioSnapshot],
-        timestamp: datetime,
-    ) -> int:
-        """
-        Find the snapshot active at a specific timestamp.
-
-        Args:
-            snapshots: Period snapshots sorted by timestamp.
-            timestamp: Bar timestamp being evaluated.
-
-        Returns:
-            int: Index of the active snapshot.
-        """
-        active_index = 0
-        for index, snapshot in enumerate(snapshots):
-            if self._ensure_utc(snapshot.timestamp) <= timestamp:
-                active_index = index
-            else:
-                break
-        return active_index
-
-    def _calculate_leverage_adjusted_direction(
-        self,
-        snapshot: ModelPortfolioSnapshot,
-    ) -> float:
-        """
-        Calculate the portfolio's leverage-adjusted net direction.
-
-        Args:
-            snapshot: Model portfolio snapshot to evaluate.
-
-        Returns:
-            float: Sum of target_weight * direction * leverage for all positions.
-        """
-        return sum(
-            position.target_weight * position.direction * position.leverage
-            for position in snapshot.positions
-        )
-
-    def _calculate_annualized_volatility(
-        self,
-        *,
-        cumulative_returns: List[float],
-        timeframe: str,
-    ) -> Optional[float]:
-        """
-        Calculate annualized volatility from cumulative return points.
-
-        Args:
-            cumulative_returns: Cumulative return values in percentage points.
-            timeframe: Timeframe used for the return series.
-
-        Returns:
-            Optional[float]: Annualized volatility in percentage points, or None
-            when there are not enough return points.
-        """
-        if len(cumulative_returns) < 3:
-            return None
-
-        period_returns = [
-            (cumulative_returns[index] - cumulative_returns[index - 1]) / 100
-            for index in range(1, len(cumulative_returns))
-        ]
-        mean_return = sum(period_returns) / len(period_returns)
-        variance = sum(
-            (period_return - mean_return) ** 2
-            for period_return in period_returns
-        ) / (len(period_returns) - 1)
-
-        annualization_factor_by_timeframe = {
-            "5Min": 252 * 78,
-            "1H": 252 * 6.5,
-            "1D": 252,
-        }
-        annualization_factor = annualization_factor_by_timeframe.get(timeframe, 252)
-        return sqrt(variance) * sqrt(annualization_factor) * 100
-
-    def _calculate_return_series(
-        self,
-        *,
-        snapshots: List[ModelPortfolioSnapshot],
-        bars_by_symbol: Dict[str, List[Dict[str, Any]]],
-    ) -> Dict[str, List[str] | List[float] | Optional[float]]:
-        """
-        Calculate cumulative model portfolio returns from bars and snapshots.
-
-        Args:
-            snapshots: Period snapshots sorted by timestamp.
-            bars_by_symbol: Historical price bars keyed by symbol.
-
-        Returns:
-            Dict[str, List[str] | List[float] | Optional[float]]: Timestamp and
-            cumulative return series plus derived metrics.
-        """
-        bar_prices_by_timestamp: Dict[datetime, Dict[str, float]] = {}
-        for symbol, bars in bars_by_symbol.items():
-            for bar in bars:
-                timestamp = self._ensure_utc(bar["timestamp"])
-                bar_prices_by_timestamp.setdefault(timestamp, {})[symbol] = bar["close"]
-
-        timestamps = sorted(bar_prices_by_timestamp)
-        latest_prices: Dict[str, float] = {}
-        baseline_prices: Dict[str, float] = {}
-        current_snapshot_index: Optional[int] = None
-        segment_base_index = 1.0
-        last_index: Optional[float] = None
-
-        response_timestamps: List[str] = []
-        cumulative_returns: List[float] = []
-
-        for timestamp in timestamps:
-            latest_prices.update(bar_prices_by_timestamp[timestamp])
-
-            next_snapshot_index = self._get_active_snapshot_index(
-                snapshots=snapshots,
-                timestamp=timestamp,
+        try:
+            symbols = [position.symbol for position in model_porfolio_snapshot.positions]
+            symbol_prices_start = self.alpaca_broker_client.get_stocks_prices_at_time(
+                symbols=symbols,
+                timestamp=start_datetime,
             )
-            active_snapshot = snapshots[next_snapshot_index]
-            active_symbols = [position.symbol for position in active_snapshot.positions]
+            symbol_prices_end = self.alpaca_broker_client.get_stocks_prices_at_time(
+                symbols=symbols,
+                timestamp=end_datetime,
+            )
 
-            if any(symbol not in latest_prices for symbol in active_symbols):
-                continue
+            start_position_values: Dict[str, float] = {}
+            end_position_values: Dict[str, float] = {}
 
-            if current_snapshot_index != next_snapshot_index:
-                if last_index is not None:
-                    segment_base_index = last_index
-                current_snapshot_index = next_snapshot_index
-                baseline_prices = {
-                    symbol: latest_prices[symbol]
-                    for symbol in active_symbols
-                }
+            for position in model_porfolio_snapshot.positions:
+                start_price = symbol_prices_start[position.symbol]
+                end_price = symbol_prices_end[position.symbol]
 
-            if any(baseline_prices[symbol] == 0 for symbol in active_symbols):
-                continue
-
-            segment_return = sum(
-                position.target_weight
-                * position.direction
-                * position.leverage
-                * (
-                    latest_prices[position.symbol]
-                    / baseline_prices[position.symbol]
-                    - 1
+                start_position_values[position.symbol] = position.model_filled_quantity * (
+                    position.model_filled_avg_price
+                    + position.direction * (start_price - position.model_filled_avg_price)
                 )
-                for position in active_snapshot.positions
-            )
-            last_index = segment_base_index * (1 + segment_return)
+                end_position_values[position.symbol] = start_position_values[position.symbol] * (
+                    1
+                    + position.direction
+                    * position.leverage
+                    * ((end_price / start_price) - 1)
+                )
 
-            response_timestamps.append(timestamp.isoformat())
-            cumulative_returns.append((last_index - 1) * 100)
+            total_end_value = sum(end_position_values.values())
+            if total_end_value == 0:
+                raise ModelPortfolioAnalyticsServiceError(
+                    message="Failed to calculate updated position weights because total ending value is zero",
+                    code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_ZERO_VALUE",
+                )
 
-        total_cumulative_return = (
-            cumulative_returns[-1]
-            if cumulative_returns
-            else None
-        )
+            return {
+                symbol: position_value / total_end_value
+                for symbol, position_value in end_position_values.items()
+            }
+        except ModelPortfolioAnalyticsServiceError:
+            raise
+        except AlpacaBrokerClientError as e:
+            raise ModelPortfolioAnalyticsServiceError(
+                message=f"Failed to fetch prices for updated model portfolio weights: {e}",
+                code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_PRICE_LOOKUP_FAILED",
+            ) from e
+        except Exception as e:
+            raise ModelPortfolioAnalyticsServiceError(
+                message=f"Failed to calculate updated model portfolio weights: {e}",
+                code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_FAILED",
+            ) from e
 
-        return {
-            "timestamp": response_timestamps,
-            "cumulative_returns": cumulative_returns,
-            "total_cumulative_return": total_cumulative_return,
-        }
-
-    def _calculate_cagr(
-        self,
-        *,
-        timestamps: List[str],
-        total_cumulative_return: Optional[float],
-    ) -> Optional[float]:
-        """
-        Calculate CAGR for a cumulative return series.
-
-        Args:
-            timestamps: ISO timestamp values in the return series.
-            total_cumulative_return: Final cumulative return in percentage
-            points.
-
-        Returns:
-            Optional[float]: CAGR in percentage points, or None when it cannot
-            be calculated.
-        """
-        if len(timestamps) < 2 or total_cumulative_return is None:
-            return None
-
-        start = datetime.fromisoformat(timestamps[0])
-        end = datetime.fromisoformat(timestamps[-1])
-        elapsed_years = (end - start).total_seconds() / (365.25 * 24 * 60 * 60)
-        ending_value = 1 + (total_cumulative_return / 100)
-        if elapsed_years <= 0 or ending_value <= 0:
-            return None
-
-        return ((ending_value ** (1 / elapsed_years)) - 1) * 100
 
     def get_model_portfolio_bars(
         self,
@@ -306,83 +140,172 @@ class ModelPortfolioAnalyticsService:
             loaded, Alpaca price bars cannot be fetched, or any unexpected error
             occurs while calculating returns.
         """
-        periods_and_timeframes = [
-            ("1D", timedelta(days=1), "5Min"),
-            ("1W", timedelta(weeks=1), "1H"),
-            ("1M", timedelta(days=30), "1D"),
-            ("3M", timedelta(days=90), "1D"),
-            ("1A", timedelta(days=365), "1D"),
-        ]
 
         try:
-            snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
-            snapshots = sorted(
-                snapshots,
-                key=lambda snapshot: self._ensure_utc(snapshot.timestamp),
-            )
-            if not snapshots:
-                return {}
 
-            current_datetime = datetime.now(timezone.utc)
-            first_snapshot_timestamp = self._ensure_utc(snapshots[0].timestamp)
+            period_timdelta_timeframe = [
+                ("1D", timedelta(days=1),"5Min"),
+                ("1W", timedelta(weeks=1), "1H"),
+                ("1M", timedelta(days=30), "1D"),
+                ("3M", timedelta(days=90), "1D"),
+                ("1A", timedelta(days=365), "1D"),
+                ("all", timedelta(days=1), "1D")
+            ]
+
+            model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
+            if not model_portfolio_snapshots: 
+                return {}
+            model_portfolio_snapshots = sorted(
+                model_portfolio_snapshots,
+                key=lambda snapshot: snapshot.timestamp,
+            )
             response: Dict[str, Dict[str, Any]] = {}
 
-            for period_key, period_delta, timeframe in periods_and_timeframes:
-                period_start = max(
-                    current_datetime - period_delta,
-                    first_snapshot_timestamp,
-                )
-                period_snapshots = self._get_period_snapshots(
-                    snapshots=snapshots,
-                    period_start=period_start,
-                )
-                if not period_snapshots:
-                    response[period_key] = {
-                        "timeframe": timeframe,
-                        "timestamp": [],
-                        "cumulative_returns": [],
-                        "total_cumulative_return": None,
-                        "cagr": None,
-                        "annualized_volatility": None,
-                        "leverage_adjusted_direction": None,
-                    }
-                    continue
+            current_datetime = datetime.now(timezone.utc)
+            for period, delta, timeframe in period_timdelta_timeframe:
 
-                symbols = sorted({
-                    position.symbol
-                    for snapshot in period_snapshots
-                    for position in snapshot.positions
-                })
-                bars_by_symbol = self.alpaca_broker_client.get_stock_price_bars(
-                    symbols=symbols,
-                    start=period_start,
-                    end=current_datetime,
-                    timeframe=timeframe,
-                )
-                period_response = self._calculate_return_series(
-                    snapshots=period_snapshots,
-                    bars_by_symbol=bars_by_symbol,
+                # Create analytics snapshots per period
+                current_period_start = current_datetime - delta
+                if period == "1D":
+                    current_period_start = datetime.combine(
+                        date.today(),
+                        datetime.min.time().replace(hour=14, minute=30, second=0, microsecond=0),
+                        tzinfo=timezone.utc,
+                    )
+                if period == "all":
+                    current_period_start = model_portfolio_snapshots[0].timestamp.replace(second=0, microsecond=0)
+
+                analytics_snapshots: List[ModelPortfolioAnalyticsSnapshot] = []
+
+                for i in range(len(model_portfolio_snapshots) - 1, -1, -1):
+                    snapshot = model_portfolio_snapshots[i]
+                    rounded_snapshot_timestamp = snapshot.timestamp.replace(second=0, microsecond=0)
+                    if rounded_snapshot_timestamp > current_period_start:
+                        analytics_snapshot = ModelPortfolioAnalyticsSnapshot(
+                            positions=[
+                                ModelPortfolioAnalyticsPosition(
+                                    symbol=position.symbol,
+                                    direction=position.direction,
+                                    leverage=position.leverage,
+                                    current_weight=position.target_weight,
+                                )
+                                for position in snapshot.positions
+                            ],
+                            timestamp=rounded_snapshot_timestamp,
+                        )
+                        analytics_snapshots.append(analytics_snapshot)
+                    elif rounded_snapshot_timestamp <= current_period_start:
+                        if rounded_snapshot_timestamp == current_period_start:
+                            position_updated_weights = {
+                                position.symbol: position.target_weight
+                                for position in snapshot.positions
+                            }
+
+                        else:
+                            position_updated_weights = self.get_positions_updated_weights(
+                                model_porfolio_snapshot=snapshot,
+                                start_datetime=rounded_snapshot_timestamp,
+                                end_datetime=current_period_start,
+                            )
+                        analytics_snapshot = ModelPortfolioAnalyticsSnapshot(
+                            positions=[
+                                ModelPortfolioAnalyticsPosition(
+                                    symbol=position.symbol,
+                                    direction=position.direction,
+                                    leverage=position.leverage,
+                                    current_weight=position_updated_weights[position.symbol],
+                                )
+                                for position in snapshot.positions
+                            ],
+                            timestamp=current_period_start,
+                        )
+                        analytics_snapshots.append(analytics_snapshot)
+                        break
+
+                analytics_snapshots.reverse()
+
+                # Create dataframe of timestamps with columns of stocks
+                length_analytics_snapshots = len(analytics_snapshots)
+                all_analytics_snapshots_df = pd.DataFrame()
+                for i in range(length_analytics_snapshots):
+                    analytics_snapshot = analytics_snapshots[i]
+                    start_timestamp = analytics_snapshot.timestamp
+                    end_timestamp = current_datetime
+
+                    if i < length_analytics_snapshots-1:
+                        end_timestamp = (analytics_snapshots[i + 1].timestamp - timedelta(minutes=1)).replace(second=0, microsecond=0)
+
+                    analytics_snapshot_df = self.alpaca_broker_client.get_stock_prices_over_time(
+                        symbols=[position.symbol for position in analytics_snapshot.positions],
+                        start_datetime=start_timestamp,
+                        end_datetime=end_timestamp,
+                        timeframe=timeframe
+                    )
+
+                    all_analytics_snapshots_df = pd.concat(
+                        [all_analytics_snapshots_df, analytics_snapshot_df],
+                        axis=0,
+                    ).sort_index()
+
+                # Create dataframe of timestamps and cumulative returns
+                cumulative_return_frames: List[pd.DataFrame] = []
+                segment_base_value = 1.0
+                for i in range(length_analytics_snapshots):
+                    analytics_snapshot = analytics_snapshots[i]
+                    active_symbols = [position.symbol for position in analytics_snapshot.positions]
+                    segment_start_timestamp = analytics_snapshot.timestamp
+                    segment_end_timestamp = current_datetime
+
+                    if i < length_analytics_snapshots - 1:
+                        segment_end_timestamp = (
+                            analytics_snapshots[i + 1].timestamp
+                            - timedelta(minutes=1)
+                        ).replace(second=0, microsecond=0)
+
+                    segment_prices_df = all_analytics_snapshots_df.loc[
+                        (all_analytics_snapshots_df.index >= segment_start_timestamp)
+                        & (all_analytics_snapshots_df.index <= segment_end_timestamp),
+                        active_symbols,
+                    ].ffill()
+                    segment_prices_df = segment_prices_df.dropna(subset=active_symbols)
+                    if segment_prices_df.empty:
+                        continue
+
+                    start_prices = segment_prices_df.iloc[0]
+                    weighted_returns = pd.Series(0.0, index=segment_prices_df.index)
+                    for position in analytics_snapshot.positions:
+                        weighted_returns = weighted_returns + (
+                            position.current_weight
+                            * position.direction
+                            * position.leverage
+                            * (
+                                (segment_prices_df[position.symbol] / start_prices[position.symbol])
+                                - 1
+                            )
+                        )
+
+                    segment_cumulative_returns = (segment_base_value * (1 + weighted_returns)) - 1
+                    cumulative_return_frame = pd.DataFrame(
+                        {
+                            "cumulative_returns": segment_cumulative_returns * 100,
+                        }
+                    )
+                    cumulative_return_frames.append(cumulative_return_frame)
+                    segment_base_value = 1 + float(segment_cumulative_returns.iloc[-1])
+
+                cumulative_returns_df = (
+                    pd.concat(cumulative_return_frames, axis=0).sort_index()
+                    if cumulative_return_frames
+                    else pd.DataFrame(columns=["cumulative_returns"])
                 )
 
-                timestamp = period_response["timestamp"]
-                cumulative_returns = period_response["cumulative_returns"]
-                total_cumulative_return = period_response["total_cumulative_return"]
-                response[period_key] = {
+                response[period] = {
                     "timeframe": timeframe,
-                    "timestamp": timestamp,
-                    "cumulative_returns": cumulative_returns,
-                    "total_cumulative_return": total_cumulative_return,
-                    "cagr": self._calculate_cagr(
-                        timestamps=timestamp,
-                        total_cumulative_return=total_cumulative_return,
-                    ),
-                    "annualized_volatility": self._calculate_annualized_volatility(
-                        cumulative_returns=cumulative_returns,
-                        timeframe=timeframe,
-                    ),
-                    "leverage_adjusted_direction": self._calculate_leverage_adjusted_direction(
-                        period_snapshots[-1]
-                    ),
+                    "timestamp": [
+                        timestamp.isoformat()
+                        for timestamp in cumulative_returns_df.index
+                    ],
+                    "cumulative_returns": cumulative_returns_df["cumulative_returns"].tolist()
                 }
 
             return response
@@ -396,22 +319,3 @@ class ModelPortfolioAnalyticsService:
                 message=f"Failed to calculate model portfolio bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
-
-    def get_model_portfolio_bar(
-        self,
-        portfolio_id: str,
-    ) -> Dict[str, Dict[str, Any]]:
-        """
-        Get model portfolio cumulative return series for standard periods.
-
-        Args:
-            portfolio_id: Identifier of the model portfolio to analyze.
-
-        Returns:
-            Dict[str, Dict[str, Any]]: Model portfolio bars keyed by period.
-
-        Raises:
-            ModelPortfolioAnalyticsServiceError: If the analytics calculation
-            fails.
-        """
-        return self.get_model_portfolio_bars(portfolio_id=portfolio_id)

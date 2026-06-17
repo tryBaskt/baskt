@@ -21,7 +21,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
   const latestSnapshot = baskt?.position_history?.at(-1);
-  const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A"];
+  const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A", "all"];
   const selectedModelAnalytics =
     modelAnalytics?.[modelAnalyticsPeriod] ||
     modelAnalytics?.[modelAnalyticsPeriod.toLowerCase()];
@@ -32,10 +32,6 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     allocationAnalytics?.profit_loss !== undefined &&
     allocationAnalytics?.profit_loss_pct !== null &&
     allocationAnalytics?.profit_loss_pct !== undefined;
-
-  function analyticsPercent(value) {
-    return value === null || value === undefined ? "Not available" : percent(value);
-  }
 
   async function loadBaskt() {
     const payload = await apiRequest(`/model-portfolios/${portfolioId}`);
@@ -190,36 +186,11 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           </div>
         </div>
 
-        <div className="analytics-layout">
-          <EquityChart
-            equity={selectedModelAnalytics?.cumulative_returns || []}
-            ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
-            emptyMessage="Model portfolio returns will appear here once price bars are available."
-          />
-          <div className="analytics-side-bar">
-            <div>
-              <span>Total return</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.total_cumulative_return)}</strong>
-            </div>
-            <div>
-              <span>CAGR</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.cagr)}</strong>
-            </div>
-            <div>
-              <span>Annualized volatility</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.annualized_volatility)}</strong>
-            </div>
-            <div>
-              <span>Net direction</span>
-              <strong>
-                {selectedModelAnalytics?.leverage_adjusted_direction === null ||
-                selectedModelAnalytics?.leverage_adjusted_direction === undefined
-                  ? "Not available"
-                  : `${Number(selectedModelAnalytics.leverage_adjusted_direction).toFixed(2)}x`}
-              </strong>
-            </div>
-          </div>
-        </div>
+        <EquityChart
+          equity={selectedModelAnalytics?.cumulative_returns || []}
+          ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
+          emptyMessage="Model portfolio returns will appear here once price bars are available."
+        />
       </section>
 
       <section className="panel">
