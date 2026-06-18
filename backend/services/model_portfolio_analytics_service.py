@@ -397,6 +397,7 @@ class ModelPortfolioAnalyticsService:
     def get_model_portfolio_bars(
         self,
         portfolio_id: str,
+        current_datetime: datetime
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get model portfolio cumulative return series for standard periods.
@@ -415,6 +416,8 @@ class ModelPortfolioAnalyticsService:
             occurs while calculating returns.
         """
         try:
+            if not current_datetime:
+                current_datetime = datetime.now(timezone.utc)
 
             period_timdelta_timeframe = [
                 ("1D", timedelta(days=1),"5Min"),
@@ -435,7 +438,6 @@ class ModelPortfolioAnalyticsService:
 
             response: Dict[str, Dict[str, Any]] = {}
 
-            current_datetime = datetime.now(timezone.utc)
             for period, delta, timeframe in period_timdelta_timeframe:
 
                 analytics_snapshots = self.get_analytics_snapshots(
