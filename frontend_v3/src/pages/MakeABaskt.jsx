@@ -88,8 +88,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     }
 
     return assets
-      .filter((asset) => asset.symbol?.includes(query) && !existingSymbols.has(asset.symbol))
-      .slice(0, 8);
+      .filter((asset) => asset.symbol?.includes(query) && !existingSymbols.has(asset.symbol));
   }, [assets, positions, stockSearch]);
   const allocationTone = getAllocationTone(totalWeight);
   const todayDate = useMemo(() => formatDateInput(new Date()), []);
@@ -199,7 +198,6 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
         },
       ];
     });
-    setStockSearch("");
   }
 
   function removePosition(index) {
@@ -433,7 +431,13 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
           </div>
           {isFullyAllocated ? (
             <>
-              <EquityChart equity={backtest?.cumulative_returns || []} />
+              <EquityChart
+                equity={backtest?.cumulative_returns || []}
+                timestamps={backtest?.dates || []}
+                valueType="decimalPercent"
+                variant="compact"
+                ariaLabel="Backtest cumulative returns chart"
+              />
               <div className="backtest-metrics">
                 <div>
                   <span>Return</span>
@@ -446,6 +450,10 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
                 <div>
                   <span>Volatility</span>
                   <strong>{percent(Number(backtest?.metrics?.annualized_volatility || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>Leverage-adjusted direction tilt</span>
+                  <strong>{percent(Number(backtest?.metrics?.leverage_adjusted_direction || 0) * 100)}</strong>
                 </div>
               </div>
             </>

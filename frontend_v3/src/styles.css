@@ -575,9 +575,9 @@ textarea:focus {
 
 .chart-frame {
   width: 100%;
-  min-height: 260px;
+  min-height: 300px;
   border-radius: 8px;
-  background: #fbfaff;
+  background: #fff;
   border: 1px solid var(--line);
   overflow: hidden;
 }
@@ -585,11 +585,113 @@ textarea:focus {
 .chart-frame svg {
   display: block;
   width: 100%;
-  height: 260px;
+  height: 300px;
+}
+
+.chart-frame--compact,
+.chart-frame--compact .chart-empty {
+  min-height: 300px;
+}
+
+.chart-frame--compact svg {
+  height: 300px;
+}
+
+.chart-grid-line {
+  stroke: #e9e5f4;
+  stroke-width: 1;
+}
+
+.chart-axis-line {
+  stroke: #b9b2c9;
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.chart-y-label {
+  text-anchor: end;
+}
+
+.chart-x-label {
+  text-anchor: middle;
+}
+
+.model-performance-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  align-items: stretch;
+  gap: 20px;
+}
+
+.model-performance-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.model-performance-metrics > div {
+  min-width: 0;
+  padding: 22px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.model-performance-metrics > div:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.model-performance-metrics > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.model-performance-metrics span,
+.model-performance-metrics small {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.model-performance-metrics span {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.model-performance-metrics strong {
+  display: block;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.model-performance-metrics small {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.model-performance-metrics .metric-positive {
+  color: #067647;
+}
+
+.model-performance-metrics .metric-negative {
+  color: #b42318;
+}
+
+.model-performance-metrics .metric-accent {
+  color: var(--purple-700);
 }
 
 .chart-empty {
-  min-height: 260px;
+  min-height: 300px;
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -655,7 +757,7 @@ textarea:focus {
 
 .make-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-columns: minmax(0, 1fr) 560px;
   gap: 24px;
   align-items: start;
 }
@@ -751,6 +853,9 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .stock-result {
@@ -953,7 +1058,7 @@ textarea:focus {
 
 .backtest-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -1195,6 +1300,24 @@ summary {
   .insights-panel {
     position: static;
   }
+
+  .model-performance-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .model-performance-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .model-performance-metrics > div {
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+
+  .model-performance-metrics > div:last-child {
+    border-right: 0;
+  }
+
 }
 
 @media (max-width: 720px) {
@@ -1255,6 +1378,20 @@ summary {
 
   .backtest-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .model-performance-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .model-performance-metrics > div,
+  .model-performance-metrics > div:nth-child(odd) {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .model-performance-metrics > div:last-child {
+    border-bottom: 0;
   }
 
   .backtest-date-grid {

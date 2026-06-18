@@ -125,7 +125,7 @@ class AlpacaBrokerClient:
         tradeable: List[Asset] = []
         for asset in assets:
             asset_class = getattr(asset.asset_class, "name", asset.asset_class)
-            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False) and getattr(asset, "shortable", False):
+            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False):
                 tradeable.append(asset)
 
         return tradeable

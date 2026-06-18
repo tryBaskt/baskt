@@ -50,7 +50,6 @@ class ModelPortfolioAnalyticsPeriodResponse(BaseModel):
     timeframe: str
     timestamp: List[str]
     cumulative_returns: List[float]
-    total_cumulative_return: Optional[float] = None
     cagr: Optional[float] = None
     annualized_volatility: Optional[float] = None
     leverage_adjusted_direction: Optional[float] = None

@@ -6,6 +6,13 @@ import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDate, formatDateTime, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
 
+function getReturnTone(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "";
+  }
+  return Number(value) >= 0 ? "metric-positive" : "metric-negative";
+}
+
 export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const [baskt, setBaskt] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
@@ -25,6 +32,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const selectedModelAnalytics =
     modelAnalytics?.[modelAnalyticsPeriod] ||
     modelAnalytics?.[modelAnalyticsPeriod.toLowerCase()];
+  const selectedCumulativeReturns = selectedModelAnalytics?.cumulative_returns || [];
+  const selectedPeriodCumulativeReturn = selectedCumulativeReturns.length
+    ? Number(selectedCumulativeReturns.at(-1))
+    : null;
   const hasAllocationMetrics =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined &&
@@ -186,11 +197,54 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           </div>
         </div>
 
-        <EquityChart
-          equity={selectedModelAnalytics?.cumulative_returns || []}
-          ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
-          emptyMessage="Model portfolio returns will appear here once price bars are available."
-        />
+        <div className="model-performance-layout">
+          <EquityChart
+            equity={selectedCumulativeReturns}
+            timestamps={selectedModelAnalytics?.timestamp || []}
+            valueType="percent"
+            variant="wide"
+            align="left"
+            ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
+            emptyMessage="Model portfolio returns will appear here once price bars are available."
+          />
+
+          <div className="model-performance-metrics" aria-label={`${modelAnalyticsPeriod} performance metrics`}>
+            <div>
+              <span>Cumulative return</span>
+              <strong className={getReturnTone(selectedPeriodCumulativeReturn)}>
+                {Number.isFinite(selectedPeriodCumulativeReturn)
+                  ? percent(selectedPeriodCumulativeReturn)
+                  : "Not available"}
+              </strong>
+              <small>{modelAnalyticsPeriod === "all" ? "All time" : modelAnalyticsPeriod}</small>
+            </div>
+            <div>
+              <span>CAGR</span>
+              <strong className={getReturnTone(selectedModelAnalytics?.cagr)}>
+                {selectedModelAnalytics?.cagr !== null && selectedModelAnalytics?.cagr !== undefined
+                  ? percent(Number(selectedModelAnalytics.cagr) * 100)
+                  : "Not available"}
+              </strong>
+            </div>
+            <div>
+              <span>Annualized volatility</span>
+              <strong className="metric-accent">
+                {selectedModelAnalytics?.annualized_volatility !== null && selectedModelAnalytics?.annualized_volatility !== undefined
+                  ? percent(Number(selectedModelAnalytics.annualized_volatility) * 100)
+                  : "Not available"}
+              </strong>
+            </div>
+            <div>
+              <span>Leverage-adjusted direction tilt</span>
+              <strong className="metric-accent">
+                {selectedModelAnalytics?.leverage_adjusted_direction !== null && selectedModelAnalytics?.leverage_adjusted_direction !== undefined
+                  ? percent(Number(selectedModelAnalytics.leverage_adjusted_direction) * 100)
+                  : "Not available"}
+              </strong>
+              <small>Long + / short -</small>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="panel">
