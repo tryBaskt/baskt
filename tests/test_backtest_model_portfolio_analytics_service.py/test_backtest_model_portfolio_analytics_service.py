@@ -46,11 +46,8 @@ def test_basic_one_month_one_symbol(test_engine: TestEngine):
     directions = [1]
     target_weights = [1.0]
     leverages = [1.00]
-    creation_time = datetime(year=2026, month=1, day=20, hour=14, minute=37, second=0, microsecond=0, tzinfo=timezone.utc)
-    current_datetime = creation_time + timedelta(days=30)
-
-    print("current day: ", current_datetime)
-
+    creation_time = datetime(year=2026, month=6, day=18, hour=10, minute=30, second=0, microsecond=0, tzinfo=timezone.utc)
+    current_datetime = creation_time + timedelta(days=1)
     portfolio_id = _create_portfolio(
         test_engine=test_engine,
         portfolio_owner_cognito_user_id=PORTFOLIO_OWNER_COGNITO_USER_ID,
