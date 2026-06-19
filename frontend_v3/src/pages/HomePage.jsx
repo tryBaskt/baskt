@@ -86,7 +86,11 @@ export default function HomePage() {
             ))}
           </div>
         </div>
-        <EquityChart equity={selectedGraph?.equity || []} />
+        <EquityChart
+          equity={selectedGraph?.equity || []}
+          timestamps={selectedGraph?.timestamp || []}
+          valueType="currency"
+        />
       </section>
     </div>
   );

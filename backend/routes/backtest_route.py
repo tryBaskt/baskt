@@ -147,7 +147,7 @@ def backtest(
         positions: JSON-encoded list of position configs. Each item should contain:
             - symbol (str): ticker symbol
             - weight (float): portfolio weight fraction (0..1), or
-              target_weight (float): portfolio weight as a percent or fraction
+              target_weight (float): portfolio weight fraction (0..1)
             - direction (int): +1 for long, -1 for short
             - leverage (float/int, optional): leverage multiplier; defaults to 1 if omitted
         user: Authenticated user from dependency injection; used for access control.

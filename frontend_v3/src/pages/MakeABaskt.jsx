@@ -4,7 +4,7 @@ import { ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
 import { percent } from "../lib/format";
 
-const defaultPosition = { symbol: "", target_weight: 100, direction: 1, leverage: 1 };
+const defaultPosition = { symbol: "", target_weight: 1, direction: 1, leverage: 1 };
 const MIN_BACKTEST_DATE = "1970-01-01";
 
 function formatDateInput(date) {
@@ -21,11 +21,11 @@ function getDefaultBacktestStartDate() {
 }
 
 function getAllocationTone(totalWeight) {
-  if (Math.abs(totalWeight - 100) < 0.01) {
+  if (Math.abs(totalWeight - 1) < 0.0001) {
     return "ready";
   }
 
-  if (totalWeight > 100) {
+  if (totalWeight > 1) {
     return "over";
   }
 
@@ -33,21 +33,21 @@ function getAllocationTone(totalWeight) {
 }
 
 function getAllocationMessage(totalWeight) {
-  if (Math.abs(totalWeight - 100) < 0.01) {
+  if (Math.abs(totalWeight - 1) < 0.0001) {
     return "Fully allocated";
   }
 
-  if (totalWeight > 100) {
-    return `${percent(totalWeight - 100)} over target`;
+  if (totalWeight > 1) {
+    return `${percent((totalWeight - 1) * 100)} over target`;
   }
 
-  return `${percent(100 - totalWeight)} left to allocate`;
+  return `${percent((1 - totalWeight) * 100)} left to allocate`;
 }
 
 function normalizePosition(position) {
   return {
     symbol: String(position.symbol || "").toUpperCase(),
-    target_weight: Number(position.target_weight || position.weight || 0),
+    target_weight: Number(position.target_weight ?? position.weight ?? 0),
     direction: Number(position.direction || 1),
     leverage: 1,
   };
@@ -88,13 +88,12 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     }
 
     return assets
-      .filter((asset) => asset.symbol?.includes(query) && !existingSymbols.has(asset.symbol))
-      .slice(0, 8);
+      .filter((asset) => asset.symbol?.includes(query) && !existingSymbols.has(asset.symbol));
   }, [assets, positions, stockSearch]);
   const allocationTone = getAllocationTone(totalWeight);
   const todayDate = useMemo(() => formatDateInput(new Date()), []);
   const isBacktestDateRangeValid = backtestStartDate && backtestEndDate && backtestEndDate >= backtestStartDate;
-  const isFullyAllocated = Math.abs(totalWeight - 100) < 0.01;
+  const isFullyAllocated = Math.abs(totalWeight - 1) < 0.0001;
 
   useEffect(() => {
     let ignore = false;
@@ -177,7 +176,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
       (total, position) => total + Number(position.target_weight || 0),
       0
     );
-    return Math.max(0, 100 - currentTotal);
+    return Math.max(0, 1 - currentTotal);
   }
 
   function addAssetPosition(asset) {
@@ -199,7 +198,6 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
         },
       ];
     });
-    setStockSearch("");
   }
 
   function removePosition(index) {
@@ -258,11 +256,11 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
             <p className="eyebrow">{editingBaskt ? "Update Baskt" : "Make a Baskt"}</p>
             <h2>{editingBaskt ? editingBaskt.portfolio_name : "Build a portfolio that behaves on purpose."}</h2>
             <p>
-              Choose tradeable US stocks, set target weights in percent units, and let the backtest refresh as you edit.
+              Choose tradeable US stocks, set target weights, and let the backtest refresh as you edit.
             </p>
           </div>
           <div className={`allocation-badge ${allocationTone}`}>
-            <span>{percent(totalWeight)}</span>
+            <span>{percent(totalWeight * 100)}</span>
             <small>{getAllocationMessage(totalWeight)}</small>
           </div>
         </div>
@@ -351,8 +349,10 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
                     min="0"
                     max="100"
                     step="0.1"
-                    value={position.target_weight}
-                    onChange={(event) => updatePosition(index, "target_weight", event.target.value)}
+                    value={Number(position.target_weight) * 100}
+                    onChange={(event) =>
+                      updatePosition(index, "target_weight", Number(event.target.value) / 100)
+                    }
                     required
                   />
                   <strong>%</strong>
@@ -395,10 +395,10 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
       <aside className="insights-panel">
         <div className={`allocation-review ${allocationTone}`}>
           <p className="eyebrow">Portfolio check</p>
-          <strong>{percent(totalWeight)}</strong>
+          <strong>{percent(totalWeight * 100)}</strong>
           <span>{getAllocationMessage(totalWeight)}</span>
           <div className="allocation-track">
-            <span style={{ width: `${Math.min(totalWeight, 100)}%` }} />
+            <span style={{ width: `${Math.min(totalWeight * 100, 100)}%` }} />
           </div>
         </div>
 
@@ -433,7 +433,13 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
           </div>
           {isFullyAllocated ? (
             <>
-              <EquityChart equity={backtest?.cumulative_returns || []} />
+              <EquityChart
+                equity={backtest?.cumulative_returns || []}
+                timestamps={backtest?.dates || []}
+                valueType="decimalPercent"
+                variant="compact"
+                ariaLabel="Backtest cumulative returns chart"
+              />
               <div className="backtest-metrics">
                 <div>
                   <span>Return</span>
@@ -446,6 +452,10 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
                 <div>
                   <span>Volatility</span>
                   <strong>{percent(Number(backtest?.metrics?.annualized_volatility || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>Leverage-adjusted direction tilt</span>
+                  <strong>{percent(Number(backtest?.metrics?.leverage_adjusted_direction || 0) * 100)}</strong>
                 </div>
               </div>
             </>

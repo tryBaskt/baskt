@@ -3,7 +3,10 @@
 # Python imports
 from __future__ import annotations
 from typing import Any, List, Dict, Optional
-from datetime import datetime
+from datetime import date, datetime, timezone, timedelta
+
+# Pandas imports
+import pandas as pd
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
@@ -13,9 +16,9 @@ from alpaca.broker.models import (
     Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Bank, Transfer, TradeAccount, 
     TaxIdType, VisaType, FundingSource, EmploymentStatus, AgreementType
 )
-from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest, GetPortfolioHistoryRequest
+from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest, MarketOrderRequest, GetPortfolioHistoryRequest
 from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, TimeInForce
-from alpaca.trading.models import Asset, Order, FailedClosePositionDetails, PortfolioHistory
+from alpaca.trading.models import Asset, Calendar, Order, FailedClosePositionDetails, PortfolioHistory
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.enums import DataFeed
 from alpaca.data.requests import StockLatestQuoteRequest, StockBarsRequest
@@ -122,7 +125,7 @@ class AlpacaBrokerClient:
         tradeable: List[Asset] = []
         for asset in assets:
             asset_class = getattr(asset.asset_class, "name", asset.asset_class)
-            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False) and getattr(asset, "shortable", False):
+            if getattr(asset, "tradable", False) and asset_class in {"US_EQUITY", "us_equity"} and getattr(asset, "fractionable", False):
                 tradeable.append(asset)
 
         return tradeable
@@ -1131,137 +1134,216 @@ class AlpacaBrokerClient:
 
     ###########################
     ####### DATA CLIENT #######
+    ###########################
 
-    def _get_stock_bars_timeframe(self, timeframe: str) -> TimeFrame:
-        """
-        Convert an application timeframe string into an Alpaca TimeFrame.
-
-        Args:
-            timeframe: Timeframe string such as 5Min, 1H, or 1D.
-
-        Returns:
-            TimeFrame: Alpaca SDK timeframe object.
-
-        Raises:
-            ValueError: If the timeframe is not supported by this client.
-        """
-        normalized = timeframe.lower()
-        if normalized in {"1d", "1day", "day"}:
-            return TimeFrame.Day
-        if normalized in {"1h", "1hour", "hour"}:
-            return TimeFrame.Hour
-        if normalized in {"5min", "5m"}:
-            return TimeFrame(5, TimeFrameUnit.Minute)
-
-        raise ValueError(f"Unsupported stock bars timeframe '{timeframe}'")
-
-    def get_stock_price_bars(
+    def get_stock_market_calendar(
         self,
-        *,
-        symbols: List[str],
-        start: datetime,
-        end: datetime,
-        timeframe: str,
-        feed: DataFeed = DataFeed.IEX,
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Fetch historical stock price bars for one or more symbols.
+        start_date: date,
+        end_date: date,
+    ) -> List[Calendar]:
+        """Get US stock-market sessions for an inclusive date range.
 
         Args:
-            symbols: Ticker symbols to fetch bars for.
-            start: Inclusive start datetime for the historical bars request.
-            end: Exclusive end datetime for the historical bars request.
-            timeframe: Bar timeframe string such as 5Min, 1H, or 1D.
-            feed: Alpaca market data feed to query. Defaults to IEX to avoid
-                requiring a paid SIP market data subscription for recent bars.
+            start_date: Inclusive first calendar date to query.
+            end_date: Inclusive last calendar date to query.
 
         Returns:
-            Dict[str, List[Dict[str, Any]]]: Mapping of symbol to normalized bar
-            dictionaries. Each bar includes timestamp, open, high, low, close,
-            volume, trade_count, and vwap when Alpaca returns those fields.
+            List[Calendar]: Alpaca market sessions, including each session's
+            opening and closing datetimes.
 
         Raises:
-            AlpacaBrokerClientError: If the timeframe is unsupported, Alpaca
-            rejects the bars request, the network request fails, or any
-            unexpected error occurs while fetching or normalizing bars.
+            AlpacaBrokerClientError: If the date range is invalid or Alpaca
+            fails to return the market calendar.
         """
         try:
+            if start_date > end_date:
+                raise AlpacaBrokerClientError(
+                    message=(
+                        f"Calendar start date '{start_date.isoformat()}' must "
+                        f"not be after end date '{end_date.isoformat()}'"
+                    ),
+                    code="ALPACA_BROKER_MARKET_CALENDAR_INVALID_RANGE",
+                )
+
+            sessions = self.client.get_calendar(
+                GetCalendarRequest(start=start_date, end=end_date)
+            )
+            return list(sessions)
+        except AlpacaBrokerClientError:
+            raise
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=(
+                    "Failed to get stock market calendar from "
+                    f"'{start_date.isoformat()}' through "
+                    f"'{end_date.isoformat()}': {e}"
+                ),
+                code="ALPACA_BROKER_GET_MARKET_CALENDAR_FAILED",
+            ) from e
+
+    def get_stock_prices_over_time(
+        self,
+        symbols: List[str],
+        start_datetime: datetime,
+        end_datetime: datetime,
+        timeframe: str
+    ) -> pd.DataFrame:
+        """
+        Fetch stock close prices over time as a wide pandas DataFrame.
+
+        Args:
+            symbols: Ticker symbols to fetch prices for.
+            start_datetime: Inclusive timezone-aware start datetime. The value
+                is converted to UTC before the price bars request.
+            end_datetime: Exclusive timezone-aware end datetime. The value is
+                converted to UTC before the price bars request.
+            timeframe: Bar timeframe string. Supported values are 1Min, 5Min,
+                1H, and 1D.
+
+        Returns:
+            pd.DataFrame: DataFrame indexed by UTC timestamps with one column
+            per symbol. Cell values are bar close prices.
+
+        Raises:
+            AlpacaBrokerClientError: If either datetime is timezone-naive, the
+            timeframe is unsupported, Alpaca rejects the bars request, the
+            network request fails, or an unexpected error occurs.
+        """
+        try:
+            if start_datetime.tzinfo is None or start_datetime.utcoffset() is None:
+                raise AlpacaBrokerClientError(
+                    message="start_datetime must be timezone-aware",
+                    code="ALPACA_BROKER_STOCK_PRICES_START_TIMEZONE_REQUIRED",
+                )
+            if end_datetime.tzinfo is None or end_datetime.utcoffset() is None:
+                raise AlpacaBrokerClientError(
+                    message="end_datetime must be timezone-aware",
+                    code="ALPACA_BROKER_STOCK_PRICES_END_TIMEZONE_REQUIRED",
+                )
+
+            start_datetime_utc = start_datetime.astimezone(timezone.utc)
+            end_datetime_utc = end_datetime.astimezone(timezone.utc)
+
+            normalized_timeframe = timeframe.lower()
+            if normalized_timeframe in {"1min", "1m"}:
+                alpaca_timeframe = TimeFrame(1, TimeFrameUnit.Minute)
+            elif normalized_timeframe in {"5min", "5m"}:
+                alpaca_timeframe = TimeFrame(5, TimeFrameUnit.Minute)
+            elif normalized_timeframe in {"1h", "1hour", "hour"}:
+                alpaca_timeframe = TimeFrame.Hour
+            elif normalized_timeframe in {"1d", "1day", "day"}:
+                alpaca_timeframe = TimeFrame.Day
+            else:
+                raise ValueError(f"Unsupported stock prices timeframe '{timeframe}'")
+
             request = StockBarsRequest(
                 symbol_or_symbols=symbols,
-                start=start,
-                end=end,
-                timeframe=self._get_stock_bars_timeframe(timeframe),
-                feed=feed,
+                start=start_datetime_utc,
+                end=end_datetime_utc,
+                timeframe=alpaca_timeframe,
+                feed=DataFeed.IEX,
             )
-            bars = self.data_client.get_stock_bars(request)
-            bars_data = getattr(bars, "data", {})
+            bars_response = self.data_client.get_stock_bars(request)
+            bars_data = getattr(bars_response, "data", {})
 
-            return {
+            price_series_by_symbol: Dict[str, pd.Series] = {}
+            for symbol in symbols:
+                close_prices: Dict[datetime, float] = {}
+                for bar in bars_data.get(symbol, []):
+                    close_prices[bar.timestamp] = float(bar.close)
+
+                price_series_by_symbol[symbol] = pd.Series(
+                    close_prices,
+                    dtype="float64",
+                )
+
+            prices_df = pd.DataFrame(price_series_by_symbol)
+            prices_df = prices_df.sort_index()
+            if not prices_df.empty:
+                prices_df.index = pd.to_datetime(prices_df.index, utc=True)
+            prices_df.index.name = "timestamp"
+
+            return prices_df
+        except AlpacaBrokerClientError:
+            raise
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to fetch stock prices over time for symbols {symbols}: {e}",
+                code="ALPACA_BROKER_GET_STOCK_PRICES_OVER_TIME_FAILED",
+            ) from e
+
+    def get_stock_prices_at_time(
+        self,
+        symbols: List[str],
+        timestamp: datetime,
+    ) -> Dict[str, float]:
+        """
+        Fetch stock prices at or immediately before a specific timestamp.
+
+        Args:
+            symbols: Ticker symbols to fetch prices for.
+            timestamp: Timezone-aware target timestamp. The value is converted
+                to UTC before the price lookup.
+
+        Returns:
+            Dict[str, float]: Mapping of symbol to the latest 1-minute bar close
+            at or before timestamp.
+
+        Raises:
+            AlpacaBrokerClientError: If timestamp is timezone-naive, Alpaca
+            rejects the bars request, no bar is found for a requested symbol,
+            the network request fails, or an unexpected error occurs.
+        """
+        try:
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                raise AlpacaBrokerClientError(
+                    message="timestamp must be timezone-aware",
+                    code="ALPACA_BROKER_STOCK_PRICE_TIMEZONE_REQUIRED",
+                )
+
+            timestamp_utc = timestamp.astimezone(timezone.utc)
+            request = StockBarsRequest(
+                symbol_or_symbols=symbols,
+                start=timestamp_utc - timedelta(days=5),
+                end=timestamp_utc,
+                timeframe=TimeFrame(1, TimeFrameUnit.Minute),
+                feed=DataFeed.IEX,
+                limit=10000,
+            )
+            bars_response = self.data_client.get_stock_bars(request)
+            bars_data = getattr(bars_response, "data", {})
+            bars_by_symbol = {
                 symbol: [
                     {
                         "timestamp": bar.timestamp,
-                        "open": float(bar.open),
-                        "high": float(bar.high),
-                        "low": float(bar.low),
                         "close": float(bar.close),
-                        "volume": float(bar.volume),
-                        "trade_count": (
-                            None
-                            if getattr(bar, "trade_count", None) is None
-                            else float(bar.trade_count)
-                        ),
-                        "vwap": (
-                            None
-                            if getattr(bar, "vwap", None) is None
-                            else float(bar.vwap)
-                        ),
                     }
                     for bar in bars_data.get(symbol, [])
                 ]
                 for symbol in symbols
             }
+
+            prices: Dict[str, float] = {}
+            for symbol in symbols:
+                bars = [
+                    bar
+                    for bar in bars_by_symbol.get(symbol, [])
+                    if bar["timestamp"] <= timestamp_utc
+                ]
+                if not bars:
+                    raise AlpacaBrokerClientError(
+                        message=f"No stock price bar found at or before '{timestamp_utc.isoformat()}' for symbol '{symbol}'",
+                        code="ALPACA_BROKER_STOCK_PRICE_AT_TIME_MISSING",
+                    )
+
+                prices[symbol] = float(bars[-1]["close"])
+
+            return prices
+        
+        except AlpacaBrokerClientError:
+            raise
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to fetch stock price bars for symbols {symbols}: {e}",
-                code="ALPACA_BROKER_GET_STOCK_PRICE_BARS_FAILED",
+                message=f"Failed to fetch stock prices at time '{timestamp}' for symbols {symbols}: {e}",
+                code="ALPACA_BROKER_GET_STOCKS_PRICES_AT_TIME_FAILED",
             ) from e
-
-    def get_stock_price_history(
-        self,
-        symbols: List[str],
-        start: datetime,
-        end: datetime,
-        timeframe: str,
-        feed: DataFeed = DataFeed.IEX,
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Fetch historical stock price bars for one or more symbols.
-
-        Args:
-            symbols: Ticker symbols to fetch bars for.
-            start: Inclusive start datetime for the historical bars request.
-            end: Exclusive end datetime for the historical bars request.
-            timeframe: Bar timeframe string such as 5Min, 1H, or 1D.
-            feed: Alpaca market data feed to query. Defaults to IEX.
-
-        Returns:
-            Dict[str, List[Dict[str, Any]]]: Mapping of symbol to normalized
-            historical price bars.
-
-        Raises:
-            AlpacaBrokerClientError: If Alpaca rejects the bars request, the
-            network request fails, or any unexpected error occurs while fetching
-            bars.
-        """
-        return self.get_stock_price_bars(
-            symbols=symbols,
-            start=start,
-            end=end,
-            timeframe=timeframe,
-            feed=feed,
-        )
-
-
-
-
-    

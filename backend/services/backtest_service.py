@@ -150,7 +150,7 @@ class BacktestService:
             end_date: Inclusive end date in ISO format (YYYY-MM-DD).
             positions_conf: List of input position dictionaries. Each entry
                 should include symbol, direction, optional leverage, and either
-                weight as a fraction or target_weight as a percent/fraction.
+                weight or target_weight as a decimal fraction from 0 to 1.
             price_col: Price column to use from historical bars (default: "close").
 
         Returns:
@@ -176,8 +176,6 @@ class BacktestService:
                 sym = str(p["symbol"]).upper()
                 raw_weight = p["weight"] if p.get("weight") is not None else p["target_weight"]
                 weight = float(raw_weight)
-                if abs(weight) > 1:
-                    weight = weight / 100.0
                 direction = int(p["direction"])
                 if direction not in {-1, 1}:
                     raise ValueError("direction must be 1 for long or -1 for short")

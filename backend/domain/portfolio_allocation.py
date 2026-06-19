@@ -4,26 +4,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
-# @dataclass(frozen=True)
-# class PortfolioAllocationPosition:
-#     symbol: str
-#     filled_quantity: float
-#     direction: int
-#     filled_avg_price: float
-
-
-# @dataclass(frozen=True)
-# class PortfolioAllocationSnapshot:
-#     positions: List[PortfolioAllocationPosition]
-#     timestamp: datetime
-#     allocation_amount: float
-#     transaction_id: str
-#     status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED
-#     order_fill_percent: float
-#     number_orders: int
-#     transaction_type: str # DEPOSIT | UPDATE | WITHDRAW
 
 @dataclass
 class PortfolioAllocationTransactionSnapshot:

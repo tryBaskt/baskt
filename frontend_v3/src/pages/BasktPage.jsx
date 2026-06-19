@@ -6,6 +6,13 @@ import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDate, formatDateTime, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
 
+function getReturnTone(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "";
+  }
+  return Number(value) >= 0 ? "metric-positive" : "metric-negative";
+}
+
 export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const [baskt, setBaskt] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
@@ -14,17 +21,25 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
   const [transactions, setTransactions] = useState([]);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
+  const [allocationError, setAllocationError] = useState("");
+  const [modelAnalyticsError, setModelAnalyticsError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isBasktLoading, setIsBasktLoading] = useState(true);
+  const [isAllocationLoading, setIsAllocationLoading] = useState(true);
+  const [isModelAnalyticsLoading, setIsModelAnalyticsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
   const latestSnapshot = baskt?.position_history?.at(-1);
-  const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A"];
+  const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A", "all"];
   const selectedModelAnalytics =
     modelAnalytics?.[modelAnalyticsPeriod] ||
     modelAnalytics?.[modelAnalyticsPeriod.toLowerCase()];
+  const selectedCumulativeReturns = selectedModelAnalytics?.cumulative_returns || [];
+  const selectedPeriodCumulativeReturn = selectedCumulativeReturns.length
+    ? Number(selectedCumulativeReturns.at(-1))
+    : null;
   const hasAllocationMetrics =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined &&
@@ -33,54 +48,98 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     allocationAnalytics?.profit_loss_pct !== null &&
     allocationAnalytics?.profit_loss_pct !== undefined;
 
-  function analyticsPercent(value) {
-    return value === null || value === undefined ? "Not available" : percent(value);
+  async function loadAllocationAnalytics(ownerCognitoUserId, signal) {
+    setIsAllocationLoading(true);
+    setAllocationError("");
+    const query = toQuery({
+      portfolio_owner_cognito_user_id: ownerCognitoUserId,
+    });
+    try {
+      const allocationPayload = await apiRequest(
+        `/account-analytics/portfolios/${portfolioId}/analytics${query}`,
+        { signal }
+      );
+      setAllocationAnalytics(allocationPayload || null);
+      setTransactions(allocationPayload?.list_transaction || []);
+    } catch (allocationRequestError) {
+      if (allocationRequestError?.name !== "AbortError") {
+        setAllocationError(
+          allocationRequestError?.message || "Could not load allocation analytics."
+        );
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsAllocationLoading(false);
+      }
+    }
   }
 
-  async function loadBaskt() {
-    const payload = await apiRequest(`/model-portfolios/${portfolioId}`);
-    setBaskt(payload);
-
-    const query = toQuery({
-      portfolio_owner_cognito_user_id: payload.portfolio_owner_cognito_user_id,
-    });
-    const allocationPayload = await apiRequest(
-      `/account-analytics/portfolios/${portfolioId}/analytics${query}`
-    );
-    setAllocationAnalytics(allocationPayload || null);
-    setTransactions(allocationPayload?.list_transaction || []);
-
-    const modelAnalyticsPayload = await apiRequest(`/model-portfolios/${portfolioId}/analytics`);
-    setModelAnalytics(modelAnalyticsPayload || null);
-    if (!modelAnalyticsPayload?.[modelAnalyticsPeriod]) {
-      const availablePeriod = modelAnalyticsPeriods.find((period) => modelAnalyticsPayload?.[period]);
-      if (availablePeriod) {
-        setModelAnalyticsPeriod(availablePeriod);
+  async function loadModelAnalytics(signal) {
+    setIsModelAnalyticsLoading(true);
+    setModelAnalyticsError("");
+    try {
+      const modelAnalyticsPayload = await apiRequest(
+        `/model-portfolios/${portfolioId}/analytics`,
+        { signal }
+      );
+      setModelAnalytics(modelAnalyticsPayload || null);
+      if (!modelAnalyticsPayload?.[modelAnalyticsPeriod]) {
+        const availablePeriod = modelAnalyticsPeriods.find(
+          (period) => modelAnalyticsPayload?.[period]
+        );
+        if (availablePeriod) {
+          setModelAnalyticsPeriod(availablePeriod);
+        }
+      }
+    } catch (modelAnalyticsRequestError) {
+      if (modelAnalyticsRequestError?.name !== "AbortError") {
+        setModelAnalyticsError(
+          modelAnalyticsRequestError?.message || "Could not load model performance."
+        );
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsModelAnalyticsLoading(false);
       }
     }
   }
 
   useEffect(() => {
-    let ignore = false;
+    const controller = new AbortController();
 
-    async function run() {
+    async function loadBasktDetails() {
       try {
-        setIsLoading(true);
-        await loadBaskt();
+        setIsBasktLoading(true);
+        setError("");
+        setBaskt(null);
+        setAllocationAnalytics(null);
+        setTransactions([]);
+        const payload = await apiRequest(`/model-portfolios/${portfolioId}`, {
+          signal: controller.signal,
+        });
+        setBaskt(payload);
+        void loadAllocationAnalytics(
+          payload.portfolio_owner_cognito_user_id,
+          controller.signal
+        );
       } catch (basktError) {
-        if (!ignore) {
+        if (basktError?.name !== "AbortError") {
           setError(basktError?.message || "Could not load this Baskt.");
         }
       } finally {
-        if (!ignore) {
-          setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsBasktLoading(false);
         }
       }
     }
 
-    run();
+    setModelAnalytics(null);
+    setIsAllocationLoading(true);
+    void loadBasktDetails();
+    void loadModelAnalytics(controller.signal);
+
     return () => {
-      ignore = true;
+      controller.abort();
     };
   }, [portfolioId]);
 
@@ -112,7 +171,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
       });
       setSuccess(`${action === "withdraw-all" ? "Withdraw all" : action} request submitted.`);
       setAmount("");
-      await loadBaskt();
+      await loadAllocationAnalytics(baskt.portfolio_owner_cognito_user_id);
     } catch (tradeError) {
       setError(tradeError?.message || "Trade request failed.");
     } finally {
@@ -120,8 +179,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     }
   }
 
-  if (isLoading) {
-    return <LoadingState title="Loading Baskt" message="Fetching positions and transactions." />;
+  if (isBasktLoading) {
+    return <LoadingState title="Loading Baskt" message="Fetching portfolio details." />;
   }
 
   if (!baskt) {
@@ -150,7 +209,17 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
         </div>
       </section>
 
-      {hasAllocationMetrics ? (
+      <ErrorBanner message={allocationError} />
+
+      {isAllocationLoading ? (
+        <section className="analytics-bar" aria-live="polite" aria-busy="true">
+          <div>
+            <span>Allocation analytics</span>
+            <strong>Loading...</strong>
+            <small>Fetching current value and activity</small>
+          </div>
+        </section>
+      ) : hasAllocationMetrics ? (
         <section className="analytics-bar" aria-label="Baskt allocation analytics">
           <div>
             <span>Allocation equity</span>
@@ -190,36 +259,60 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           </div>
         </div>
 
-        <div className="analytics-layout">
-          <EquityChart
-            equity={selectedModelAnalytics?.cumulative_returns || []}
-            ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
-            emptyMessage="Model portfolio returns will appear here once price bars are available."
-          />
-          <div className="analytics-side-bar">
-            <div>
-              <span>Total return</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.total_cumulative_return)}</strong>
-            </div>
-            <div>
-              <span>CAGR</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.cagr)}</strong>
-            </div>
-            <div>
-              <span>Annualized volatility</span>
-              <strong>{analyticsPercent(selectedModelAnalytics?.annualized_volatility)}</strong>
-            </div>
-            <div>
-              <span>Net direction</span>
-              <strong>
-                {selectedModelAnalytics?.leverage_adjusted_direction === null ||
-                selectedModelAnalytics?.leverage_adjusted_direction === undefined
-                  ? "Not available"
-                  : `${Number(selectedModelAnalytics.leverage_adjusted_direction).toFixed(2)}x`}
-              </strong>
+        {isModelAnalyticsLoading ? (
+          <p className="muted" aria-live="polite">Loading model performance...</p>
+        ) : modelAnalyticsError ? (
+          <ErrorBanner message={modelAnalyticsError} />
+        ) : (
+          <div className="model-performance-layout">
+            <EquityChart
+              equity={selectedCumulativeReturns}
+              timestamps={selectedModelAnalytics?.timestamp || []}
+              valueType="percent"
+              variant="wide"
+              align="left"
+              ariaLabel={`${modelAnalyticsPeriod} model portfolio cumulative returns chart`}
+              emptyMessage="Model portfolio returns will appear here once price bars are available."
+            />
+
+            <div className="model-performance-metrics" aria-label={`${modelAnalyticsPeriod} performance metrics`}>
+              <div>
+                <span>Cumulative return</span>
+                <strong className={getReturnTone(selectedPeriodCumulativeReturn)}>
+                  {Number.isFinite(selectedPeriodCumulativeReturn)
+                    ? percent(selectedPeriodCumulativeReturn)
+                    : "Not available"}
+                </strong>
+                <small>{modelAnalyticsPeriod === "all" ? "All time" : modelAnalyticsPeriod}</small>
+              </div>
+              <div>
+                <span>CAGR</span>
+                <strong className={getReturnTone(selectedModelAnalytics?.cagr)}>
+                  {selectedModelAnalytics?.cagr !== null && selectedModelAnalytics?.cagr !== undefined
+                    ? percent(Number(selectedModelAnalytics.cagr) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Annualized volatility</span>
+                <strong className="metric-accent">
+                  {selectedModelAnalytics?.annualized_volatility !== null && selectedModelAnalytics?.annualized_volatility !== undefined
+                    ? percent(Number(selectedModelAnalytics.annualized_volatility) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Leverage-adjusted direction tilt</span>
+                <strong className="metric-accent">
+                  {selectedModelAnalytics?.leverage_adjusted_direction !== null && selectedModelAnalytics?.leverage_adjusted_direction !== undefined
+                    ? percent(Number(selectedModelAnalytics.leverage_adjusted_direction) * 100)
+                    : "Not available"}
+                </strong>
+                <small>Long + / short -</small>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
       <section className="panel">
@@ -276,7 +369,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
               <h2>Portfolio activity</h2>
             </div>
           </div>
-          <div className="table-wrap compact-table">
+          {isAllocationLoading ? (
+            <p className="muted" aria-live="polite">Loading transactions...</p>
+          ) : (
+            <div className="table-wrap compact-table">
             <table className="transactions-table">
               <thead>
                 <tr>
@@ -307,8 +403,9 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
                 ))}
               </tbody>
             </table>
-            {!transactions.length ? <p className="muted">No transactions yet.</p> : null}
-          </div>
+              {!transactions.length && !allocationError ? <p className="muted">No transactions yet.</p> : null}
+            </div>
+          )}
         </div>
       </section>
     </div>
