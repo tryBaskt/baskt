@@ -2,14 +2,14 @@
 
 # Python imports
 from __future__ import annotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date
 from typing import List, Optional
 
 class BacktestPositionRequest(BaseModel):
     symbol: str
-    weight: Optional[float] = None
-    target_weight: Optional[float] = None
+    weight: Optional[float] = Field(default=None, ge=0, le=1)
+    target_weight: Optional[float] = Field(default=None, ge=0, le=1)
     direction: int
     leverage: float = 1.0
 

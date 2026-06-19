@@ -79,13 +79,11 @@ class YFinanceClient:
                 code="YFINANCE_INVALID_DATE_RANGE",
             )
 
-        end_exclusive = end_ts + pd.Timedelta(days=1)
-
         try:
             df = yf.download(
                 str(ticker).upper(),
                 start=start_ts.date().isoformat(),
-                end=end_exclusive.date().isoformat(),
+                end=end_ts.date().isoformat(),
                 interval=interval,
                 progress=self.progress,
             )

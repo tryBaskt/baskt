@@ -1,12 +1,3 @@
-function formatPercentUnits(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return "0.00%";
-  }
-
-  return `${numeric.toFixed(2)}%`;
-}
-
 function formatFractionWeight(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -35,7 +26,7 @@ export default function PositionsTable({ positions = [], currentWeights = {} }) 
               <td>
                 <strong>{position.symbol}</strong>
               </td>
-              <td>{formatPercentUnits(position.target_weight)}</td>
+              <td>{formatFractionWeight(position.target_weight)}</td>
               <td>{formatFractionWeight(currentWeights[position.symbol] || 0)}</td>
               <td>
                 <span className={position.direction === -1 ? "pill danger" : "pill"}>

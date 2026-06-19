@@ -167,7 +167,7 @@ class ModelPortfolioAnalyticsService:
                             symbol=position.symbol,
                             direction=position.direction,
                             leverage=position.leverage,
-                            current_weight=position.target_weight / 100,
+                            current_weight=position.target_weight,
                         )
                         for position in snapshot.positions
                     ],
@@ -177,7 +177,7 @@ class ModelPortfolioAnalyticsService:
             elif rounded_snapshot_timestamp <= current_period_start:
                 if rounded_snapshot_timestamp == current_period_start:
                     position_updated_weights = {
-                        position.symbol: position.target_weight / 100
+                        position.symbol: position.target_weight
                         for position in snapshot.positions
                     }
 
@@ -393,17 +393,74 @@ class ModelPortfolioAnalyticsService:
             "leverage_adjusted_direction": leverage_adjusted_direction,
         }
 
+    def get_stock_prices_at_snapshot_changes(
+        self,
+        segment_prices: pd.DataFrame,
+        analytics_snapshots: List[ModelPortfolioAnalyticsSnapshot]
+    ) -> None:
+        """Get prices required at portfolio creation and update boundaries.
+
+        Args:
+            segment_prices: Price DataFrame to update in place. Rows are UTC
+                timestamps and columns are stock symbols.
+            analytics_snapshots: Chronological portfolio analytics snapshots.
+
+        Returns:
+            None. The provided segment_prices DataFrame is modified in place.
+
+        Raises:
+            AlpacaBrokerClientError: If a required snapshot price cannot be
+            fetched from Alpaca.
+        """
+        if not analytics_snapshots:
+            return
+
+        first_snapshot = analytics_snapshots[0]
+        first_symbols = sorted(
+            position.symbol for position in first_snapshot.positions
+        )
+        first_prices = self.alpaca_broker_client.get_stocks_prices_at_time(
+            symbols=first_symbols,
+            timestamp=first_snapshot.timestamp,
+        )
+        for symbol, price in first_prices.items():
+            segment_prices.loc[first_snapshot.timestamp, symbol] = price
+
+        for index in range(len(analytics_snapshots) - 1):
+            current_snapshot = analytics_snapshots[index]
+            next_snapshot = analytics_snapshots[index + 1]
+            current_symbols = {
+                position.symbol for position in current_snapshot.positions
+            }
+            next_symbols = {
+                position.symbol for position in next_snapshot.positions
+            }
+            transition_symbols = sorted(current_symbols | next_symbols)
+
+            transition_prices = self.alpaca_broker_client.get_stocks_prices_at_time(
+                symbols=transition_symbols,
+                timestamp=next_snapshot.timestamp,
+            )
+            for symbol, price in transition_prices.items():
+                segment_prices.loc[next_snapshot.timestamp, symbol] = price
+
+        segment_prices.index.name = "timestamp"
+        segment_prices.sort_index(inplace=True)
+
+
+
 
     def get_model_portfolio_bars(
         self,
         portfolio_id: str,
-        current_datetime: datetime
+        current_datetime: Optional[datetime] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get model portfolio cumulative return series for standard periods.
 
         Args:
             portfolio_id: Identifier of the model portfolio to analyze.
+            current_datetime: Optional UTC endpoint for the simulation.
 
         Returns:
             Dict[str, Dict[str, Any]]: Return series keyed by 1D, 1W, 1M,
@@ -446,36 +503,139 @@ class ModelPortfolioAnalyticsService:
                     current_datetime=current_datetime,
                     model_portfolio_snapshots=model_portfolio_snapshots
                 )
-
-                stocks_df = self.get_stocks_dataframe(
-                    analytics_snapshots=analytics_snapshots,
-                    current_datetime=current_datetime,
-                    timeframe=timeframe
+                full_segment_prices_df = pd.DataFrame()
+                self.get_stock_prices_at_snapshot_changes(
+                    segment_prices=full_segment_prices_df,
+                    analytics_snapshots=analytics_snapshots
                 )
+                if full_segment_prices_df.empty:
+                    continue
 
-                cumulative_returns_df = self.get_cumulative_returns_dataframe(
-                    stocks_df=stocks_df,
-                    analytics_snapshots=analytics_snapshots,
-                    current_datetime=current_datetime
+
+
+                for index, analytics_snapshot in enumerate(analytics_snapshots):
+                    segment_start = analytics_snapshot.timestamp
+                    segment_end = (
+                        analytics_snapshots[index + 1].timestamp
+                        if index + 1 < len(analytics_snapshots)
+                        else current_datetime
+                    )
+                    symbols = [position.symbol for position in analytics_snapshot.positions]
+                    segment_prices = self.alpaca_broker_client.get_stock_prices_over_time(
+                        symbols=symbols,
+                        start_datetime=segment_start,
+                        end_datetime=segment_end,
+                        timeframe=timeframe,
+                    )
+                    full_segment_prices_df = (
+                        full_segment_prices_df
+                        .combine_first(segment_prices)
+                    )
+                full_segment_prices_df = full_segment_prices_df.sort_index()
+
+                cumulative_return_frames: List[pd.DataFrame] = []
+                portfolio_value_at_segment_start = 1.0
+
+                for index, analytics_snapshot in enumerate(analytics_snapshots):
+                    segment_start = analytics_snapshot.timestamp
+                    segment_end = (
+                        analytics_snapshots[index + 1].timestamp
+                        if index + 1 < len(analytics_snapshots)
+                        else current_datetime
+                    )
+                    active_symbols = [
+                        position.symbol
+                        for position in analytics_snapshot.positions
+                    ]
+                    segment_mask = (
+                        (full_segment_prices_df.index >= segment_start)
+                        & (full_segment_prices_df.index <= segment_end)
+                    )
+                    simulation_prices = (
+                        full_segment_prices_df.loc[segment_mask, active_symbols]
+                        .sort_index()
+                        .ffill()
+                        .dropna(subset=active_symbols)
+                    )
+                    if simulation_prices.empty:
+                        raise ModelPortfolioAnalyticsServiceError(
+                            message=(
+                                "No complete price data available for model "
+                                f"portfolio '{portfolio_id}' between "
+                                f"'{segment_start.isoformat()}' and "
+                                f"'{segment_end.isoformat()}'"
+                            ),
+                            code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING",
+                        )
+
+                    starting_prices = simulation_prices.iloc[0]
+                    segment_return = pd.Series(
+                        0.0,
+                        index=simulation_prices.index,
+                        dtype=float,
+                    )
+                    for position in analytics_snapshot.positions:
+                        symbol_return = (
+                            simulation_prices[position.symbol]
+                            / starting_prices[position.symbol]
+                        ) - 1.0
+                        segment_return += (
+                            position.current_weight
+                            * position.direction
+                            * position.leverage
+                            * symbol_return
+                        )
+
+                    segment_portfolio_values = (
+                        portfolio_value_at_segment_start
+                        * (1.0 + segment_return)
+                    )
+                    segment_frame = pd.DataFrame(
+                        {
+                            "cumulative_returns": (
+                                segment_portfolio_values - 1.0
+                            ) * 100.0
+                        }
+                    )
+                    if cumulative_return_frames:
+                        segment_frame = segment_frame.iloc[1:]
+                    if not segment_frame.empty:
+                        cumulative_return_frames.append(segment_frame)
+
+                    portfolio_value_at_segment_start = float(
+                        segment_portfolio_values.iloc[-1]
+                    )
+
+                cumulative_returns_df = (
+                    pd.concat(cumulative_return_frames).sort_index()
+                    if cumulative_return_frames
+                    else pd.DataFrame(columns=["cumulative_returns"])
                 )
-
                 period_metrics = self.calculate_period_metrics(
                     cumulative_returns_df=cumulative_returns_df,
                     analytics_snapshots=analytics_snapshots,
                     timeframe=timeframe,
                 )
-
+                print(period_metrics)
                 response[period] = {
                     "timeframe": timeframe,
                     "timestamp": [
                         timestamp.isoformat()
                         for timestamp in cumulative_returns_df.index
                     ],
-                    "cumulative_returns": cumulative_returns_df["cumulative_returns"].tolist(),
+                    "cumulative_returns": cumulative_returns_df[
+                        "cumulative_returns"
+                    ].tolist(),
                     **period_metrics,
                 }
 
+
+
+
+
+
             return response
+
         except ModelPortfolioAnalyticsServiceError:
             raise
         except AlpacaBrokerClientError as e:

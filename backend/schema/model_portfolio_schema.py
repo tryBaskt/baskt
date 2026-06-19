@@ -3,12 +3,12 @@
 # Python imports
 from __future__ import annotations
 from typing import Dict, List, Optional
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, Field, RootModel
 
 
 class ModelPortfolioPositionRequest(BaseModel):
     symbol: str
-    target_weight: float
+    target_weight: float = Field(ge=0, le=1)
     direction: int
     leverage: float
 

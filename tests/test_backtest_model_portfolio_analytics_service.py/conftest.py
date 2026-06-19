@@ -158,6 +158,14 @@ class TestEngine:
         self.model_portfolio_repository = model_portfolio_repository
         self.yfinance_client = yfinance_client
 
+    def test_delete_portfolio(
+        self,
+        portfolio_id: str
+    ):
+        self.model_portfolio_repository.dynamodb.delete_item(
+            key={"portfolio_id": portfolio_id}
+        )
+
     def test_create_portfolio(
         self,
         symbols: List[str],
