@@ -5,11 +5,19 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 
+class AlpacaTradingConfigurations(BaseModel):
+    max_margin_multiplier: Optional[str] = None
+    no_shorting: Optional[bool] = None
+    disable_overnight_trading: Optional[bool] = None
+    fractional_trading: Optional[bool] = None
+
+
 class CreateBasktAccountLifecycleRequest(BaseModel):
-    contact: Dict[str, str]
-    identity: Dict[str, str]
-    disclosures: Dict[str, str]
+    contact: Dict[str, Any]
+    identity: Dict[str, Any]
+    disclosures: Dict[str, Any]
     agreements: List[Dict[str, str]]
+    trading_configurations: Optional[AlpacaTradingConfigurations] = None
     account_type: Optional[str] = None
     password: Optional[str] = None
 

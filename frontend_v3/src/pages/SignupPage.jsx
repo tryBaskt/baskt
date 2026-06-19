@@ -75,6 +75,18 @@ const agreementOptions = [
   },
 ];
 
+const cryptoAgreement = {
+  value: "crypto_agreement",
+  label: "Crypto Agreement",
+  href: "https://files.alpaca.markets/disclosures/library/Crypto%20Customer%20Agreement.pdf",
+};
+
+const cryptoEligibleStateCodes = new Set([
+  "AZ", "CA", "CT", "GA", "ID", "IL", "IN", "IA", "KS", "KY", "ME",
+  "MD", "MA", "MI", "MS", "MO", "MT", "NE", "NC", "ND", "OH", "RI",
+  "SC", "SD", "UT", "VT", "WA", "WV",
+]);
+
 function boolString(value) {
   return value === "true";
 }
@@ -103,6 +115,11 @@ export default function SignupPage({ onBackToLogin }) {
   const shouldAskVisa = useMemo(() => {
     return identity.country_of_citizenship !== "USA" && identity.permanent_resident !== "true";
   }, [identity.country_of_citizenship, identity.permanent_resident]);
+
+  const visibleAgreementOptions = useMemo(() => {
+    const isCryptoEligible = contact.country === "USA" && cryptoEligibleStateCodes.has(contact.state);
+    return isCryptoEligible ? [...agreementOptions, cryptoAgreement] : agreementOptions;
+  }, [contact.country, contact.state]);
 
   function updateContact(field, value) {
     setContact((current) => ({ ...current, [field]: value }));
@@ -136,7 +153,7 @@ export default function SignupPage({ onBackToLogin }) {
       return;
     }
 
-    if (!agreementOptions.every((agreement) => accepted[agreement.value])) {
+    if (!visibleAgreementOptions.every((agreement) => accepted[agreement.value])) {
       setError("Please accept every required agreement.");
       return;
     }
@@ -172,7 +189,7 @@ export default function SignupPage({ onBackToLogin }) {
             is_politically_exposed: boolString(disclosures.is_politically_exposed),
             immediate_family_exposed: boolString(disclosures.immediate_family_exposed),
           },
-          agreements: agreementOptions.map((agreement) => ({
+          agreements: visibleAgreementOptions.map((agreement) => ({
             agreement: agreement.value,
             signed_at: signedAt,
             ip_address: "127.0.0.1",
@@ -336,7 +353,7 @@ export default function SignupPage({ onBackToLogin }) {
           {step === 3 ? (
             <div className="form-stack">
               <div className="agreement-list">
-                {agreementOptions.map((agreement) => (
+                {visibleAgreementOptions.map((agreement) => (
                   <label className="check-row" key={agreement.value}>
                     <input
                       type="checkbox"

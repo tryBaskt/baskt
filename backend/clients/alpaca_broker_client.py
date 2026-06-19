@@ -28,6 +28,21 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from domain.baskt import BasktPosition
 
 
+CRYPTO_ELIGIBLE_US_STATES = frozenset(
+    {
+        "AZ", "ARIZONA", "CA", "CALIFORNIA", "CT", "CONNECTICUT",
+        "GA", "GEORGIA", "ID", "IDAHO", "IL", "ILLINOIS", "IN", "INDIANA",
+        "IA", "IOWA", "KS", "KANSAS", "KY", "KENTUCKY", "ME", "MAINE",
+        "MD", "MARYLAND", "MA", "MASSACHUSETTS", "MI", "MICHIGAN",
+        "MS", "MISSISSIPPI", "MO", "MISSOURI", "MT", "MONTANA",
+        "NE", "NEBRASKA", "NC", "NORTH CAROLINA", "ND", "NORTH DAKOTA",
+        "OH", "OHIO", "RI", "RHODE ISLAND", "SC", "SOUTH CAROLINA",
+        "SD", "SOUTH DAKOTA", "UT", "UTAH", "VT", "VERMONT",
+        "WA", "WASHINGTON", "WV", "WEST VIRGINIA",
+    }
+)
+
+
 class AlpacaBrokerClientError(Exception):
     """Raised when Alpaca Broker client operations fail."""
 
@@ -142,7 +157,8 @@ class AlpacaBrokerClient:
             account_data: Alpaca account payload sections. Required top-level
                 keys are contact, identity, disclosures, and agreements.
                 Optional top-level keys include account_type, account_sub_type,
-                currency, enabled_assets, trusted_contact, and documents.
+                currency, enabled_assets, trusted_contact, documents, and
+                trading_configurations.
 
         Returns:
             Dict[str, str]: Created Alpaca account identifiers.
@@ -212,15 +228,33 @@ class AlpacaBrokerClient:
                 employment_position=disclosures_data.get("employment_position"),
             )
 
-            agreements = [
-                Agreement(
-                    agreement=AgreementType(agreement["agreement"]),
-                    signed_at=agreement["signed_at"],
-                    ip_address=agreement["ip_address"],
-                    revision=agreement.get("revision"),
+            country = str(contact_data.get("country", "")).strip().upper()
+            state = str(contact_data.get("state", "")).strip().upper()
+            is_crypto_eligible = country == "USA" and state in CRYPTO_ELIGIBLE_US_STATES
+
+            agreements: List[Agreement] = []
+            for agreement_data in agreements_data:
+                agreement_type = AgreementType(agreement_data["agreement"])
+                if agreement_type == AgreementType.CRYPTO and not is_crypto_eligible:
+                    continue
+                agreements.append(
+                    Agreement(
+                        agreement=agreement_type,
+                        signed_at=agreement_data["signed_at"],
+                        ip_address=agreement_data["ip_address"],
+                        revision=agreement_data.get("revision"),
+                    )
                 )
-                for agreement in agreements_data
-            ]
+
+            trading_configurations = account_data.get(
+                "trading_configurations",
+                {
+                    "max_margin_multiplier": "2",
+                    "no_shorting": False,
+                    "disable_overnight_trading": False,
+                    "fractional_trading": True,
+                },
+            )
 
             request = CreateAccountRequest(
                 account_type=AccountType(account_data.get("account_type")) if "account_type" in account_data else None,
@@ -229,9 +263,13 @@ class AlpacaBrokerClient:
                 disclosures=disclosures,
                 agreements=agreements
             )
-            alpaca_account = self.client.create_account(request)
-            alpaca_account_id = str(getattr(alpaca_account, "id", None))
-            alpaca_account_number = str(getattr(alpaca_account, "account_number", None))
+            request_payload = request.to_request_fields()
+            request_payload["trading_configurations"] = trading_configurations
+
+            alpaca_account = self.client.post("/accounts", request_payload)
+            alpaca_account_id = str(alpaca_account.get("id"))
+            alpaca_account_number = str(alpaca_account.get("account_number"))
+
 
             if not alpaca_account_id or alpaca_account_id == "None" or not alpaca_account_number or alpaca_account_number == "None":
                 raise AlpacaBrokerClientError(
@@ -245,6 +283,7 @@ class AlpacaBrokerClient:
             }
         
         except Exception as e:
+            print(e)
             raise AlpacaBrokerClientError(
                 message=f"Failed to create Alpaca account: {e}",
                 code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
