@@ -81,7 +81,11 @@ def create_dev_model_portfolio_dynamodb():
         ],
 
         'BillingMode': 'PAY_PER_REQUEST',
-        'DeletionProtectionEnabled': False
+        'DeletionProtectionEnabled': False,
+        'StreamSpecification': {
+            'StreamEnabled': True,
+            'StreamViewType': 'NEW_AND_OLD_IMAGES'
+        }
     }
     
     dynamodb = boto3.client('dynamodb', region_name=REGION)

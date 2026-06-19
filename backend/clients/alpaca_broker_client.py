@@ -283,7 +283,6 @@ class AlpacaBrokerClient:
             }
         
         except Exception as e:
-            print(e)
             raise AlpacaBrokerClientError(
                 message=f"Failed to create Alpaca account: {e}",
                 code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
