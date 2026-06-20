@@ -23,6 +23,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.enums import DataFeed
 from alpaca.data.requests import StockLatestQuoteRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.common.exceptions import APIError
 
 # Baskt imports
 from domain.baskt import BasktPosition
@@ -1385,3 +1386,47 @@ class AlpacaBrokerClient:
                 message=f"Failed to fetch stock prices at time '{timestamp}' for symbols {symbols}: {e}",
                 code="ALPACA_BROKER_GET_STOCKS_PRICES_AT_TIME_FAILED",
             ) from e
+        
+    ##############################
+    ######## STOCK SEARCH ########
+    ##############################
+
+    def get_stocks_by_symbol(
+        self,
+        *,
+        symbol: str
+    ) -> Optional[Asset]:
+        """Get an Alpaca asset by its exact stock symbol.
+
+        Args:
+            symbol: Exact stock ticker symbol to retrieve.
+
+        Returns:
+            Optional[Asset]: Matching Alpaca asset, or None when the symbol
+            does not exist.
+
+        Raises:
+            AlpacaBrokerClientError: If the symbol is empty or Alpaca fails
+                for a reason other than the asset not existing.
+        """
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise AlpacaBrokerClientError(
+                message="Stock symbol cannot be empty",
+                code="ALPACA_BROKER_STOCK_SYMBOL_REQUIRED",
+            )
+
+        try:
+            return self.client.get_asset(symbol_or_asset_id=normalized_symbol)
+        except APIError as error:
+            if error.status_code == 404:
+                return None
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
+                code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
+            ) from error
+        except Exception as error:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
+                code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
+            ) from error

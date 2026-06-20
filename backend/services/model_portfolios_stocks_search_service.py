@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, TypedDict
 
+from alpaca.trading.models import Asset
+
+from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
 
 
@@ -29,6 +32,32 @@ class ModelPortfoliosSearchResponse(TypedDict):
     offset: int
 
 
+class StockSearchResult(TypedDict):
+    """Searchable stock metadata returned to callers."""
+
+    asset_id: str
+    symbol: str
+    name: str
+    exchange: str
+    asset_class: str
+    status: str
+    tradable: bool
+    marginable: bool
+    shortable: bool
+    easy_to_borrow: bool
+    fractionable: bool
+
+
+class ModelPortfoliosStocksSearchResponse(TypedDict):
+    """Combined model portfolio and stock search response."""
+
+    model_portfolios: ModelPortfoliosSearchResponse
+    stocks: List[StockSearchResult]
+
+
+
+
+
 class ModelPortfoliosStocksSearchServiceError(Exception):
     """Raised when model portfolio or stock search operations fail."""
 
@@ -49,16 +78,113 @@ class ModelPortfoliosStocksSearchServiceError(Exception):
 class ModelPortfoliosStocksSearchService:
     """Coordinate searches across model portfolios and stocks."""
 
-    def __init__(self, *, opensearch_client: OpenSearchClient) -> None:
+    def __init__(
+        self,
+        *,
+        opensearch_client: OpenSearchClient,
+        alpaca_broker_client: AlpacaBrokerClient,
+    ) -> None:
         """Initialize the search service.
 
         Args:
             opensearch_client: Client used to search indexed model portfolio metadata.
+            alpaca_broker_client: Client used to look up stocks by symbol.
 
         Returns:
             None.
         """
         self.opensearch_client = opensearch_client
+        self.alpaca_broker_client = alpaca_broker_client
+
+
+    def search_model_portfolios_and_stocks(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> ModelPortfoliosStocksSearchResponse:
+        """Search model portfolios and stocks using the same query.
+
+        Args:
+            query: Search text entered by the user.
+            limit: Maximum number of model portfolios to return.
+            offset: Number of matching model portfolios to skip.
+
+        Returns:
+            ModelPortfoliosStocksSearchResponse: Model portfolio search
+            results and any exact stock-symbol match.
+
+        Raises:
+            ModelPortfoliosStocksSearchServiceError: If either underlying
+                search operation fails.
+        """
+        return {
+            "model_portfolios": self.search_model_portfolios(
+                query=query,
+                limit=limit,
+                offset=offset,
+            ),
+            "stocks": self.search_stocks(query=query),
+        }
+
+
+    def search_stocks(
+        self,
+        *,
+        query: str,
+    ) -> List[StockSearchResult]:
+        """Search for a stock using an exact ticker symbol.
+
+        Args:
+            query: Exact stock ticker symbol entered by the user.
+
+        Returns:
+            List[StockSearchResult]: A one-item list when the stock exists,
+            otherwise an empty list.
+
+        Raises:
+            ModelPortfoliosStocksSearchServiceError: If Alpaca fails while
+                looking up the symbol or the returned asset cannot be parsed.
+        """
+        normalized_query = query.strip().upper()
+        if not normalized_query:
+            return []
+
+        try:
+            asset: Asset | None = self.alpaca_broker_client.get_stocks_by_symbol(
+                symbol=normalized_query
+            )
+            if asset is None:
+                return []
+
+            return [
+                StockSearchResult(
+                    asset_id=str(asset.id),
+                    symbol=str(asset.symbol),
+                    name=str(asset.name),
+                    exchange=str(getattr(asset.exchange, "value", asset.exchange)),
+                    asset_class=str(
+                        getattr(asset.asset_class, "value", asset.asset_class)
+                    ),
+                    status=str(getattr(asset.status, "value", asset.status)),
+                    tradable=bool(asset.tradable),
+                    marginable=bool(asset.marginable),
+                    shortable=bool(asset.shortable),
+                    easy_to_borrow=bool(asset.easy_to_borrow),
+                    fractionable=bool(asset.fractionable),
+                )
+            ]
+        except AlpacaBrokerClientError as error:
+            raise ModelPortfoliosStocksSearchServiceError(
+                message=f"Failed to search stocks for symbol '{normalized_query}': {error}",
+                code="STOCKS_SEARCH_ALPACA_FAILED",
+            ) from error
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ModelPortfoliosStocksSearchServiceError(
+                message=f"Failed to parse stock search result for symbol '{normalized_query}': {error}",
+                code="STOCKS_SEARCH_RESPONSE_INVALID",
+            ) from error
 
     def search_model_portfolios(
         self,

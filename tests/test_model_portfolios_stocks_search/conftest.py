@@ -18,6 +18,7 @@ os.environ["ENV"] = "dev"
 from backend.core import deps as app_deps
 from backend.core.config import get_settings
 from backend.clients.opensearch_client import OpenSearchClient
+from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
 
 
@@ -35,16 +36,23 @@ def opensearch_client() -> OpenSearchClient:
     return app_deps.get_opensearch_client()
 
 
+@pytest.fixture(scope="session")
+def alpaca_broker_client() -> AlpacaBrokerClient:
+    return app_deps.get_alpaca_broker_client()
+
+
 #######################################
 ############## SERVICES ###############
 #######################################
 
 @pytest.fixture(scope="session")
 def model_portfolios_stocks_search_service(
-    opensearch_client: OpenSearchClient
+    opensearch_client: OpenSearchClient,
+    alpaca_broker_client: AlpacaBrokerClient,
 ) -> ModelPortfoliosStocksSearchService:
     return app_deps.get_model_portfolios_stocks_search_service(
-        opensearch_client=opensearch_client
+        opensearch_client=opensearch_client,
+        alpaca_broker_client=alpaca_broker_client,
     )
 
 
@@ -62,6 +70,22 @@ class TestEngine:
 
     def test_search_model_portfolios(self,*,query: str,limit: int = 20,offset: int = 0):
         return self.model_portfolios_stocks_search_service.search_model_portfolios(query=query, limit=limit, offset=offset)
+
+    def test_search_stocks(self, *, query: str):
+        return self.model_portfolios_stocks_search_service.search_stocks(query=query)
+
+    def test_search_model_portfolios_and_stocks(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ):
+        return self.model_portfolios_stocks_search_service.search_model_portfolios_and_stocks(
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
 
 
 

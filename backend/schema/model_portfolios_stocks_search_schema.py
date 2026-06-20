@@ -27,3 +27,26 @@ class ModelPortfoliosSearchResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class StockSearchResultResponse(BaseModel):
+    """Stock metadata returned by an exact symbol search."""
+
+    asset_id: str
+    symbol: str
+    name: str
+    exchange: str
+    asset_class: str
+    status: str
+    tradable: bool
+    marginable: bool
+    shortable: bool
+    easy_to_borrow: bool
+    fractionable: bool
+
+
+class ModelPortfoliosStocksSearchResponse(BaseModel):
+    """Combined model portfolio and stock search response."""
+
+    model_portfolios: ModelPortfoliosSearchResponse
+    stocks: List[StockSearchResultResponse]

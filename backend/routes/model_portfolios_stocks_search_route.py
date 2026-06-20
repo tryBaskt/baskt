@@ -11,6 +11,8 @@ from core.deps import get_current_user, get_model_portfolios_stocks_search_servi
 from schema.model_portfolios_stocks_search_schema import (
     ModelPortfolioSearchResultResponse,
     ModelPortfoliosSearchResponse,
+    ModelPortfoliosStocksSearchResponse,
+    StockSearchResultResponse,
 )
 from services.model_portfolios_stocks_search_service import (
     ModelPortfoliosStocksSearchService,
@@ -53,6 +55,66 @@ def _raise_search_http_exception(error: Exception) -> None:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"Unexpected model portfolio search error: {error}",
     ) from error
+
+
+@router.get(
+    "",
+    response_model=ModelPortfoliosStocksSearchResponse,
+    status_code=status.HTTP_200_OK,
+)
+def search_model_portfolios_and_stocks(
+    query: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: Dict[str, Any] = Depends(get_current_user),
+    service: ModelPortfoliosStocksSearchService = Depends(
+        get_model_portfolios_stocks_search_service
+    ),
+) -> ModelPortfoliosStocksSearchResponse:
+    """Search model portfolios and stocks for an authenticated user.
+
+    Args:
+        query: Model portfolio text query and exact stock ticker symbol.
+        limit: Maximum number of model portfolio matches to return.
+        offset: Number of model portfolio matches to skip.
+        user: Authenticated Cognito claims resolved by dependency injection.
+        service: Model portfolio and stock search service dependency.
+
+    Returns:
+        ModelPortfoliosStocksSearchResponse: Paginated model portfolio results
+        and any exact stock-symbol match.
+
+    Raises:
+        HTTPException: If request validation or either search operation fails.
+    """
+    del user
+
+    try:
+        search_response = service.search_model_portfolios_and_stocks(
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
+        model_portfolios_response = search_response["model_portfolios"]
+        return ModelPortfoliosStocksSearchResponse(
+            model_portfolios=ModelPortfoliosSearchResponse(
+                model_portfolios=[
+                    ModelPortfolioSearchResultResponse(**model_portfolio)
+                    for model_portfolio in model_portfolios_response[
+                        "model_portfolios"
+                    ]
+                ],
+                total=model_portfolios_response["total"],
+                limit=model_portfolios_response["limit"],
+                offset=model_portfolios_response["offset"],
+            ),
+            stocks=[
+                StockSearchResultResponse(**stock)
+                for stock in search_response["stocks"]
+            ],
+        )
+    except Exception as error:
+        _raise_search_http_exception(error)
 
 
 @router.get(
