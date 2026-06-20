@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import AppShell from "./components/AppShell";
 import BasktPage from "./pages/BasktPage";
+import ExplorePage from "./pages/ExplorePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MakeABaskt from "./pages/MakeABaskt";
@@ -15,6 +16,7 @@ export default function App() {
   const [authView, setAuthView] = useState("login");
   const [currentPage, setCurrentPage] = useState("home");
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(null);
+  const [basktDetailBackPage, setBasktDetailBackPage] = useState("my-baskts");
   const [editingBaskt, setEditingBaskt] = useState(null);
 
   const forgotPasswordUrl = useMemo(() => {
@@ -63,6 +65,7 @@ export default function App() {
         onCreateBaskt={() => navigate("make")}
         onOpenBaskt={(portfolioId) => {
           setSelectedPortfolioId(portfolioId);
+          setBasktDetailBackPage("my-baskts");
           setCurrentPage("baskt-detail");
         }}
       />
@@ -71,7 +74,7 @@ export default function App() {
     page = (
       <BasktPage
         portfolioId={selectedPortfolioId}
-        onBack={() => setCurrentPage("my-baskts")}
+        onBack={() => setCurrentPage(basktDetailBackPage)}
         onUpdate={(baskt) => {
           setEditingBaskt(baskt);
           setCurrentPage("make");
@@ -80,6 +83,16 @@ export default function App() {
     );
   } else if (currentPage === "transfer") {
     page = <Transfer />;
+  } else if (currentPage === "explore") {
+    page = (
+      <ExplorePage
+        onOpenBaskt={(portfolioId) => {
+          setSelectedPortfolioId(portfolioId);
+          setBasktDetailBackPage("explore");
+          setCurrentPage("baskt-detail");
+        }}
+      />
+    );
   }
 
   return (

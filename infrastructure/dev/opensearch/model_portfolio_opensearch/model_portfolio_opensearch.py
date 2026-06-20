@@ -36,7 +36,7 @@ VOLUME_SIZE_GIB = 10
 
 
 def _account_id() -> str:
-    """Return the AWS account ID associated with the active credentials."""
+    """Return the AWS account ID associated with the actie credentials."""
     return boto3.client("sts", region_name=REGION).get_caller_identity()["Account"]
 
 

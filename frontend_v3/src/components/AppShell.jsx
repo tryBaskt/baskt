@@ -2,6 +2,7 @@ const navItems = [
   { id: "home", label: "Home", icon: "H" },
   { id: "make", label: "Make a Baskt", icon: "+" },
   { id: "my-baskts", label: "My Baskts", icon: "B" },
+  { id: "explore", label: "Explore Baskts & Stocks", icon: "E" },
   { id: "transfer", label: "Transfer", icon: "$" },
 ];
 

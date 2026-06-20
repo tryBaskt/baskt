@@ -66,6 +66,14 @@ class Settings(BaseSettings):
         default="_model_portfolio_update_lock_dynamodb",
         alias="MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB"
     )
+    opensearch_domain_suffix: str = Field(
+        default="-model-portfolio-search",
+        alias="OPENSEARCH_DOMAIN_SUFFIX",
+    )
+    model_portfolio_search_index_suffix: str = Field(
+        default="-model-portfolios",
+        alias="MODEL_PORTFOLIO_SEARCH_INDEX_SUFFIX",
+    )
     # Local-only credentials (on AWS, rely on IAM roles; these can be unset)
     aws_access_key_id: Optional[str] = Field(alias="AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = Field(alias="AWS_SECRET_ACCESS_KEY")
@@ -168,6 +176,16 @@ class Settings(BaseSettings):
     def model_portfolio_update_lock_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
         return f"{self.env}{self.model_portfolio_update_lock_suffix}"
+
+    @property
+    def opensearch_domain_name(self) -> str:
+        """Return the environment-specific OpenSearch domain name."""
+        return f"{self.env}{self.opensearch_domain_suffix}"
+
+    @property
+    def model_portfolio_search_index(self) -> str:
+        """Return the environment-specific Baskt search index name."""
+        return f"{self.env}{self.model_portfolio_search_index_suffix}"
 
     @property
     def alpaca_api_key(self) -> str:

@@ -2,7 +2,7 @@
 """Deploy or destroy the dev model portfolio search-index Lambda.
 
 Usage:
-    python model_portfolio_search_lambda.py --create --domain-name DOMAIN_NAME
+    python model_portfolio_search_lambda.py --create
     python model_portfolio_search_lambda.py --destroy
 """
 
@@ -23,15 +23,21 @@ from botocore.exceptions import ClientError
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from aws_env import load_aws_env
 
+OPENSEARCH_INFRASTRUCTURE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "opensearch"
+    / "model_portfolio_opensearch"
+)
+sys.path.append(str(OPENSEARCH_INFRASTRUCTURE_PATH))
+from model_portfolio_opensearch import DOMAIN_NAME, INDEX_NAME, REGION
+
 
 load_aws_env()
 
-REGION = "us-east-1"
 TABLE_NAME = "dev_model_portfolio_dynamodb"
 FUNCTION_NAME = "dev-model-portfolio-search-indexer"
 ROLE_NAME = "dev-model-portfolio-search-indexer-role"
 OPENSEARCH_POLICY_NAME = "dev-model-portfolio-search-indexer-opensearch"
-OPENSEARCH_INDEX = "dev-model-portfolios"
 HANDLER_PATH = Path(__file__).with_name("handler.py")
 
 LAMBDA_BASIC_POLICY_ARN = (
@@ -124,7 +130,7 @@ def _upsert_function(
     environment = {
         "Variables": {
             "OPENSEARCH_ENDPOINT": opensearch_endpoint,
-            "OPENSEARCH_INDEX": OPENSEARCH_INDEX,
+            "OPENSEARCH_INDEX": INDEX_NAME,
             "OPENSEARCH_SERVICE": "es",
             "EXPECTED_STREAM_ARN": stream_arn,
         }
@@ -206,14 +212,14 @@ def _ensure_event_source(lambda_client: Any, stream_arn: str) -> str:
     return mapping["UUID"]
 
 
-def create_lambda(domain_name: str) -> None:
+def create_lambda() -> None:
     """Deploy the stream consumer Lambda and connect it to DynamoDB."""
     iam = boto3.client("iam")
     dynamodb = boto3.client("dynamodb", region_name=REGION)
     lambda_client = boto3.client("lambda", region_name=REGION)
     opensearch = boto3.client("opensearch", region_name=REGION)
 
-    domain = _domain_configuration(opensearch, domain_name)
+    domain = _domain_configuration(opensearch, DOMAIN_NAME)
     stream_arn = _latest_stream_arn(dynamodb)
     role_arn = _ensure_role(iam, domain["arn"])
     _upsert_function(lambda_client, role_arn, domain["endpoint"], stream_arn)
@@ -223,7 +229,7 @@ def create_lambda(domain_name: str) -> None:
     print(f"DynamoDB stream: {stream_arn}")
     print(f"Event-source mapping: {mapping_id}")
     print(f"OpenSearch endpoint: {domain['endpoint']}")
-    print(f"OpenSearch index: {OPENSEARCH_INDEX}")
+    print(f"OpenSearch index: {INDEX_NAME}")
 
 
 def destroy_lambda() -> None:
@@ -264,17 +270,11 @@ def main() -> None:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--create", action="store_true")
     operation.add_argument("--destroy", action="store_true")
-    parser.add_argument(
-        "--domain-name",
-        help="Managed OpenSearch domain name; required with --create.",
-    )
     args = parser.parse_args()
 
     try:
         if args.create:
-            if not args.domain_name:
-                parser.error("--domain-name is required with --create")
-            create_lambda(args.domain_name)
+            create_lambda()
         else:
             destroy_lambda()
     except (ClientError, RuntimeError) as error:

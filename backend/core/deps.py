@@ -16,6 +16,7 @@ from services.backtest_service import BacktestService
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
+from clients.opensearch_client import OpenSearchClient
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from services.trade_execution_service import TradeExecutionService
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
@@ -26,6 +27,7 @@ from repository.model_portfolio_update_lock_repository import ModelPortfolioUpda
 from services.account_lifecycle_service import AccountLifecycleService
 from services.account_analytics_service import AccountAnalyticsService
 from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsService
+from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
 
 from alpaca.broker.models import Account
 
@@ -135,6 +137,16 @@ def get_cognito_client() -> CognitoClient:
         cognito_client=cognito_idp_client,
     )
 
+@lru_cache
+def get_opensearch_client() -> OpenSearchClient:
+    s = get_settings()
+    return OpenSearchClient(
+        session=get_boto3_session(),
+        region=s.aws_region,
+        domain_name=s.opensearch_domain_name,
+        model_portfolio_index=s.model_portfolio_search_index,
+    )
+
 # -----------------------------
 # Repository
 # -----------------------------
@@ -232,6 +244,12 @@ def get_model_portfolio_analytics_service(
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_repository=model_portfolio_repository,
     )
+
+
+def get_model_portfolios_stocks_search_service(
+    opensearch_client: OpenSearchClient = Depends(get_opensearch_client),
+) -> ModelPortfoliosStocksSearchService:
+    return ModelPortfoliosStocksSearchService(opensearch_client=opensearch_client)
 
 
 # -----------------------------

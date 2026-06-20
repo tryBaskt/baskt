@@ -15,7 +15,7 @@ from botocore.awsrequest import AWSRequest
 
 
 OPENSEARCH_ENDPOINT = os.environ["OPENSEARCH_ENDPOINT"].rstrip("/")
-OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "dev-model-portfolios")
+OPENSEARCH_INDEX = os.environ["OPENSEARCH_INDEX"]
 EXPECTED_STREAM_ARN = os.environ.get("EXPECTED_STREAM_ARN")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", "es")
