@@ -39,7 +39,7 @@ class OpenSearchClient:
         session: boto3.Session,
         region: str,
         domain_name: str,
-        model_portfolio_index: str,
+        index_name: str,
     ) -> None:
         """Initialize an OpenSearch client.
 
@@ -47,7 +47,7 @@ class OpenSearchClient:
             session: Boto3 session supplying AWS credentials.
             region: AWS region containing the OpenSearch domain.
             domain_name: Managed OpenSearch domain name.
-            model_portfolio_index: Index containing searchable Baskt metadata.
+            index_name: OpenSearch index used by this client instance.
 
         Returns:
             None.
@@ -55,7 +55,7 @@ class OpenSearchClient:
         self.session = session
         self.region = region
         self.domain_name = domain_name
-        self.model_portfolio_index = model_portfolio_index
+        self.index_name = index_name
         self._endpoint: str | None = None
 
     def _get_endpoint(self) -> str:
@@ -160,19 +160,16 @@ class OpenSearchClient:
                 code="OPENSEARCH_REQUEST_FAILED",
             ) from error
 
-    def search_model_portfolios(
+    def search(
         self,
         *,
-        query: str,
-        limit: int,
-        offset: int,
+        body: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Search Baskt names and descriptions.
+        """Search documents in the configured OpenSearch index.
 
         Args:
-            query: User-provided search text.
-            limit: Maximum number of matching Baskts to return.
-            offset: Number of matching Baskts to skip.
+            body: OpenSearch search request body, including the query and any
+                pagination, source filtering, or sorting options.
 
         Returns:
             Dict[str, Any]: Raw OpenSearch search response.
@@ -180,48 +177,8 @@ class OpenSearchClient:
         Raises:
             OpenSearchClientError: If the signed OpenSearch request fails.
         """
-        search_body = {
-            "from": offset,
-            "size": limit,
-            "track_total_hits": True,
-            "_source": [
-                "portfolio_id",
-                "portfolio_name",
-                "description",
-                "portfolio_owner_cognito_user_id",
-                "created_at",
-                "updated_at",
-                "visibility",
-            ],
-            "query": {
-                "bool": {
-                    "should": [
-                        {
-                            "match_phrase_prefix": {
-                                "portfolio_name": {
-                                    "query": query,
-                                    "boost": 4,
-                                }
-                            }
-                        },
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["portfolio_name^3", "description"],
-                                "fuzziness": "AUTO",
-                            }
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                }
-            },
-            "sort": [
-                "_score",
-                {"updated_at": {"order": "desc", "unmapped_type": "date"}},
-            ],
-        }
         return self._request(
             method="POST",
-            path=f"{self.model_portfolio_index}/_search",
-            body=search_body,
+            path=f"{self.index_name}/_search",
+            body=body,
         )

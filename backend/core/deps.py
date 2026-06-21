@@ -145,7 +145,7 @@ def get_opensearch_client() -> OpenSearchClient:
         session=get_boto3_session(),
         region=s.aws_region,
         domain_name=s.opensearch_domain_name,
-        model_portfolio_index=s.model_portfolio_search_index,
+        index_name=s.model_portfolio_search_index,
     )
 
 # -----------------------------
