@@ -1,3 +1,4 @@
+# backend/services/stock_trade_execution_service.py
 
 from __future__ import annotations
 
@@ -5,12 +6,10 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from fastapi import HTTPException
 from domain.portfolio_allocation import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
-from domain.model_portfolio import ModelPortfolioSnapshot, ModelPortfolioPosition
-from domain.baskt import BasktPosition, DeltaPosition
-from repository.model_portfolio_repository import ModelPortfolioRepository
+from domain.baskt import DeltaPosition
+from domain.baskt import BasktPosition
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from repository.order_repository import OrderRepository
-from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from alpaca.trading.models import Order
 import uuid
@@ -21,21 +20,17 @@ MARGIN = 0.001
 EPS = 1e-6
 LOCK_LEASE_SECONDS = 30
 
-class TradeExecutionService:
+class StockTradeExecutionService:
     def __init__(
         self, 
         alpaca_broker_client: AlpacaBrokerClient,
-        model_portfolio_repository: ModelPortfolioRepository,
         portfolio_allocation_repository: PortfolioAllocationRepository,
         order_repository: OrderRepository,
-        model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-        user_trade_lock_repository: UserTradeLockRepository
+        user_trade_lock_repository: UserTradeLockRepository,
     ):
         self.alpaca_broker_client: AlpacaBrokerClient = alpaca_broker_client
-        self.model_portfolio_repository: ModelPortfolioRepository = model_portfolio_repository
         self.portfolio_allocation_repository: PortfolioAllocationRepository = portfolio_allocation_repository
         self.order_repository: OrderRepository = order_repository
-        self.model_portfolio_follower_repository: ModelPortfolioFollowerRepository = model_portfolio_follower_repository
         self.user_trade_lock_repository: UserTradeLockRepository = user_trade_lock_repository
     
     def _sort_delta_positions(self, delta_positions: List[DeltaPosition], baskt_positions_dict: Dict[str, BasktPosition]) -> List[DeltaPosition]:
@@ -129,10 +124,6 @@ class TradeExecutionService:
         # Full direction flip with equal quantity: close current position.
         if abs(curr_quantity - delta_quantity) <= EPS and curr_direction != delta_direction:
             self._append_close_order(order_results=order_results, symbol=symbol, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-            # if curr_direction == 1:
-            #     self._append_sell_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-            # else:
-            #     self._append_buy_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             return order_results
 
         # long -> short crossing through flat.
@@ -171,7 +162,6 @@ class TradeExecutionService:
             portfolio_id: str, 
             cognito_user_id: str, 
             alpaca_account_id: str,
-            portfolio_owner_cognito_user_id: str,
             transaction_type: str,
             requested_amount: Optional[float]
         ) -> Dict[str, List[Order] | str]:
@@ -190,7 +180,6 @@ class TradeExecutionService:
             portfolio_id: ID of the portfolio
             cognito_user_id: ID of the user executing trades
             alpaca_account_id: Alpaca account ID that will execute the orders.
-            portfolio_owner_cognito_user_id: ID of the portfolio owner
             transaction_type: Transaction type label persisted with the
                 allocation snapshot.
             
@@ -254,7 +243,6 @@ class TradeExecutionService:
         self.order_repository.put_orders(
             portfolio_id=portfolio_id, 
             cognito_user_id=cognito_user_id, 
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
             transaction_id=transaction_id, 
             orders = order_results
         )
@@ -265,7 +253,7 @@ class TradeExecutionService:
         }
 
 
-    def execute_withdraw_all_from_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, alpaca_account_id: str, cognito_user_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
+    def execute_close_stock(self, asset_id: str, alpaca_account_id: str, cognito_user_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
         """
         Liquidate all positions in a user's portfolio allocation.
         
@@ -274,7 +262,6 @@ class TradeExecutionService:
         
         Args:
             portfolio_id: ID of the portfolio to withdraw from
-            portfolio_owner_cognito_user_id: ID of the portfolio owner
             cognito_user_id: ID of the user withdrawing
             is_test: If True, skip realizing filled orders (for testing)
             
@@ -298,21 +285,15 @@ class TradeExecutionService:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
-                    portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                    portfolio_id=asset_id
                 )
 
-            # # Get latest allocation history
-            # portfolio_allocation_snapshots: List[PortfolioAllocationSnapshot]  = self.portfolio_allocation_repository.get_n_last_portfolio_allocation_snapshots(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id, n = 1)
-            # curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]
-            # curr_portfolio_allocation_positions = curr_portfolio_allocation_snapshot.positions
-
+            # Get latest allocation history
             curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
+                portfolio_id=asset_id
             )
             curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
-
 
             # Build the delta positions
             delta_positions: List[DeltaPosition] = []
@@ -328,23 +309,19 @@ class TradeExecutionService:
             # Execute trades via helper
             execution_trade_response =  self._execute_trades_helper(
                 delta_positions=delta_positions,
-                portfolio_id=portfolio_id,
+                portfolio_id=asset_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                transaction_type="WITHDRAW_ALL",
+                transaction_type="CLOSE",
                 requested_amount=None,
             )
-
-            # Remove follower from model portfolio
-            self.model_portfolio_follower_repository.delete_model_portfolio_follower(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
 
             return execution_trade_response
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
 
 
-    def execute_withdraw_from_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, withdraw_amount: float, alpaca_account_id: str, cognito_user_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
+    def execute_sell_to_stock(self, symbol: str, asset_id: str, withdraw_amount: float, alpaca_account_id: str, cognito_user_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
         """
         Partially withdraw a specified dollar amount from a user's portfolio allocation.
         
@@ -353,7 +330,6 @@ class TradeExecutionService:
         
         Args:
             portfolio_id: ID of the portfolio to withdraw from
-            portfolio_owner_cognito_user_id: ID of the portfolio owner
             withdraw_amount: Dollar amount to withdraw from the portfolio
             cognito_user_id: ID of the user withdrawing
             is_test: If True, skip realizing filled orders (for testing)
@@ -380,251 +356,32 @@ class TradeExecutionService:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
-                    portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                    portfolio_id=asset_id
                 )
-
-            # Get latest allocation history
-            # portfolio_allocation_snapshots: List[PortfolioAllocationSnapshot] = self.portfolio_allocation_repository.get_n_last_portfolio_allocation_snapshots(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id, n=1)
-            # curr_portfolio_allocation_snapshot = portfolio_allocation_snapshots[-1]
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
-            )
 
             # Get value of each position and total allocation
-            position_weights_dict, total_portfolio_allocation_value, quotes = self.portfolio_allocation_repository.calculate_positions_current_weight(
-                portfolio_allocation_position_snapshot=curr_portfolio_allocation_position_snapshot
-            )
-
-            # Validate portfolio allocation value is greater than zero
-            if total_portfolio_allocation_value <= 0:
-                raise ValueError(f"No withdrawable positions found: portfolio_id={portfolio_id}")
-
-            # Validate the withdraw amount is less than the portfolio allocation value
-            if withdraw_amount > total_portfolio_allocation_value:
-                raise ValueError(f"Withdraw amount greater than market value: market value={total_portfolio_allocation_value} portfolio_id={portfolio_id}")
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
 
             # Build delta positions
-            delta_positions: List[DeltaPosition] = []
-            curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
-            for position in curr_portfolio_allocation_positions:
-                symbol = position.symbol
-                direction = position.direction * -1 # opposite direction because we are withdrawing
-                position_allocation = position_weights_dict[symbol] * withdraw_amount
-                price = quotes[symbol]
-                margin_ask = float(ceil(price * (1 + MARGIN) * 100) / 100)
-                margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
-                order_qty = position_allocation / (margin_ask if direction == 1 else margin_bid)
-
-                delta_positions.append(
-                    DeltaPosition(
-                        symbol=position.symbol,
-                        quantity=order_qty,
-                        direction=direction 
-                    )
-                )
+            price = quotes[symbol]
+            margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
+            order_qty = withdraw_amount / margin_bid
+            delta_positions = [DeltaPosition(symbol=symbol, quantity=order_qty, direction=-1)]
 
             # Execute trades via helper
             return self._execute_trades_helper(
                 delta_positions=delta_positions,
-                portfolio_id=portfolio_id,
+                portfolio_id=asset_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                transaction_type="WITHDRAW",
+                transaction_type="SELL",
                 requested_amount=withdraw_amount,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
         
-
-    def _execute_update_in_portfolio_helper(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, cognito_user_id: str, follower_alpaca_account_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
-
-        owner_token = str(uuid.uuid4())
-        acquired = self.user_trade_lock_repository.acquire_lock(
-            cognito_user_id=cognito_user_id,
-            owner_token=owner_token,
-            lease_seconds=LOCK_LEASE_SECONDS,
-        )
-        if not acquired:
-            raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
-
-        try:
-            # Realize filled orders before withdrawing
-            if is_test:
-                self.realize_filled_orders(
-                    cognito_user_id=cognito_user_id,
-                    alpaca_account_id=follower_alpaca_account_id,
-                    portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                )
-
-            # Get the two latest model portfolio's position history
-            model_portfolio_snapshots: List[ModelPortfolioSnapshot] = self.model_portfolio_repository.get_n_last_model_portfolio_snapshots(portfolio_id=portfolio_id, n=2)
-            new_model_portfolio_snapshot = model_portfolio_snapshots[-1]
-            curr_model_portfolio_snapshot = model_portfolio_snapshots[-2]
-
-            # Get the new model portfolio snapshot
-            new_model_portfolio_positions: List[ModelPortfolioPosition] = new_model_portfolio_snapshot.positions
-            new_model_portfolio_symbols = [position.symbol for position in new_model_portfolio_positions]
-            new_model_portfolio_positions_dict = {
-                position.symbol: position
-                for position in new_model_portfolio_positions
-            }
-            new_model_portfolio_weights_dict, _, new_model_portfolio_quotes = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=new_model_portfolio_snapshot)
-
-            # Get the current model portfolio snapshot
-            curr_model_portfolio_positions: List[ModelPortfolioPosition] = curr_model_portfolio_snapshot.positions
-            curr_model_portfolio_symbols = [pos.symbol for pos in curr_model_portfolio_positions]
-            curr_model_portfolio_positions_dict = {
-                position.symbol: position
-                for position in curr_model_portfolio_positions
-            }
-            curr_model_portfolio_weights_dict, _, curr_model_portfolio_quotes = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=curr_model_portfolio_snapshot)
-            
-            # Get latest positions
-            portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
-            )
-            portfolio_allocation_positions = portfolio_allocation_position_snapshot.positions
-            curr_portfolio_allocation_positions_dict = {
-                pos.symbol: pos
-                for pos in portfolio_allocation_positions
-            }
-
-            # Build delta positions
-            delta_positions: List[DeltaPosition] = []
-
-            # Create delta positions for positions no longer in model portfolio
-            for curr_symbol in curr_model_portfolio_symbols:
-                if curr_symbol not in new_model_portfolio_positions_dict:
-                    delta_positions.append(DeltaPosition(
-                        symbol=curr_symbol,
-                        quantity=curr_portfolio_allocation_positions_dict[curr_symbol].filled_quantity,
-                        direction=curr_portfolio_allocation_positions_dict[curr_symbol].direction * -1 # opposite because we are selling / covering
-                        )
-                    )
-
-            curr_allocation_amount = self.portfolio_allocation_repository.get_portfolio_allocation_total_filled_amount(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
-            
-            # Create delta positions for new position in model Portfolio
-            for new_position in new_model_portfolio_positions:
-                new_symbol = new_position.symbol
-                if new_symbol not in curr_model_portfolio_positions_dict:
-
-                    new_weight = new_model_portfolio_weights_dict[new_symbol]
-                    new_leverage = new_position.leverage
-                    new_direction = new_position.direction
-                    price = new_model_portfolio_quotes[new_symbol]
-
-                    margin_ask = float(ceil(price * (1 + MARGIN) * 100) / 100)
-                    margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
-
-                    denom = margin_ask if new_direction == 1 else margin_bid
-                    order_qty = abs(curr_allocation_amount * new_weight * new_leverage) / denom
-
-                    if order_qty <= 0:
-                        continue
-
-                    delta_positions.append(
-                        DeltaPosition(
-                            symbol= new_symbol,
-                            quantity= order_qty,
-                            direction = new_direction
-                        )
-                    )
-
-            # Create delta positions for positions that were in prev and curr model portfolios
-            for symbol in list(set(curr_model_portfolio_symbols).intersection(set(new_model_portfolio_symbols))):
-                new_pos = new_model_portfolio_positions_dict[symbol]
-                curr_pos = curr_model_portfolio_positions_dict[symbol]
-
-                new_net_dollars = 0.0
-                curr_net_dollars = 0.0
-
-                if new_pos:
-                    new_net_dollars = new_model_portfolio_weights_dict[new_pos.symbol] * float(curr_allocation_amount) * float(new_pos.leverage) * int(new_pos.direction)
-                if curr_pos:
-                    curr_net_dollars = curr_model_portfolio_weights_dict[curr_pos.symbol] * float(curr_allocation_amount) * float(curr_pos.leverage) * int(curr_pos.direction)
-
-                delta_net_dollars = new_net_dollars - curr_net_dollars
-
-                # Skip tiny changes
-                if abs(delta_net_dollars) <= EPS:
-                    continue
-
-                price = curr_model_portfolio_quotes[symbol]
-                if not price:
-                    continue
-
-                margin_ask = float(ceil(price * (1 + MARGIN) * 100) / 100)
-                margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
-
-                delta_direction = 1 if delta_net_dollars > 0 else -1
-                denom = margin_ask if delta_direction == 1 else margin_bid
-                order_qty = abs(delta_net_dollars) / denom if denom > 0 else 0.0
-
-                if order_qty <= 0:
-                    continue
-
-                delta_positions.append(
-                    DeltaPosition(
-                        symbol=symbol,
-                        quantity=order_qty,
-                        direction=delta_direction,
-                    )
-                )
-
-            return self._execute_trades_helper(
-                delta_positions=delta_positions,
-                portfolio_id=portfolio_id,
-                cognito_user_id=cognito_user_id,
-                alpaca_account_id=follower_alpaca_account_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                transaction_type="UPDATE",
-                requested_amount=None,
-            )
-        finally:
-            self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
     
-    def execute_update_in_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, is_test: bool = False) -> Dict[str, Dict[str, List[Order] | str]]:
-        """
-        Rebalance a user's portfolio allocation to match an updated model portfolio.
-        
-        Compares the previous and current model portfolio snapshots to determine:
-        - Positions to close (removed from model)
-        - Positions to open (added to model)
-        - Positions to adjust (weight/direction changed)
-        
-        Executes trades to align the user's actual holdings with the updated model
-        while maintaining their current allocation amount.
-        
-        Args:
-            portfolio_id: ID of the portfolio to update
-            portfolio_owner_cognito_user_id: ID of the portfolio owner
-            is_test: If True, skip realizing filled orders (for testing)
-            
-        Returns:
-            List[Order]: List of Alpaca Order objects executed for the rebalance
-        """
-
-        model_portfolio_followers_dict = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-        all_update_orders = {}
-
-        for follower_dict in model_portfolio_followers_dict:
-            try:
-                follower_cognito_user_id = follower_dict["cognito_user_id"]
-                follower_alpaca_account_id = follower_dict["alpaca_account_id"]
-                all_update_orders[follower_cognito_user_id] = self._execute_update_in_portfolio_helper(portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, cognito_user_id=follower_cognito_user_id, follower_alpaca_account_id=follower_alpaca_account_id, is_test=is_test)
-            except Exception as e:
-                continue
-
-        return all_update_orders
-
-    
-    def execute_deposit_to_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, deposit_amount: float, cognito_user_id: str, alpaca_account_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
+    def execute_buy_to_stock(self, symbol: str, asset_id: str, deposit_amount: float, cognito_user_id: str, alpaca_account_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
         """
         Deposit a specified dollar amount into a user's portfolio allocation.
         
@@ -635,7 +392,6 @@ class TradeExecutionService:
         
         Args:
             portfolio_id: ID of the portfolio to deposit into
-            portfolio_owner_cognito_user_id: ID of the portfolio owner
             deposit_amount: Dollar amount to deposit into the portfolio
             cognito_user_id: ID of the user making the deposit
             is_test: If True, skip realizing filled orders (for testing)
@@ -662,54 +418,28 @@ class TradeExecutionService:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
-                    portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                    portfolio_id=asset_id,
                 )
 
-            # Get the current model portfolio snapshot
-            model_portfolio_snapshots = self.model_portfolio_repository.get_n_last_model_portfolio_snapshots(portfolio_id=portfolio_id, n=1)
-            curr_model_portfolio_snapshot = model_portfolio_snapshots[-1]
-            # Get the latest positions of the model portfolio
-            curr_model_portfolio_positions: List[ModelPortfolioPosition]  = curr_model_portfolio_snapshot.positions
-            # Get the symbols of the latest positions
-            portfolio_symbols = [position.symbol for position in curr_model_portfolio_positions]
             # Get the quotes of the latest symbols
-            quotes = self.alpaca_broker_client.get_latest_price(portfolio_symbols)
-            # Get the current weight of positions
-            model_portfolio_position_value_dict,_,_ = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=curr_model_portfolio_snapshot)
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
 
             # Create the delta positions that will be executed
-            delta_positions: List[DeltaPosition] = []
-            for position in curr_model_portfolio_positions:
-                symbol = position.symbol
-                order_direction = position.direction
-                position_allocation = model_portfolio_position_value_dict[symbol] * deposit_amount * position.leverage
-                price = quotes[symbol]
-                margin_ask = float(ceil(price * (1 + MARGIN) * 100) / 100)
-                margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
-                order_qty = position_allocation / (margin_ask if order_direction == 1 else margin_bid)
-                delta_positions.append(
-                    DeltaPosition(
-                        symbol=position.symbol,
-                        quantity=order_qty,
-                        direction=order_direction
-                    )
-                )
+            price = quotes[symbol]
+            margin_ask = float(ceil(price * (1 + MARGIN) * 100) / 100)
+            order_qty = deposit_amount / margin_ask
+            delta_positions = [DeltaPosition(symbol=symbol, quantity=order_qty, direction=1)]
 
             # Execute trades via helper
-            trade_execution_response =  self._execute_trades_helper(
+            trade_execution_response = self._execute_trades_helper(
                 delta_positions=delta_positions,
-                portfolio_id=portfolio_id,
+                portfolio_id=asset_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                transaction_type="DEPOSIT",
+                transaction_type="BUY",
                 requested_amount=deposit_amount,
             )
         
-            # Add user as follower to model portfolio
-            self.model_portfolio_follower_repository.put_model_portfolio_follower(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id, portfolio_id=portfolio_id, portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id)
-
             return trade_execution_response
         
         finally:
@@ -779,7 +509,7 @@ class TradeExecutionService:
         }
         return curr_allocation_amount + order_filled_avg_price * flipped_qty
     
-    def realize_filled_orders(self, cognito_user_id: str, alpaca_account_id: str, portfolio_id: str, portfolio_owner_cognito_user_id: str) -> int:
+    def realize_filled_orders(self, cognito_user_id: str, alpaca_account_id: str, portfolio_id: str) -> int:
         """
         Reconcile filled orders from Alpaca with the user's portfolio allocation in DynamoDB.
         
@@ -858,7 +588,6 @@ class TradeExecutionService:
                 self.order_repository.put_orders(
                     portfolio_id=portfolio_id,
                     cognito_user_id=cognito_user_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     transaction_id=curr_transaction_id,
                     orders=newly_filled_orders
                 )

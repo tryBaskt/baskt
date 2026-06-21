@@ -14,7 +14,7 @@ class PortfolioAllocationTransactionSnapshot:
     filled_at: datetime
     requested_amount: float # if None, it is withdraw all
     number_orders: int
-    transaction_type: str # DEPOSIT | UPDATE | WITHDRAW | WITHDRAW_ALL
+    transaction_type: str # BUY | UPDATE | SELL | CLOSE
     filled_amount: float
     order_fill_percent: float
     status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED

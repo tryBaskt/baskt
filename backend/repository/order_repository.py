@@ -192,7 +192,7 @@ class OrderRepository:
             ) from e
 
 
-    def put_orders(self, portfolio_id: str, cognito_user_id: str, portfolio_owner_cognito_user_id: str, transaction_id: str, orders: List[Order]) -> int:
+    def put_orders(self, portfolio_id: str, cognito_user_id: str, transaction_id: str, orders: List[Order], portfolio_owner_cognito_user_id: Optional[str] = None) -> int:
         """
         Persist Alpaca orders for a portfolio transaction.
 

@@ -43,9 +43,3 @@ class ModelPortfolio:
     updated_at: datetime
     description: Optional[str] = None
 
-@dataclass(frozen=True)
-class DeltaPosition:
-    symbol: str
-    quantity: float
-    direction: int  # +1 long, -1 short
-

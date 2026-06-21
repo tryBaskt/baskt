@@ -28,6 +28,7 @@ from services.account_lifecycle_service import AccountLifecycleService
 from services.account_analytics_service import AccountAnalyticsService
 from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsService
 from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
+from services.stock_trade_execution_service import StockTradeExecutionService
 
 from alpaca.broker.models import Account
 
@@ -215,7 +216,6 @@ def get_trade_execution_service(
     order_repository: OrderRepository = Depends(get_order_repository),
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
-    account_lifecycle_service: AccountLifecycleService = Depends(get_account_lifecycle_service)
 ) -> TradeExecutionService:
     return TradeExecutionService(
         alpaca_broker_client=alpaca_broker_client,
@@ -223,8 +223,7 @@ def get_trade_execution_service(
         portfolio_allocation_repository=portfolio_allocation_repository,
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
-        user_trade_lock_repository=user_trade_lock_repository,
-        account_lifecycle_service=account_lifecycle_service
+        user_trade_lock_repository=user_trade_lock_repository
     )
 
 def get_account_analytics_service(
@@ -253,6 +252,19 @@ def get_model_portfolios_stocks_search_service(
     return ModelPortfoliosStocksSearchService(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
+    )
+
+def get_stock_trade_execution_service(
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    order_repository: OrderRepository = Depends(get_order_repository),
+    user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository)
+) -> StockTradeExecutionService:
+    return StockTradeExecutionService(
+        alpaca_broker_client=alpaca_broker_client,
+        portfolio_allocation_repository=portfolio_allocation_repository,
+        order_repository=order_repository,
+        user_trade_lock_repository=user_trade_lock_repository
     )
 
 

@@ -16,6 +16,8 @@ class BasktAsset:
     symbol: str
     tradable: bool
     fractionable: bool
+    shortable: bool
+    asset_id: str
     asset_class: str
 
 @dataclass(frozen=True)
@@ -27,6 +29,12 @@ class BasktPosition:
     filled_quantity: float 
     filled_avg_price: float 
     direction: int
+
+@dataclass(frozen=True)
+class DeltaPosition:
+    symbol: str
+    quantity: float
+    direction: int  # +1 long, -1 short
 
 @dataclass(frozen=True)
 class BasktAccount:

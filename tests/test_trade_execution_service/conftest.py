@@ -31,6 +31,8 @@ from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, 
 from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
 from backend.domain.baskt import BasktPosition
+from backend.clients.dynamodb_client import DynamoDBClient
+from backend.services.stock_trade_execution_service import StockTradeExecutionService
 from math import ceil, floor
 
 MARGIN_ERROR = 0.01
@@ -45,6 +47,7 @@ get_settings.cache_clear()
 #######################################
 ############### CLIENTS ###############
 #######################################
+
 @pytest.fixture(scope="session")
 def cognito_client() -> CognitoClient:
     return app_deps.get_cognito_client()
@@ -244,7 +247,6 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
     mock.execute_close_position.side_effect = execute_close_position
-    # mock.get_alpaca_account_by_id.side_effect = get_alpaca_account_by_id
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position
@@ -276,36 +278,25 @@ def alpaca_broker_client(request) -> AlpacaBrokerClient:
 
     return app_deps.get_alpaca_broker_client()
 
+
+
 ########################################
 ############## REPOSITORY ##############
 ########################################
+
 @pytest.fixture(scope="session")
-def model_portfolio_follower_repository(alpaca_broker_client: AlpacaBrokerClient) -> ModelPortfolioFollowerRepository:
+def model_portfolio_follower_repository(
+    alpaca_broker_client: AlpacaBrokerClient,
+) -> ModelPortfolioFollowerRepository:
+    
+    app_deps.get_model_portfolio_follower_dynamodb_client.cache_clear()
     model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_follower_dynamodb_client()
+
     return app_deps.get_model_portfolio_follower_repository(
         model_portfolio_follower_dynamodb_client=model_portfolio_follower_dynamodb_client,
         alpaca_broker_client=alpaca_broker_client
     )
 
-@pytest.fixture(scope="session")
-def model_portfolio_repository(
-    alpaca_broker_client: AlpacaBrokerClient,
-    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-) -> ModelPortfolioRepository:
-
-    app_deps.get_model_portfolio_dynamodb_client.cache_clear()
-    model_portfolio_dynamodb_client = app_deps.get_model_portfolio_dynamodb_client()
-
-    model_portfolio_update_lock_repository = app_deps.get_model_portfolio_update_lock_repository(
-        model_portfolio_update_lock_dynamodb_client=app_deps.get_model_portfolio_update_lock_dynamodb_client()
-    )
-
-    return app_deps.get_model_portfolio_repository(
-        dynamodb=model_portfolio_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client,
-        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
-        model_portfolio_follower_repository=model_portfolio_follower_repository,
-    )
 
 @pytest.fixture(scope="session")
 def model_portfolio_update_lock_repository() -> ModelPortfolioUpdateLockRepository:
@@ -317,8 +308,28 @@ def model_portfolio_update_lock_repository() -> ModelPortfolioUpdateLockReposito
         model_portfolio_update_lock_dynamodb_client=model_portfolio_update_lock_dynamodb_client
     )
 
+
+@pytest.fixture(scope="session")
+def model_portfolio_repository(
+    alpaca_broker_client: AlpacaBrokerClient,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository
+) -> ModelPortfolioRepository:
+
+    app_deps.get_model_portfolio_dynamodb_client.cache_clear()
+    model_portfolio_dynamodb_client = app_deps.get_model_portfolio_dynamodb_client()
+
+    return app_deps.get_model_portfolio_repository(
+        dynamodb=model_portfolio_dynamodb_client,
+        alpaca_broker_client=alpaca_broker_client,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+    )
+
+
 @pytest.fixture(scope="session")
 def portfolio_allocation_repository(alpaca_broker_client: AlpacaBrokerClient) -> PortfolioAllocationRepository:
+
     app_deps.get_portfolio_allocation_dynamodb_client.cache_clear()
     portfolio_allocation_dynamodb_client = app_deps.get_portfolio_allocation_dynamodb_client()
     return app_deps.get_portfolio_allocation_repository(
@@ -328,8 +339,10 @@ def portfolio_allocation_repository(alpaca_broker_client: AlpacaBrokerClient) ->
 
 @pytest.fixture(scope="session")
 def order_repository(alpaca_broker_client: AlpacaBrokerClient) -> OrderRepository:
+
     app_deps.get_order_dynamodb_client.cache_clear()
     order_dynamodb_client = app_deps.get_order_dynamodb_client()
+
     return app_deps.get_order_repository(
         order_dynamodb_client=order_dynamodb_client,
         alpaca_broker_client=alpaca_broker_client
@@ -337,8 +350,10 @@ def order_repository(alpaca_broker_client: AlpacaBrokerClient) -> OrderRepositor
 
 @pytest.fixture(scope="session")
 def user_trade_lock_repository() -> UserTradeLockRepository:
+
     app_deps.get_user_trade_lock_dynamodb_client.cache_clear()
     user_trade_lock_dynamodb_client = app_deps.get_user_trade_lock_dynamodb_client()
+
     return app_deps.get_user_trade_lock_repository(
         user_trade_lock_dynamodb_client=user_trade_lock_dynamodb_client
     )
@@ -359,47 +374,13 @@ def account_lifecycle_service(
 
 @pytest.fixture(scope="session")
 def trade_execution_service(
+    model_portfolio_repository: ModelPortfolioRepository,
     alpaca_broker_client: AlpacaBrokerClient,
-    account_lifecycle_service: AccountLifecycleService,
+    portfolio_allocation_repository: PortfolioAllocationRepository,
+    order_repository: OrderRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    user_trade_lock_repository: UserTradeLockRepository
 ) -> TradeExecutionService:
-
-    app_deps.get_model_portfolio_dynamodb_client.cache_clear()
-    model_portfolio_dynamodb_client = app_deps.get_model_portfolio_dynamodb_client()
-    app_deps.get_portfolio_allocation_dynamodb_client.cache_clear()
-    portfolio_allocation_dynamodb_client = app_deps.get_portfolio_allocation_dynamodb_client()
-    app_deps.get_order_dynamodb_client.cache_clear()
-    order_dynamodb_client = app_deps.get_order_dynamodb_client()
-    app_deps.get_model_portfolio_follower_dynamodb_client.cache_clear()
-    model_portfolio_follower_dynamodb_client = app_deps.get_model_portfolio_follower_dynamodb_client()
-    app_deps.get_user_trade_lock_dynamodb_client.cache_clear()
-    user_trade_lock_dynamodb_client = app_deps.get_user_trade_lock_dynamodb_client()
-    app_deps.get_cognito_client.cache_clear()
-    cognito_client = app_deps.get_cognito_client()
-
-    model_portfolio_update_lock_repository = app_deps.get_model_portfolio_update_lock_repository(
-        model_portfolio_update_lock_dynamodb_client=app_deps.get_model_portfolio_update_lock_dynamodb_client()
-    )
-    model_portfolio_follower_repository = app_deps.get_model_portfolio_follower_repository(
-        model_portfolio_follower_dynamodb_client=model_portfolio_follower_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client
-    )
-    model_portfolio_repository = app_deps.get_model_portfolio_repository(
-        dynamodb=model_portfolio_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client,
-        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
-        model_portfolio_follower_repository=model_portfolio_follower_repository,
-    )
-    portfolio_allocation_repository = app_deps.get_portfolio_allocation_repository(
-        portfolio_allocation_dynamodb_client=portfolio_allocation_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client
-    )
-    order_repository = app_deps.get_order_repository(
-        order_dynamodb_client=order_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client
-    )
-    user_trade_lock_repository = app_deps.get_user_trade_lock_repository(
-        user_trade_lock_dynamodb_client=user_trade_lock_dynamodb_client
-    )
 
     return app_deps.get_trade_execution_service(
         model_portfolio_repository=model_portfolio_repository,
@@ -408,7 +389,20 @@ def trade_execution_service(
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
-        account_lifecycle_service=account_lifecycle_service
+    )
+
+@pytest.fixture(scope="session")
+def stock_trade_execution_service(
+    alpaca_broker_client: AlpacaBrokerClient,
+    portfolio_allocation_repository: PortfolioAllocationRepository,
+    order_repository: OrderRepository,
+    user_trade_lock_repository: UserTradeLockRepository
+) -> StockTradeExecutionService:
+    return app_deps.get_stock_trade_execution_service(
+        alpaca_broker_client=alpaca_broker_client,
+        portfolio_allocation_repository=portfolio_allocation_repository,
+        order_repository=order_repository,
+        user_trade_lock_repository=user_trade_lock_repository,
     )
 
 ###########################################
@@ -424,7 +418,8 @@ class TestEngine:
         order_repository: OrderRepository,
         alpaca_broker_client: AlpacaBrokerClient,
         portfolio_allocation_repository: PortfolioAllocationRepository,
-        model_portfolio_follower_repository: ModelPortfolioFollowerRepository
+        model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+        stock_trade_execution_service: StockTradeExecutionService
     ):
         self.account_lifecycle_service = account_lifecycle_service
         self.trade_execution_service = trade_execution_service
@@ -433,6 +428,7 @@ class TestEngine:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_repository = portfolio_allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.stock_trade_execution_service = stock_trade_execution_service
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
         self.portfolio_allocation_history_size = 0
@@ -558,7 +554,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount) / allocation.total_filled_amount <= MARGIN_ERROR
+        assert abs(allocation.total_filled_amount - alpaca_filled_amount) <= FLOAT_ERROR
 
         # match portfolio_allocation to model_portfolio
         model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -661,7 +657,7 @@ class TestEngine:
                 assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
                 assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
                 alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-            assert abs(allocation.total_filled_amount - alpaca_filled_amount) / allocation.total_filled_amount <= MARGIN_ERROR
+            assert abs(allocation.total_filled_amount - alpaca_filled_amount) <= FLOAT_ERROR
 
             # match alpaca to model_positions
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -808,7 +804,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount2 += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount2) / allocation.total_filled_amount <= MARGIN_ERROR
+        assert abs(allocation.total_filled_amount - alpaca_filled_amount2) <= FLOAT_ERROR
 
         # match alpaca to test positions
         model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -888,6 +884,283 @@ class TestEngine:
         # match order_db and portfolio_allocation
         allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
+
+        # match portfolio_allocation to alpaca
+        baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        assert len(baskt_positions_dict) == 0
+        allocation.total_filled_amount <= FLOAT_ERROR
+
+        return wd_response
+    
+
+    def test_buy(
+        self,
+        symbol: str,
+        asset_id: str,
+        deposit_amount: float,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+    ):
+        dep_response = self.stock_trade_execution_service.execute_buy_to_stock(
+            symbol=symbol,
+            asset_id=asset_id,
+            deposit_amount=deposit_amount,
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+            is_test=True
+        )
+        dep_orders = dep_response["orders"]
+
+        if cognito_user_id not in self.baskt_account_portfolio_positions:
+            self.baskt_account_portfolio_positions[cognito_user_id] = {}
+
+        if asset_id not in self.baskt_account_portfolio_positions[cognito_user_id]:
+            self.baskt_account_portfolio_positions[cognito_user_id][asset_id] = {
+                "all_orders":[],
+                "filled_amounts":[]
+            }
+
+        # Wait for orders to be filled
+        sleep(2)
+
+        # Realize filled orders
+        self.stock_trade_execution_service.realize_filled_orders(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+            portfolio_id=asset_id,
+        )
+
+        # match alpaca orders and order_db
+        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        assert len(dep_orders) + len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) == len(rows2)
+        rows2_dict_order_id = {
+            row["order_id"]: {
+                "symbol": row["symbol"],
+                "filled_qty": row["filled_qty"],
+                "filled_avg_price": row["filled_avg_price"]
+            } 
+            for row in rows2
+        }
+        for order in dep_orders + self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]:
+            order_id = str(order.id)
+            alpaca_order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, order_id=order_id, cognito_user_id=cognito_user_id)
+            assert order_id in rows2_dict_order_id
+            assert rows2_dict_order_id[order_id]["symbol"] == alpaca_order.symbol
+            assert float(rows2_dict_order_id[order_id]["filled_qty"]) == float(alpaca_order.filled_qty)
+            assert float(rows2_dict_order_id[order_id]["filled_avg_price"]) == float(alpaca_order.filled_avg_price)
+
+        orders_db_symbols_quantity = {}
+        for row in rows2:
+            symbol = row["symbol"]
+            side = 1 if (str(row["side"])=="BUY") else -1
+            filled_qty = float(row["filled_qty"])
+            orders_db_symbols_quantity[symbol] = (abs(filled_qty) * side) + orders_db_symbols_quantity.get(symbol,0)
+            if abs(orders_db_symbols_quantity[symbol]) <= FLOAT_ERROR:
+                del orders_db_symbols_quantity[symbol]
+
+        # match order_db and portfolio_allocation
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        snapshot = allocation.position_history[-1]
+        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
+        symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
+        assert symbols_orders_db_sorted == symbols_snapshot_sorted
+        for snapshot_position in snapshot.positions:
+            assert snapshot_position.symbol in orders_db_symbols_quantity
+            assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
+
+
+        # match portfolio_allocation to alpaca
+        baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        baskt_symbols_sorted = sorted([symbol for symbol in baskt_positions_dict])
+        assert symbols_snapshot_sorted == baskt_symbols_sorted
+        alpaca_filled_amount = 0.0
+        for snapshot_position in snapshot.positions:
+            assert snapshot_position.symbol in baskt_positions_dict
+            assert abs(snapshot_position.filled_quantity - baskt_positions_dict[snapshot_position.symbol].filled_quantity) <= FLOAT_ERROR
+            assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
+            assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
+            alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
+        assert abs(allocation.total_filled_amount - alpaca_filled_amount) / allocation.total_filled_amount <= MARGIN_ERROR
+
+        # Validate incremental deposit amount
+        prev_filled_amount = self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"][-1] if self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"] else 0.0
+        incremental_amount = alpaca_filled_amount - prev_filled_amount
+        assert abs(deposit_amount - incremental_amount) / deposit_amount <= MARGIN_ERROR
+
+        self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"].extend(dep_orders)
+        self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"].append(alpaca_filled_amount)
+        self.portfolio_allocation_history_size = len(allocation.position_history)
+
+        return dep_response
+
+
+
+    def test_sell(
+        self,
+        cognito_user_id: str,
+        alpaca_account_id,
+        symbol: str,
+        asset_id: str,
+        withdraw_amount: float,
+        slippage_correction: int = 1
+    ):
+        market_value = 0.0
+        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        snapshot = portfolio_allocation.position_history[-1]
+        symbols = [position.symbol for position in snapshot.positions]
+        quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        for snapshot_position in snapshot.positions:
+            price = quotes[snapshot_position.symbol]
+            market_value += (price * snapshot_position.filled_quantity)
+
+        wd_response = self.stock_trade_execution_service.execute_sell_to_stock(
+            symbol=symbol,
+            asset_id=asset_id,
+            withdraw_amount=withdraw_amount,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            is_test=True
+        )
+        wd_orders = wd_response["orders"]
+        # Wait for orders to be filled
+        sleep(2)
+
+        # Realize filled orders
+        self.stock_trade_execution_service.realize_filled_orders(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+            portfolio_id=asset_id,
+        )   
+        self.portfolio_allocation_history_size+=1
+
+        # match alpaca orders and order_db
+        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+
+        assert len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) + len(wd_orders) == len(rows2)
+        rows2_dict_order_id = {
+            row["order_id"]: {
+                "symbol": row["symbol"],
+                "filled_qty": row["filled_qty"],
+                "filled_avg_price": row["filled_avg_price"]
+            } 
+            for row in rows2
+        }
+        for order in wd_orders + self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]:
+            order_id = str(order.id)
+            alpaca_order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order_id)
+            assert order_id in rows2_dict_order_id
+            assert rows2_dict_order_id[order_id]["symbol"] == alpaca_order.symbol
+            assert float(rows2_dict_order_id[order_id]["filled_qty"]) == float(alpaca_order.filled_qty)
+            assert float(rows2_dict_order_id[order_id]["filled_avg_price"]) == float(alpaca_order.filled_avg_price)
+
+        orders_db_symbols_quantity = {}
+        for row in rows2:
+            symbol = row["symbol"]
+            side = 1 if (str(row["side"])=="BUY") else -1
+            filled_qty = float(row["filled_qty"]) 
+            orders_db_symbols_quantity[symbol] = (abs(filled_qty)*side) + orders_db_symbols_quantity.get(symbol,0)
+            if abs(orders_db_symbols_quantity[symbol]) <= FLOAT_ERROR:
+                del orders_db_symbols_quantity[symbol]
+
+        # match order_db and portfolio_allocation
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
+        snapshot = allocation.position_history[-1]
+        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
+        symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
+        assert symbols_orders_db_sorted == symbols_snapshot_sorted
+        for snapshot_position in snapshot.positions:
+            assert snapshot_position.symbol in orders_db_symbols_quantity
+            assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
+
+
+        # match portfolio_allocation to alpaca
+        baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        baskt_symbols_sorted = sorted([symbol for symbol in baskt_positions_dict])
+        assert symbols_snapshot_sorted == baskt_symbols_sorted
+        alpaca_filled_amount2 = 0.0
+
+        for snapshot_position in snapshot.positions:
+            assert snapshot_position.symbol in baskt_positions_dict
+            assert abs(snapshot_position.filled_quantity - baskt_positions_dict[snapshot_position.symbol].filled_quantity) <= FLOAT_ERROR
+            assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
+            assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
+            alpaca_filled_amount2 += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
+        assert abs(allocation.total_filled_amount - alpaca_filled_amount2) <= FLOAT_ERROR
+
+        withdraw_order_ids = {str(order.id) for order in wd_orders}
+        net_withdraw_filled_amount = sum(
+            float(row["filled_qty"]) * float(row["filled_avg_price"])
+            * (1 if str(row["side"]).upper() == "SELL" else -1)
+            for row in rows2
+            if row["order_id"] in withdraw_order_ids
+        )
+        assert (
+            abs(withdraw_amount - net_withdraw_filled_amount) / withdraw_amount
+            <= MARGIN_ERROR
+        )
+
+        self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"].append(alpaca_filled_amount2)
+        self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"].extend(wd_orders)
+
+        return wd_response
+    
+
+    def test_close(
+        self,
+        symbol: str,
+        asset_id: str,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ):
+        wd_response = self.stock_trade_execution_service.execute_close_stock(
+            asset_id=asset_id,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+            is_test=True
+        )
+        wd_orders = wd_response["orders"]
+        sleep(2)
+
+        # Realize filled orders
+        self.stock_trade_execution_service.realize_filled_orders(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+            portfolio_id=asset_id,
+        )
+        self.portfolio_allocation_history_size+=1
+
+        # match alpaca orders and order_db
+        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        assert len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) + len(wd_orders) == len(rows2)
+        rows2_dict_order_id = {
+            row["order_id"]: {
+                "symbol": row["symbol"],
+                "filled_qty": row["filled_qty"],
+                "filled_avg_price": row["filled_avg_price"]
+            } 
+            for row in rows2
+        }
+        for order in wd_orders + self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]:
+            order_id = str(order.id)
+            alpaca_order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=order_id)
+            assert order_id in rows2_dict_order_id
+            assert rows2_dict_order_id[order_id]["symbol"] == alpaca_order.symbol
+            assert float(rows2_dict_order_id[order_id]["filled_qty"]) == float(alpaca_order.filled_qty)
+            assert float(rows2_dict_order_id[order_id]["filled_avg_price"]) == float(alpaca_order.filled_avg_price)
+
+        orders_db_symbols_quantity = {}
+        for row in rows2:
+            symbol = row["symbol"]
+            side = 1 if (str(row["side"])=="BUY") else -1
+            filled_qty = float(row["filled_qty"]) 
+            orders_db_symbols_quantity[symbol] = (abs(filled_qty)*side) + orders_db_symbols_quantity.get(symbol,0)
+            if abs(orders_db_symbols_quantity[symbol]) <= FLOAT_ERROR:
+                del orders_db_symbols_quantity[symbol]
+
+        # match order_db and portfolio_allocation
+        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
@@ -901,15 +1174,59 @@ class TestEngine:
         assert len(baskt_positions_dict) == 0
 
         return wd_response
+    
+    def test_stock_clean_up(
+        self,
+        traded_accounts: List[List[str]], # [[cognito_user_id, alpaca_account_id, asset_id],...,]
+        transaction_id_order_id_dict: Dict[str, List[Order]] # {transaction_id -> [order,...]}
+    ):
+        for cognito_user_id, alpaca_account_id, asset_id in traded_accounts:
+            # delete any unfilled orders
+            try:
+                open_orders = self.alpaca_broker_client.client.get_orders_for_account(
+                    account_id=alpaca_account_id,
+                    filter=GetOrdersRequest(status=QueryOrderStatus.OPEN),
+                )
+            except Exception:
+                open_orders = []
 
-    def test_cleanup(self, baskt_accounts_and_portfolio_ids: List[List[BasktAccount | str]]):
-        for baskt_account, portfolio_id in baskt_accounts_and_portfolio_ids:
-            self.alpaca_broker_client.execute_close_all_position(alpaca_account_id=baskt_account.alpaca_account_id)
+            for order in open_orders:
+                try:
+                    self.alpaca_broker_client.client.cancel_order_for_account_by_id(
+                        account_id=alpaca_account_id,
+                        order_id=str(order.id),
+                    )
+                except Exception:
+                    continue
 
-            self.model_portfolio_repository.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
-            self.model_portfolio_follower_repository.delete_model_portfolio_follower(cognito_user_id=baskt_account.cognito_user_id,portfolio_id=portfolio_id)
-            self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(key={"cognito_user_id": baskt_account.cognito_user_id,"portfolio_id": portfolio_id})
-            self.order_repository.order_table_client.delete_item(key={"portfolio_id": portfolio_id})
+            try:
+                self.alpaca_broker_client.execute_close_all_position(
+                    alpaca_account_id=alpaca_account_id,
+                    cognito_user_id=cognito_user_id
+                )
+            except Exception as e:
+                pass
+
+            try:
+                self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+                    key={"cognito_user_id": cognito_user_id,"portfolio_id": asset_id}
+                )
+            except Exception as e:
+                pass
+
+        order_keys = {
+            (transaction_id, str(order.id))
+            for transaction_id, orders in transaction_id_order_id_dict.items()
+            for order in orders
+        }
+        for transaction_id, order_id in order_keys:
+            try:
+                self.order_repository.order_table_client.delete_item(
+                    key={"transaction_id": transaction_id, "order_id": order_id}
+                )
+            except Exception as e:
+                continue
+
 
 
     def test_clean_up(
@@ -937,34 +1254,46 @@ class TestEngine:
                 except Exception:
                     continue
 
-            self.alpaca_broker_client.execute_close_all_position(
-                alpaca_account_id=alpaca_account_id,
-                cognito_user_id=cognito_user_id
-            )
-            self.model_portfolio_follower_repository.delete_model_portfolio_follower(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
-            )
-            self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
-                key={"cognito_user_id": cognito_user_id,"portfolio_id": portfolio_id}
-            )
+            try:
+                self.alpaca_broker_client.execute_close_all_position(
+                    alpaca_account_id=alpaca_account_id,
+                    cognito_user_id=cognito_user_id
+                )
+            except Exception as e:
+                pass
 
-        for cognito_user_id, portfolio_id in portfolio_owner_model_portfolios:
-            self.model_portfolio_repository.dynamodb.delete_item(
-                key={"portfolio_id": portfolio_id}
-            )
+            try:
+                self.model_portfolio_follower_repository.delete_model_portfolio_follower(
+                    cognito_user_id=cognito_user_id,
+                    portfolio_id=portfolio_id
+                )
+            except Exception as e:
+                pass
+
+            try:
+                self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+                    key={"cognito_user_id": cognito_user_id,"portfolio_id": portfolio_id}
+                )
+            except Exception as e:
+                pass
+
+        for _, portfolio_id in portfolio_owner_model_portfolios:
+            try:
+                self.model_portfolio_repository.dynamodb.delete_item(
+                    key={"portfolio_id": portfolio_id}
+                )
+            except Exception as e:
+                continue
 
         for transaction_id, orders in transaction_id_order_id_dict.items():
             for order in orders:
-                self.order_repository.order_table_client.delete_item(
-                    key={"transaction_id": transaction_id, "order_id": str(order.id)}
-                )
+                try:
+                    self.order_repository.order_table_client.delete_item(
+                        key={"transaction_id": transaction_id, "order_id": str(order.id)}
+                    )
+                except Exception as e:
+                    continue
 
-
-
-           
-        
-        
 
 
 @pytest.fixture(scope="session")
@@ -975,7 +1304,8 @@ def test_engine(
     order_repository: OrderRepository,
     alpaca_broker_client: AlpacaBrokerClient,
     portfolio_allocation_repository: PortfolioAllocationRepository,
-    model_portfolio_follower_repository: ModelPortfolioFollowerRepository
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    stock_trade_execution_service: StockTradeExecutionService,
 ) -> TestEngine:
     return TestEngine(
         account_lifecycle_service=account_lifecycle_service,
@@ -984,5 +1314,6 @@ def test_engine(
         order_repository=order_repository,
         alpaca_broker_client=alpaca_broker_client,
         portfolio_allocation_repository=portfolio_allocation_repository,
-        model_portfolio_follower_repository=model_portfolio_follower_repository
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        stock_trade_execution_service=stock_trade_execution_service,
     )

@@ -1057,6 +1057,33 @@ class AlpacaBrokerClient:
 
         return result
     
+    def get_asset_by_symbol(self, symbols: List[str]) -> Dict[str, Asset | Any]:
+        """
+        Fetch asset for each requested symbol.
+
+        Args:
+            symbols: List of ticker symbols.
+
+        Returns:
+            Dict[str, Asset]: Mapping of symbol to Asset.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the get asset request, 
+            the network request failed, no asset is returned for a requested 
+            symbol, or an unexpected error occurs.
+        """
+        res = {}
+        for symbol in symbols:
+            try:  
+                asset = self.client.get_asset(symbol_or_asset_id=symbol)
+                res[symbol] = asset
+            except Exception as e:
+                raise AlpacaBrokerClientError(
+                    message=f"Failed to fetch asset for symbol '{symbol}': {e}",
+                    code="ALPACA_BROKER_GET_ASSET_FAILED",
+                )
+        return res
+    
     def get_baskt_positions_dict(self, alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         """
         Fetch all positions for an Alpaca account and convert them to Baskt positions.

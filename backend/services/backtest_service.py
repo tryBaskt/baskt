@@ -122,6 +122,8 @@ class BacktestService:
                     symbol=asset.symbol,
                     tradable=asset.tradable,
                     fractionable=asset.fractionable,
+                    shortable=asset.shortable,
+                    asset_id=str(asset.id),
                     asset_class=str(getattr(asset.asset_class, "name", asset.asset_class))
                 )
                 for asset in assets
