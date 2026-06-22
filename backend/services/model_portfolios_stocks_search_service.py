@@ -232,10 +232,56 @@ class ModelPortfoliosStocksSearchService:
             }
 
         try:
-            response = self.opensearch_client.search_model_portfolios(
-                query=normalized_query,
-                limit=limit,
-                offset=offset,
+            search_body = {
+                "from": offset,
+                "size": limit,
+                "track_total_hits": True,
+                "_source": [
+                    "portfolio_id",
+                    "portfolio_name",
+                    "description",
+                    "portfolio_owner_cognito_user_id",
+                    "created_at",
+                    "updated_at",
+                    "visibility",
+                ],
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "match_phrase_prefix": {
+                                    "portfolio_name": {
+                                        "query": normalized_query,
+                                        "boost": 4,
+                                    }
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": normalized_query,
+                                    "fields": [
+                                        "portfolio_name^3",
+                                        "description",
+                                    ],
+                                    "fuzziness": "AUTO",
+                                }
+                            },
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                "sort": [
+                    "_score",
+                    {
+                        "updated_at": {
+                            "order": "desc",
+                            "unmapped_type": "date",
+                        }
+                    },
+                ],
+            }
+            response = self.opensearch_client.search(
+                body=search_body,
             )
             hits_data = response["hits"]
             total_data = hits_data["total"]

@@ -128,3 +128,52 @@ def get_portfolio_allocation_analytics(
 	
 	except Exception as e:
 		_raise_trade_execution_http_exception(err=e)
+
+
+@router.get("/stocks/{asset_id}/analytics", response_model=PortfolioAllocationAnalyticsResponse, status_code=HTTP_200_OK)
+def get_stock_allocation_analytics(
+	asset_id: str,
+	user: Dict[str, Any] = Depends(get_current_user),
+	_active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+	service: AccountAnalyticsService = Depends(get_account_analytics_service),
+	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+) -> PortfolioAllocationAnalyticsResponse:
+	"""Return allocation metrics and transaction history for one owned stock."""
+	cognito_user_id = user["sub"]
+	alpaca_account_id = user["custom:alpaca_acct_id"]
+
+	try:
+		trade_execution_service.realize_filled_orders(
+			cognito_user_id=cognito_user_id,
+			alpaca_account_id=alpaca_account_id,
+			portfolio_id=asset_id,
+		)
+		analytics_dict = service.get_portfolio_allocation_analytics(
+			cognito_user_id=cognito_user_id,
+			portfolio_id=asset_id,
+		)
+		if not analytics_dict:
+			return PortfolioAllocationAnalyticsResponse()
+
+		return PortfolioAllocationAnalyticsResponse(
+			list_transaction=[
+				PortfolioAllocationTransactionResponse(
+					transaction_id=transaction.transaction_id,
+					created_at=transaction.created_at.isoformat(),
+					filled_at=transaction.filled_at.isoformat(),
+					requested_amount=transaction.requested_amount,
+					number_orders=transaction.number_orders,
+					transaction_type=transaction.transaction_type,
+					filled_amount=transaction.filled_amount,
+					order_fill_percent=transaction.order_fill_percent,
+					status=transaction.status,
+				)
+				for transaction in analytics_dict["transaction_history"]
+			],
+			total_filled_amount=analytics_dict["total_filled_amount"],
+			equity=analytics_dict["equity"],
+			profit_loss=analytics_dict["profit_loss"],
+			profit_loss_pct=analytics_dict["profit_loss_pct"],
+		)
+	except Exception as error:
+		_raise_trade_execution_http_exception(err=error)

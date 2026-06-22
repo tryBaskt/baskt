@@ -1,0 +1,352 @@
+import { useEffect, useMemo, useState } from "react";
+import EquityChart from "../components/EquityChart";
+import { ErrorBanner, SuccessBanner } from "../components/Status";
+import { apiRequest } from "../lib/api";
+import { currency, formatDateTime, percent } from "../lib/format";
+
+const PERIODS = ["1D", "1W", "1M", "3M", "1A", "all"];
+
+function getReturnTone(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "";
+  }
+  return Number(value) >= 0 ? "metric-positive" : "metric-negative";
+}
+
+export default function StockPage({ stock, onBack }) {
+  const [stockAnalytics, setStockAnalytics] = useState(null);
+  const [allocationAnalytics, setAllocationAnalytics] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState("1D");
+  const [amount, setAmount] = useState("");
+  const [analyticsError, setAnalyticsError] = useState("");
+  const [allocationError, setAllocationError] = useState("");
+  const [tradeError, setTradeError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
+  const [isAllocationLoading, setIsAllocationLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const selectedAnalytics =
+    stockAnalytics?.[selectedPeriod] || stockAnalytics?.[selectedPeriod.toLowerCase()];
+  const cumulativeReturns = selectedAnalytics?.cumulative_returns || [];
+  const periodReturn = cumulativeReturns.length
+    ? Number(cumulativeReturns.at(-1))
+    : null;
+  const transactions = allocationAnalytics?.list_transaction || [];
+  const hasAllocation =
+    allocationAnalytics?.equity !== null &&
+    allocationAnalytics?.equity !== undefined;
+  const sellLimit = hasAllocation ? Math.max(0, Number(allocationAnalytics.equity)) : 0;
+  const capabilities = useMemo(
+    () => [
+      stock?.tradable ? "Tradable" : null,
+      stock?.fractionable ? "Fractionable" : null,
+      stock?.shortable ? "Shortable" : null,
+      stock?.marginable ? "Marginable" : null,
+    ].filter(Boolean),
+    [stock]
+  );
+
+  async function loadAllocationAnalytics(signal) {
+    setIsAllocationLoading(true);
+    setAllocationError("");
+    try {
+      const payload = await apiRequest(
+        `/account-analytics/stocks/${stock.asset_id}/analytics`,
+        { signal }
+      );
+      setAllocationAnalytics(payload || null);
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        setAllocationError(error?.message || "Could not load your stock allocation.");
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsAllocationLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setStockAnalytics(null);
+    setAllocationAnalytics(null);
+    setAnalyticsError("");
+    setAllocationError("");
+    setIsAnalyticsLoading(true);
+    setIsAllocationLoading(true);
+
+    void apiRequest(`/stock-analytics/${encodeURIComponent(stock.symbol)}`, {
+      signal: controller.signal,
+    })
+      .then((payload) => {
+        setStockAnalytics(payload || null);
+        if (!payload?.[selectedPeriod]) {
+          const availablePeriod = PERIODS.find((period) => payload?.[period]);
+          if (availablePeriod) {
+            setSelectedPeriod(availablePeriod);
+          }
+        }
+      })
+      .catch((error) => {
+        if (error?.name !== "AbortError") {
+          setAnalyticsError(error?.message || "Could not load stock performance.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsAnalyticsLoading(false);
+        }
+      });
+
+    void loadAllocationAnalytics(controller.signal);
+
+    return () => controller.abort();
+  }, [stock.asset_id, stock.symbol]);
+
+  async function executeTrade(action) {
+    setTradeError("");
+    setSuccess("");
+
+    const needsAmount = action !== "close";
+    const numericAmount = Number(amount);
+    if (needsAmount && (!Number.isFinite(numericAmount) || numericAmount <= 0)) {
+      setTradeError("Enter an amount greater than zero.");
+      return;
+    }
+    if (action === "sell" && numericAmount > sellLimit) {
+      setTradeError(`Sell amount cannot exceed ${currency(sellLimit)}.`);
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await apiRequest(`/trade-execution/stocks/${stock.asset_id}/${action}`, {
+        method: "POST",
+        body: JSON.stringify({
+          symbol: stock.symbol,
+          ...(needsAmount ? { amount: numericAmount } : {}),
+        }),
+      });
+      setSuccess(
+        action === "close"
+          ? `Close request submitted for ${stock.symbol}.`
+          : `${action === "buy" ? "Buy" : "Sell"} request submitted.`
+      );
+      setAmount("");
+      await loadAllocationAnalytics();
+    } catch (error) {
+      setTradeError(error?.message || "Stock trade request failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="page-stack stock-detail-page">
+      <div className="detail-header">
+        <button className="ghost-button" type="button" onClick={onBack}>Back</button>
+      </div>
+
+      <ErrorBanner message={tradeError} />
+      <SuccessBanner message={success} />
+
+      <section className="hero-band stock-hero">
+        <div className="stock-identity">
+          <span className="stock-symbol-mark">{stock.symbol}</span>
+          <div>
+            <p className="eyebrow">Stock detail</p>
+            <h2>{stock.name || stock.symbol}</h2>
+            <p>{stock.exchange} · {String(stock.asset_class || "US equity").replaceAll("_", " ")}</p>
+          </div>
+        </div>
+        <div className="stock-capabilities" aria-label="Stock capabilities">
+          {capabilities.map((capability) => <span key={capability}>{capability}</span>)}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Stock performance</p>
+            <h2>{stock.symbol} cumulative returns</h2>
+          </div>
+          <div className="segmented-control" aria-label="Stock analytics period">
+            {PERIODS.map((period) => (
+              <button
+                key={period}
+                className={selectedPeriod === period ? "active" : ""}
+                type="button"
+                disabled={!stockAnalytics?.[period]}
+                onClick={() => setSelectedPeriod(period)}
+              >
+                {period}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isAnalyticsLoading ? (
+          <p className="muted" aria-live="polite">Loading stock performance...</p>
+        ) : analyticsError ? (
+          <ErrorBanner message={analyticsError} />
+        ) : (
+          <div className="model-performance-layout">
+            <EquityChart
+              equity={cumulativeReturns}
+              timestamps={selectedAnalytics?.timestamp || []}
+              valueType="percent"
+              variant="wide"
+              align="left"
+              ariaLabel={`${selectedPeriod} ${stock.symbol} cumulative returns chart`}
+              emptyMessage="Stock returns are unavailable for this period."
+            />
+            <div className="model-performance-metrics" aria-label={`${selectedPeriod} stock metrics`}>
+              <div>
+                <span>Cumulative return</span>
+                <strong className={getReturnTone(periodReturn)}>
+                  {Number.isFinite(periodReturn) ? percent(periodReturn) : "Not available"}
+                </strong>
+                <small>{selectedPeriod === "all" ? "All time" : selectedPeriod}</small>
+              </div>
+              <div>
+                <span>CAGR</span>
+                <strong className={getReturnTone(selectedAnalytics?.cagr)}>
+                  {selectedAnalytics?.cagr !== null && selectedAnalytics?.cagr !== undefined
+                    ? percent(Number(selectedAnalytics.cagr) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Annualized volatility</span>
+                <strong className="metric-accent">
+                  {selectedAnalytics?.annualized_volatility !== null && selectedAnalytics?.annualized_volatility !== undefined
+                    ? percent(Number(selectedAnalytics.annualized_volatility) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Direction tilt</span>
+                <strong className="metric-accent">
+                  {selectedAnalytics?.leverage_adjusted_direction !== null && selectedAnalytics?.leverage_adjusted_direction !== undefined
+                    ? percent(Number(selectedAnalytics.leverage_adjusted_direction) * 100)
+                    : "Not available"}
+                </strong>
+                <small>Long + / short -</small>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <ErrorBanner message={allocationError} />
+      {isAllocationLoading ? (
+        <section className="analytics-bar" aria-live="polite" aria-busy="true">
+          <div><span>Your allocation</span><strong>Loading...</strong><small>Fetching holding and activity</small></div>
+        </section>
+      ) : hasAllocation ? (
+        <section className="analytics-bar" aria-label={`${stock.symbol} allocation analytics`}>
+          <div>
+            <span>Position value</span>
+            <strong>{currency(allocationAnalytics.equity, "Not available")}</strong>
+            <small>Cost basis {currency(allocationAnalytics.total_filled_amount, "Not available")}</small>
+          </div>
+          <div>
+            <span>Profit/Loss</span>
+            <strong className={getReturnTone(allocationAnalytics.profit_loss)}>
+              {currency(allocationAnalytics.profit_loss, "Not available")}
+            </strong>
+            <small>Current value minus basis</small>
+          </div>
+          <div>
+            <span>Profit/Loss %</span>
+            <strong className={getReturnTone(allocationAnalytics.profit_loss_pct)}>
+              {percent(Number(allocationAnalytics.profit_loss_pct) * 100)}
+            </strong>
+            <small>Return on allocated basis</small>
+          </div>
+        </section>
+      ) : (
+        <section className="stock-empty-allocation">
+          <div>
+            <p className="eyebrow">Your allocation</p>
+            <h2>You do not own {stock.symbol} yet</h2>
+            <p>Enter an amount below to place your first buy.</p>
+          </div>
+        </section>
+      )}
+
+      <section className="split-grid stock-activity-grid">
+        <div className="panel stock-trade-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Trade {stock.symbol}</p>
+              <h2>Buy or sell</h2>
+            </div>
+          </div>
+          <label className="field">
+            <span>Amount</span>
+            <input
+              type="number"
+              min="0"
+              max={hasAllocation ? sellLimit : undefined}
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="$0.00"
+            />
+          </label>
+          {hasAllocation ? <p className="field-help">Available position value: {currency(sellLimit)}</p> : null}
+          <div className="button-row">
+            <button className="primary-button" type="button" disabled={isSubmitting || !stock.tradable} onClick={() => executeTrade("buy")}>Buy</button>
+            <button className="ghost-button" type="button" disabled={isSubmitting || !hasAllocation} onClick={() => executeTrade("sell")}>Sell</button>
+            <button className="danger-button" type="button" disabled={isSubmitting || !hasAllocation} onClick={() => executeTrade("close")}>Close position</button>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Transactions</p>
+              <h2>Stock activity</h2>
+            </div>
+          </div>
+          {isAllocationLoading ? (
+            <p className="muted" aria-live="polite">Loading transactions...</p>
+          ) : (
+            <div className="table-wrap compact-table">
+              <table className="transactions-table">
+                <thead>
+                  <tr>
+                    <th>Created</th>
+                    <th>Filled</th>
+                    <th>Type</th>
+                    <th>Requested</th>
+                    <th>Filled amount</th>
+                    <th>Fill percent</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.transaction_id}>
+                      <td>{formatDateTime(transaction.created_at)}</td>
+                      <td>{formatDateTime(transaction.filled_at)}</td>
+                      <td>{transaction.transaction_type}</td>
+                      <td>{transaction.requested_amount === null ? "Close" : currency(transaction.requested_amount)}</td>
+                      <td>{currency(transaction.filled_amount)}</td>
+                      <td>{percent(transaction.order_fill_percent)}</td>
+                      <td>{transaction.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!transactions.length && !allocationError ? <p className="muted">No stock transactions yet.</p> : null}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}

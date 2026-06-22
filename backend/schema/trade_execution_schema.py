@@ -31,3 +31,31 @@ class WithdrawFromPortfolioResponse(_PortfolioTradeResponse):
 
 class WithdrawAllPortfolioResponse(_PortfolioTradeResponse):
     pass
+
+
+class _StockTradeRequest(BaseModel):
+    symbol: str = Field(min_length=1)
+
+
+class BuyStockRequest(_StockTradeRequest):
+    amount: float = Field(gt=0)
+
+
+class SellStockRequest(_StockTradeRequest):
+    amount: float = Field(gt=0)
+
+
+class CloseStockRequest(_StockTradeRequest):
+    pass
+
+
+class BuyStockResponse(_PortfolioTradeResponse):
+    pass
+
+
+class SellStockResponse(_PortfolioTradeResponse):
+    pass
+
+
+class CloseStockResponse(_PortfolioTradeResponse):
+    pass

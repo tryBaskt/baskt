@@ -18,6 +18,7 @@ os.environ["ENV"] = "dev"
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.clients.dynamodb_client import DynamoDBClient
 from backend.clients.yfinance_client import YFinanceClient
+from backend.clients.vectorbt_client import VectorBTClient
 from backend.core import deps as app_deps
 from backend.core.config import get_settings
 from backend.repository.model_portfolio_follower_repository import (
@@ -28,6 +29,7 @@ from backend.repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockRepository,
 )
 from backend.services.backtest_service import BacktestService
+from backend.services.asset_analytics_service import AssetAnalyticsService
 from backend.services.model_portfolio_analytics_service import (
     ModelPortfolioAnalyticsService,
 )
@@ -50,6 +52,24 @@ def alpaca_broker_client() -> AlpacaBrokerClient:
 @pytest.fixture(scope="session")
 def yfinance_client() -> YFinanceClient:
     return app_deps.get_yfinance_client()
+
+
+@pytest.fixture(scope="session")
+def vectorbt_client() -> VectorBTClient:
+    return app_deps.get_vectorbt_client()
+
+
+@pytest.fixture(scope="session")
+def asset_analytics_service(
+    alpaca_broker_client: AlpacaBrokerClient,
+    yfinance_client: YFinanceClient,
+    vectorbt_client: VectorBTClient,
+) -> AssetAnalyticsService:
+    return app_deps.get_asset_analytics_service(
+        alpaca_broker_client=alpaca_broker_client,
+        yfinance_client=yfinance_client,
+        vectorbt_client=vectorbt_client,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -118,23 +138,23 @@ def model_portfolio_repository(
 
 @pytest.fixture(scope="session")
 def backtest_service(
-    yfinance_client: YFinanceClient,
     alpaca_broker_client: AlpacaBrokerClient,
+    asset_analytics_service: AssetAnalyticsService,
 ) -> BacktestService:
     return app_deps.get_backtest_service(
-        yfinance_client=yfinance_client,
         alpaca_broker_client=alpaca_broker_client,
+        asset_analytics_service=asset_analytics_service,
     )
 
 
 @pytest.fixture(scope="session")
 def model_portfolio_analytics_service(
-    alpaca_broker_client: AlpacaBrokerClient,
     model_portfolio_repository: ModelPortfolioRepository,
+    asset_analytics_service: AssetAnalyticsService,
 ) -> ModelPortfolioAnalyticsService:
     return app_deps.get_model_portfolio_analytics_service(
-        alpaca_broker_client=alpaca_broker_client,
         model_portfolio_repository=model_portfolio_repository,
+        asset_analytics_service=asset_analytics_service,
     )
 
 

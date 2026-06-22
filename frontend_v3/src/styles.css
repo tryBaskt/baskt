@@ -889,9 +889,9 @@ textarea:focus {
 }
 
 .explore-stock-result:hover {
-  padding-right: 4px;
-  padding-left: 4px;
-  background: transparent;
+  padding-right: 14px;
+  padding-left: 14px;
+  background: var(--purple-50);
 }
 
 .stock-symbol-badge {
@@ -1378,6 +1378,66 @@ summary {
   gap: 24px;
 }
 
+.stock-hero {
+  border-left: 4px solid var(--purple-600);
+}
+
+.stock-identity {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.stock-symbol-mark {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  aspect-ratio: 1;
+  flex: 0 0 72px;
+  border: 1px solid #d9cffd;
+  border-radius: 8px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.stock-empty-allocation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 130px;
+  padding: 24px 28px;
+  border: 1px dashed #cfc4f7;
+  border-radius: 8px;
+  background: #fbfaff;
+}
+
+.stock-empty-allocation h2 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+}
+
+.stock-empty-allocation p:last-child,
+.field-help {
+  margin: 0;
+  color: var(--muted);
+}
+
+.field-help {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stock-activity-grid {
+  grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.6fr);
+}
+
+.stock-trade-panel {
+  align-self: start;
+}
+
 .meta-grid,
 .details-list {
   display: grid;
@@ -1523,6 +1583,10 @@ summary {
   }
 
   .model-performance-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-activity-grid {
     grid-template-columns: 1fr;
   }
 

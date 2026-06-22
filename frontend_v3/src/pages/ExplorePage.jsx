@@ -5,7 +5,7 @@ import { formatDate } from "../lib/format";
 
 const PAGE_SIZE = 12;
 
-export default function ExplorePage({ onOpenBaskt }) {
+export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
   const [query, setQuery] = useState("");
   const [modelPortfolios, setModelPortfolios] = useState([]);
   const [stocks, setStocks] = useState([]);
@@ -114,7 +114,12 @@ export default function ExplorePage({ onOpenBaskt }) {
                 <h4>Stocks</h4>
                 <div className="explore-results-list">
                   {stocks.map((stock) => (
-                    <article key={stock.asset_id} className="explore-result explore-stock-result">
+                    <button
+                      key={stock.asset_id}
+                      className="explore-result explore-stock-result"
+                      type="button"
+                      onClick={() => onOpenStock(stock)}
+                    >
                       <div className="explore-result-copy">
                         <span className="stock-symbol-badge">{stock.symbol}</span>
                         <h3>{stock.name}</h3>
@@ -125,7 +130,7 @@ export default function ExplorePage({ onOpenBaskt }) {
                         {stock.fractionable && <span>Fractionable</span>}
                         {stock.shortable && <span>Shortable</span>}
                       </div>
-                    </article>
+                    </button>
                   ))}
                 </div>
               </div>

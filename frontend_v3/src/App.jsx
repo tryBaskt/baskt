@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import MakeABaskt from "./pages/MakeABaskt";
 import MyBaskts from "./pages/MyBaskts";
 import SignupPage from "./pages/SignupPage";
+import StockPage from "./pages/StockPage";
 import Transfer from "./pages/Transfer";
 import { cognitoConfig } from "./authConfig";
 import { clearSession, getIdToken } from "./lib/session";
@@ -18,6 +19,7 @@ export default function App() {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(null);
   const [basktDetailBackPage, setBasktDetailBackPage] = useState("my-baskts");
   const [editingBaskt, setEditingBaskt] = useState(null);
+  const [selectedStock, setSelectedStock] = useState(null);
 
   const forgotPasswordUrl = useMemo(() => {
     const query = new URLSearchParams({
@@ -42,6 +44,7 @@ export default function App() {
     setCurrentPage("home");
     setSelectedPortfolioId(null);
     setEditingBaskt(null);
+    setSelectedStock(null);
   }
 
   if (!isAuthenticated) {
@@ -83,6 +86,8 @@ export default function App() {
     );
   } else if (currentPage === "transfer") {
     page = <Transfer />;
+  } else if (currentPage === "stock-detail" && selectedStock) {
+    page = <StockPage stock={selectedStock} onBack={() => setCurrentPage("explore")} />;
   } else if (currentPage === "explore") {
     page = (
       <ExplorePage
@@ -90,6 +95,10 @@ export default function App() {
           setSelectedPortfolioId(portfolioId);
           setBasktDetailBackPage("explore");
           setCurrentPage("baskt-detail");
+        }}
+        onOpenStock={(stock) => {
+          setSelectedStock(stock);
+          setCurrentPage("stock-detail");
         }}
       />
     );

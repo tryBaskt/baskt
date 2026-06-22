@@ -2,8 +2,8 @@
 
 # Python imports
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional
+from typing import List
+from datetime import datetime, timezone
 
 # Pandas imports
 import pandas as pd
@@ -30,148 +30,100 @@ class YFinanceClientError(Exception):
         self.code = code
 
 class YFinanceClient:
-    """
-    Thin wrapper around yfinance that returns normalized OHLCV frames.
-
-    Normalized output:
-      - index: datetime (pd.DatetimeIndex)
-      - columns: ["open", "high", "low", "close", "volume"]
-    """
+    """Thin wrapper around yfinance for wide close-price DataFrames."""
 
     progress: bool = False
 
-    def fetch_history(
+    def get_stock_prices_over_time(
         self,
-        ticker: str,
-        start_date: str,
-        end_date: str,
-        interval: str = "1d",
+        symbols: List[str],
+        start_datetime: datetime,
+        end_datetime: datetime,
+        timeframe: str,
     ) -> pd.DataFrame:
-        """
-        Fetch OHLCV between start_date and end_date (YYYY-MM-DD).
-
-        IMPORTANT: yfinance treats `end` as exclusive, so we add +1 day
-        to make end_date inclusive.
+        """Fetch stock close prices over time as a wide pandas DataFrame.
 
         Args:
-            ticker: Asset ticker symbol (for example, "AAPL").
-            start_date: Inclusive start date in YYYY-MM-DD format.
-            end_date: Inclusive end date in YYYY-MM-DD format.
-            interval: yfinance interval string. Defaults to "1d".
+            symbols: Ticker symbols to fetch prices for.
+            start_datetime: Inclusive timezone-aware start datetime. The value
+                is converted to UTC before requesting prices.
+            end_datetime: Exclusive timezone-aware end datetime. The value is
+                converted to UTC before requesting prices.
+            timeframe: Price interval. Supported values are 1Min, 5Min, 1H,
+                and 1D, including their common lowercase aliases.
 
         Returns:
-            pd.DataFrame: Normalized OHLCV frame with datetime index and
-            columns ["open", "high", "low", "close", "volume"].
-            Returns an empty DataFrame for invalid dates, invalid ranges,
-            or unavailable data.
+            pd.DataFrame: DataFrame indexed by UTC timestamps named
+            ``timestamp``, with one column per requested symbol. Cell values
+            are close prices.
+
+        Raises:
+            YFinanceClientError: If either datetime is timezone-naive, the
+                date range or timeframe is invalid, or yfinance fails while
+                fetching or parsing prices.
         """
+        try:
 
-        start_ts = pd.to_datetime(start_date).normalize()
-        end_ts = pd.to_datetime(end_date).normalize()
+            price_series_by_symbol = {}
+            for symbol in symbols:
+                download_kwargs = {
+                    "interval": timeframe.lower(),
+                    "progress": self.progress,
+                }
+                if start_datetime <= datetime(1970, 1, 1, tzinfo=timezone.utc):
+                    download_kwargs["period"] = "max"
+                else:
+                    download_kwargs["start"] = start_datetime
+                    download_kwargs["end"] = end_datetime
 
-        # If caller gives the same day (or bad ordering), make it at least 1-day window
-        if end_ts < start_ts:
+                raw_prices = yf.download(
+                    str(symbol).upper(),
+                    **download_kwargs,
+                )
+
+                if raw_prices is None or raw_prices.empty:
+                    price_series_by_symbol[symbol] = pd.Series(dtype="float64")
+                    continue
+
+                if isinstance(raw_prices.columns, pd.MultiIndex):
+                    close_data = raw_prices.xs("Close", axis=1, level=0)
+                    close_prices = (
+                        close_data.iloc[:, 0]
+                        if isinstance(close_data, pd.DataFrame)
+                        else close_data
+                    )
+                else:
+                    close_prices = raw_prices["Close"]
+
+                close_prices = pd.to_numeric(
+                    close_prices,
+                    errors="coerce",
+                ).dropna()
+                close_prices.index = pd.to_datetime(
+                    close_prices.index,
+                    utc=True,
+                )
+                close_prices = close_prices.loc[
+                    (close_prices.index >= start_datetime)
+                    & (close_prices.index < end_datetime)
+                ]
+                price_series_by_symbol[symbol] = close_prices.astype("float64")
+
+            prices_df = pd.DataFrame(
+                price_series_by_symbol,
+                columns=symbols,
+                dtype="float64",
+            ).sort_index()
+            prices_df.index = pd.to_datetime(prices_df.index, utc=True)
+            prices_df.index.name = "timestamp"
+            return prices_df
+        except YFinanceClientError:
+            raise
+        except Exception as error:
             raise YFinanceClientError(
                 message=(
-                    f"Invalid date range for ticker '{ticker}': "
-                    f"end_date '{end_date}' is before start_date '{start_date}'"
+                    "Failed to fetch stock prices over time for symbols "
+                    f"{symbols}: {error}"
                 ),
-                code="YFINANCE_INVALID_DATE_RANGE",
-            )
-
-        try:
-            df = yf.download(
-                str(ticker).upper(),
-                start=start_ts.date().isoformat(),
-                end=end_ts.date().isoformat(),
-                interval=interval,
-                progress=self.progress,
-            )
-        except Exception as e:
-            raise YFinanceClientError(
-                message=f"Failed to download yfinance history for ticker '{ticker}': {e}",
-                code="YFINANCE_FETCH_HISTORY_FAILED",
-            )
-        return self._normalize_ohlcv(df)
-
-    # -------------------------
-    # Internal normalization
-    # -------------------------
-
-    def _normalize_ohlcv(self, df: Optional[pd.DataFrame]) -> pd.DataFrame:
-        """
-        Convert yfinance output into a stable format used throughout the backend.
-
-        - Fix MultiIndex columns (e.g., ('Close','AAPL'))
-        - Drop duplicated columns defensively (prevents out['close'] returning a DataFrame)
-        - Handle both 'Date' and 'Datetime' index/column names
-        - Standardize column names to open/high/low/close/volume
-        - Ensure datetime index
-
-        Args:
-            df: Raw DataFrame returned by yfinance download APIs.
-
-        Returns:
-            pd.DataFrame: Normalized OHLCV DataFrame with datetime index and
-            columns ["open", "high", "low", "close", "volume"].
-            Returns an empty DataFrame if input is invalid, empty, or missing
-            required fields.
-        """
-        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-            return pd.DataFrame()
-
-        df = df.copy()
-
-        # Fix MultiIndex columns like ('Close', 'AAPL')
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        # Drop duplicated column names so df["Close"] is a Series, not a DataFrame
-        if df.columns.has_duplicates:
-            df = df.loc[:, ~df.columns.duplicated(keep="first")]
-
-        # yfinance returns index named Date/Datetime
-        df = df.reset_index()
-
-        # Identify timestamp column after reset_index
-        ts_col = None
-        if "Datetime" in df.columns:
-            ts_col = "Datetime"
-        elif "Date" in df.columns:
-            ts_col = "Date"
-        elif "index" in df.columns:
-            ts_col = "index"
-
-        if ts_col is None:
-            return pd.DataFrame()
-
-        df = df.rename(
-            columns={
-                ts_col: "dt",
-                "Open": "open",
-                "High": "high",
-                "Low": "low",
-                "Close": "close",
-                "Adj Close": "adj_close",
-                "Volume": "volume",
-            }
-        )
-
-        df["dt"] = pd.to_datetime(df["dt"], errors="coerce")
-        df = df.dropna(subset=["dt"]).set_index("dt").sort_index()
-
-        wanted = ["open", "high", "low", "close", "volume"]
-        if any(c not in df.columns for c in wanted):
-            return pd.DataFrame()
-
-        out = df[wanted].copy()
-
-        # Ensure each column is 1-D Series (guard against any weird shapes)
-        for c in wanted:
-            col = out[c]
-            if isinstance(col, pd.DataFrame):  # extremely defensive
-                col = col.iloc[:, 0]
-            out[c] = pd.to_numeric(col, errors="coerce")
-
-        out = out.dropna(subset=["close"])
-        return out
+                code="YFINANCE_GET_STOCK_PRICES_OVER_TIME_FAILED",
+            ) from error

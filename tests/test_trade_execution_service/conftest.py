@@ -32,7 +32,6 @@ from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
 from backend.domain.baskt import BasktPosition
 from backend.clients.dynamodb_client import DynamoDBClient
-from backend.services.stock_trade_execution_service import StockTradeExecutionService
 from math import ceil, floor
 
 MARGIN_ERROR = 0.01
@@ -391,20 +390,6 @@ def trade_execution_service(
         user_trade_lock_repository=user_trade_lock_repository,
     )
 
-@pytest.fixture(scope="session")
-def stock_trade_execution_service(
-    alpaca_broker_client: AlpacaBrokerClient,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
-    order_repository: OrderRepository,
-    user_trade_lock_repository: UserTradeLockRepository
-) -> StockTradeExecutionService:
-    return app_deps.get_stock_trade_execution_service(
-        alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
-        order_repository=order_repository,
-        user_trade_lock_repository=user_trade_lock_repository,
-    )
-
 ###########################################
 ############### TEST ENGINE ###############
 ###########################################
@@ -419,7 +404,6 @@ class TestEngine:
         alpaca_broker_client: AlpacaBrokerClient,
         portfolio_allocation_repository: PortfolioAllocationRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-        stock_trade_execution_service: StockTradeExecutionService
     ):
         self.account_lifecycle_service = account_lifecycle_service
         self.trade_execution_service = trade_execution_service
@@ -428,7 +412,6 @@ class TestEngine:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_repository = portfolio_allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
-        self.stock_trade_execution_service = stock_trade_execution_service
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
         self.portfolio_allocation_history_size = 0
@@ -901,7 +884,7 @@ class TestEngine:
         cognito_user_id: str,
         alpaca_account_id: str,
     ):
-        dep_response = self.stock_trade_execution_service.execute_buy_to_stock(
+        dep_response = self.trade_execution_service.execute_buy_to_stock(
             symbol=symbol,
             asset_id=asset_id,
             deposit_amount=deposit_amount,
@@ -924,7 +907,7 @@ class TestEngine:
         sleep(2)
 
         # Realize filled orders
-        self.stock_trade_execution_service.realize_filled_orders(
+        self.trade_execution_service.realize_filled_orders(
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
             portfolio_id=asset_id,
@@ -1013,7 +996,7 @@ class TestEngine:
             price = quotes[snapshot_position.symbol]
             market_value += (price * snapshot_position.filled_quantity)
 
-        wd_response = self.stock_trade_execution_service.execute_sell_to_stock(
+        wd_response = self.trade_execution_service.execute_sell_to_stock(
             symbol=symbol,
             asset_id=asset_id,
             withdraw_amount=withdraw_amount,
@@ -1026,7 +1009,7 @@ class TestEngine:
         sleep(2)
 
         # Realize filled orders
-        self.stock_trade_execution_service.realize_filled_orders(
+        self.trade_execution_service.realize_filled_orders(
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
             portfolio_id=asset_id,
@@ -1113,7 +1096,7 @@ class TestEngine:
         alpaca_account_id: str,
         cognito_user_id: str,
     ):
-        wd_response = self.stock_trade_execution_service.execute_close_stock(
+        wd_response = self.trade_execution_service.execute_close_stock(
             asset_id=asset_id,
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
@@ -1123,7 +1106,7 @@ class TestEngine:
         sleep(2)
 
         # Realize filled orders
-        self.stock_trade_execution_service.realize_filled_orders(
+        self.trade_execution_service.realize_filled_orders(
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
             portfolio_id=asset_id,
@@ -1305,7 +1288,6 @@ def test_engine(
     alpaca_broker_client: AlpacaBrokerClient,
     portfolio_allocation_repository: PortfolioAllocationRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-    stock_trade_execution_service: StockTradeExecutionService,
 ) -> TestEngine:
     return TestEngine(
         account_lifecycle_service=account_lifecycle_service,
@@ -1315,5 +1297,4 @@ def test_engine(
         alpaca_broker_client=alpaca_broker_client,
         portfolio_allocation_repository=portfolio_allocation_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
-        stock_trade_execution_service=stock_trade_execution_service,
     )

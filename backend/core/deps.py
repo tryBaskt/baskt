@@ -17,6 +17,7 @@ from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientE
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
 from clients.opensearch_client import OpenSearchClient
+from clients.vectorbt_client import VectorBTClient
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from services.trade_execution_service import TradeExecutionService
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
@@ -26,10 +27,10 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.account_analytics_service import AccountAnalyticsService
+from services.asset_analytics_service import AssetAnalyticsService
 from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsService
 from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
-from services.stock_trade_execution_service import StockTradeExecutionService
-
+from services.stock_analytics_service import StockAnalyticsService
 from alpaca.broker.models import Account
 
 # -----------------------------
@@ -117,6 +118,11 @@ def get_model_portfolio_update_lock_dynamodb_client() -> DynamoDBClient:
 def get_yfinance_client() -> YFinanceClient:
     return YFinanceClient()
 
+
+@lru_cache
+def get_vectorbt_client() -> VectorBTClient:
+    return VectorBTClient()
+
 @lru_cache
 def get_alpaca_broker_client() -> AlpacaBrokerClient:
     s = get_settings()
@@ -197,8 +203,27 @@ def get_user_trade_lock_repository(
 # Services
 # -----------------------------
 
-def get_backtest_service(yfinance_client: YFinanceClient = Depends(get_yfinance_client), alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client)) -> BacktestService:
-    return BacktestService(yfinance_client=yfinance_client, alpaca_broker_client=alpaca_broker_client)
+def get_asset_analytics_service(
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    yfinance_client: YFinanceClient = Depends(get_yfinance_client),
+    vectorbt_client: VectorBTClient = Depends(get_vectorbt_client),
+) -> AssetAnalyticsService:
+    return AssetAnalyticsService(
+        alpaca_broker_client=alpaca_broker_client,
+        yfinance_client=yfinance_client,
+        vectorbt_client=vectorbt_client,
+    )
+
+def get_backtest_service(
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    asset_analytics_service: AssetAnalyticsService = Depends(
+        get_asset_analytics_service
+    ),
+) -> BacktestService:
+    return BacktestService(
+        alpaca_broker_client=alpaca_broker_client,
+        asset_analytics_service=asset_analytics_service,
+    )
 
 def get_account_lifecycle_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
@@ -236,12 +261,24 @@ def get_account_analytics_service(
     )
 
 def get_model_portfolio_analytics_service(
-    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    asset_analytics_service: AssetAnalyticsService = Depends(
+        get_asset_analytics_service
+    ),
 ) -> ModelPortfolioAnalyticsService:
     return ModelPortfolioAnalyticsService(
-        alpaca_broker_client=alpaca_broker_client,
         model_portfolio_repository=model_portfolio_repository,
+        asset_analytics_service=asset_analytics_service,
+    )
+
+
+def get_stock_analytics_service(
+    asset_analytics_service: AssetAnalyticsService = Depends(
+        get_asset_analytics_service
+    ),
+) -> StockAnalyticsService:
+    return StockAnalyticsService(
+        asset_analytics_service=asset_analytics_service,
     )
 
 
@@ -252,19 +289,6 @@ def get_model_portfolios_stocks_search_service(
     return ModelPortfoliosStocksSearchService(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
-    )
-
-def get_stock_trade_execution_service(
-    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
-    order_repository: OrderRepository = Depends(get_order_repository),
-    user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository)
-) -> StockTradeExecutionService:
-    return StockTradeExecutionService(
-        alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
-        order_repository=order_repository,
-        user_trade_lock_repository=user_trade_lock_repository
     )
 
 
