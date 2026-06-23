@@ -8,54 +8,8 @@ from alpaca.trading.models import Asset
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
-
-
-class ModelPortfolioSearchResult(TypedDict, total=False):
-    """Searchable model portfolio metadata returned to callers."""
-
-    portfolio_id: str
-    portfolio_name: str
-    description: str | None
-    portfolio_owner_cognito_user_id: str
-    created_at: str
-    updated_at: str
-    visibility: str
-    score: float | None
-
-
-class ModelPortfoliosSearchResponse(TypedDict):
-    """Paginated model portfolio search response."""
-
-    model_portfolios: List[ModelPortfolioSearchResult]
-    total: int
-    limit: int
-    offset: int
-
-
-class StockSearchResult(TypedDict):
-    """Searchable stock metadata returned to callers."""
-
-    asset_id: str
-    symbol: str
-    name: str
-    exchange: str
-    asset_class: str
-    status: str
-    tradable: bool
-    marginable: bool
-    shortable: bool
-    easy_to_borrow: bool
-    fractionable: bool
-
-
-class ModelPortfoliosStocksSearchResponse(TypedDict):
-    """Combined model portfolio and stock search response."""
-
-    model_portfolios: ModelPortfoliosSearchResponse
-    stocks: List[StockSearchResult]
-
-
-
+from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
+from domain.stock_domain import StockSearchResult, StocksSearchResult
 
 
 class ModelPortfoliosStocksSearchServiceError(Exception):
@@ -103,7 +57,7 @@ class ModelPortfoliosStocksSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> ModelPortfoliosStocksSearchResponse:
+    ) -> Any:
         """Search model portfolios and stocks using the same query.
 
         Args:
@@ -120,12 +74,12 @@ class ModelPortfoliosStocksSearchService:
                 search operation fails.
         """
         return {
-            "model_portfolios": self.search_model_portfolios(
+            "model_portfolios_opensearch_result": self.search_model_portfolios(
                 query=query,
                 limit=limit,
                 offset=offset,
             ),
-            "stocks": self.search_stocks(query=query),
+            "stocks_search_result": self.search_stocks(query=query),
         }
 
 
@@ -133,7 +87,7 @@ class ModelPortfoliosStocksSearchService:
         self,
         *,
         query: str,
-    ) -> List[StockSearchResult]:
+    ) -> StocksSearchResult:
         """Search for a stock using an exact ticker symbol.
 
         Args:
@@ -160,19 +114,15 @@ class ModelPortfoliosStocksSearchService:
 
             return [
                 StockSearchResult(
-                    asset_id=str(asset.id),
+                    stock_id=str(asset.id),
                     symbol=str(asset.symbol),
-                    name=str(asset.name),
-                    exchange=str(getattr(asset.exchange, "value", asset.exchange)),
-                    asset_class=str(
-                        getattr(asset.asset_class, "value", asset.asset_class)
-                    ),
-                    status=str(getattr(asset.status, "value", asset.status)),
                     tradable=bool(asset.tradable),
                     marginable=bool(asset.marginable),
                     shortable=bool(asset.shortable),
-                    easy_to_borrow=bool(asset.easy_to_borrow),
                     fractionable=bool(asset.fractionable),
+                    stock_class=str(
+                        getattr(asset.asset_class, "value", asset.asset_class)
+                    ),
                 )
             ]
         except AlpacaBrokerClientError as error:
@@ -192,7 +142,7 @@ class ModelPortfoliosStocksSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> ModelPortfoliosSearchResponse:
+    ) -> ModelPortfoliosOpenSearchResult:
         """Search model portfolios by portfolio name or description.
 
         Name-prefix and name matches receive more relevance weight than
@@ -224,12 +174,12 @@ class ModelPortfoliosStocksSearchService:
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
             )
         if not normalized_query:
-            return {
-                "model_portfolios": [],
-                "total": 0,
-                "limit": limit,
-                "offset": offset,
-            }
+            return ModelPortfoliosOpenSearchResult(
+                model_portfolios=[],
+                total=0,
+                limit=limit,
+                offset=offset,
+            )
 
         try:
             search_body = {
@@ -288,11 +238,11 @@ class ModelPortfoliosStocksSearchService:
             total = int(
                 total_data["value"] if isinstance(total_data, dict) else total_data
             )
-            model_portfolios: List[ModelPortfolioSearchResult] = []
+            model_portfolios: List[ModelPortfolioOpenSearchResult] = []
             for hit in hits_data["hits"]:
                 source: Dict[str, Any] = hit["_source"]
                 model_portfolios.append(
-                    ModelPortfolioSearchResult(
+                    ModelPortfolioOpenSearchResult(
                         portfolio_id=str(source["portfolio_id"]),
                         portfolio_name=str(source["portfolio_name"]),
                         description=source.get("description"),
@@ -309,12 +259,12 @@ class ModelPortfoliosStocksSearchService:
                         ),
                     )
                 )
-            return {
-                "model_portfolios": model_portfolios,
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-            }
+            return ModelPortfoliosOpenSearchResult(
+                model_portfolios=model_portfolios,
+                total=total,
+                limit=limit,
+                offset=offset
+            )
         except OpenSearchClientError as error:
             raise ModelPortfoliosStocksSearchServiceError(
                 message=f"Failed to search model portfolios for query '{normalized_query}': {error}",

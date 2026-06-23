@@ -28,7 +28,7 @@ from schema.account_analytics_schema import (
 from services.account_analytics_service import AccountAnalyticsService, AccountAnalyticsServiceError
 from services.trade_execution_service import TradeExecutionService
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
-from domain.portfolio_allocation import PortfolioAllocationTransactionSnapshot
+from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot
 
 # Alpaca imports
 from alpaca.broker.models import Account
@@ -119,7 +119,7 @@ def get_portfolio_allocation_analytics(
 		]
 
 		return PortfolioAllocationAnalyticsResponse(
-			list_transaction=list_transaction,
+			transactions=list_transaction,
 			total_filled_amount=analytics_dict["total_filled_amount"],
 			equity=analytics_dict["equity"],
 			profit_loss=analytics_dict["profit_loss"],
@@ -156,7 +156,7 @@ def get_stock_allocation_analytics(
 			return PortfolioAllocationAnalyticsResponse()
 
 		return PortfolioAllocationAnalyticsResponse(
-			list_transaction=[
+			transactions=[
 				PortfolioAllocationTransactionResponse(
 					transaction_id=transaction.transaction_id,
 					created_at=transaction.created_at.isoformat(),

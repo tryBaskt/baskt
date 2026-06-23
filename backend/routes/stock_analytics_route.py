@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
 from core.deps import get_current_user, get_stock_analytics_service
-from schema.stock_analytics_schema import StockAnalyticsResponse
+from schema.stock_schema import StockAnalyticsResponse
 from services.stock_analytics_service import (
     StockAnalyticsService,
     StockAnalyticsServiceError,

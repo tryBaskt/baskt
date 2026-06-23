@@ -9,11 +9,13 @@ from starlette import status
 
 from core.deps import get_current_user, get_model_portfolios_stocks_search_service
 from schema.model_portfolios_stocks_search_schema import (
-    ModelPortfolioSearchResultResponse,
-    ModelPortfoliosSearchResponse,
-    ModelPortfoliosStocksSearchResponse,
+    ModelPortfolioOpenSearchResultResponse,
+    ModelPortfoliosOpenSearchResultResponse,
+    ModelPortfoliosStocksOpenSearchResponse,
     StockSearchResultResponse,
+    StocksSearchResultResponse,
 )
+
 from services.model_portfolios_stocks_search_service import (
     ModelPortfoliosStocksSearchService,
     ModelPortfoliosStocksSearchServiceError,
@@ -59,7 +61,7 @@ def _raise_search_http_exception(error: Exception) -> None:
 
 @router.get(
     "",
-    response_model=ModelPortfoliosStocksSearchResponse,
+    response_model=ModelPortfoliosStocksOpenSearchResponse,
     status_code=status.HTTP_200_OK,
 )
 def search_model_portfolios_and_stocks(
@@ -70,7 +72,7 @@ def search_model_portfolios_and_stocks(
     service: ModelPortfoliosStocksSearchService = Depends(
         get_model_portfolios_stocks_search_service
     ),
-) -> ModelPortfoliosStocksSearchResponse:
+) -> ModelPortfoliosStocksOpenSearchResponse:
     """Search model portfolios and stocks for an authenticated user.
 
     Args:
@@ -81,7 +83,7 @@ def search_model_portfolios_and_stocks(
         service: Model portfolio and stock search service dependency.
 
     Returns:
-        ModelPortfoliosStocksSearchResponse: Paginated model portfolio results
+        ModelPortfoliosStocksOpenSearchResponse: Paginated model portfolio results
         and any exact stock-symbol match.
 
     Raises:
@@ -95,23 +97,45 @@ def search_model_portfolios_and_stocks(
             limit=limit,
             offset=offset,
         )
-        model_portfolios_response = search_response["model_portfolios"]
-        return ModelPortfoliosStocksSearchResponse(
-            model_portfolios=ModelPortfoliosSearchResponse(
+        model_portfolios_response = search_response[
+            "model_portfolios_opensearch_result"
+        ]
+        stocks_response = search_response["stocks_search_result"]
+        return ModelPortfoliosStocksOpenSearchResponse(
+            model_portfolios=ModelPortfoliosOpenSearchResultResponse(
                 model_portfolios=[
-                    ModelPortfolioSearchResultResponse(**model_portfolio)
-                    for model_portfolio in model_portfolios_response[
-                        "model_portfolios"
-                    ]
+                    ModelPortfolioOpenSearchResultResponse(
+                        portfolio_id=model_portfolio.portfolio_id,
+                        portfolio_name=model_portfolio.portfolio_name,
+                        description=model_portfolio.description,
+                        portfolio_owner_cognito_user_id=(
+                            model_portfolio.portfolio_owner_cognito_user_id
+                        ),
+                        created_at=model_portfolio.created_at,
+                        updated_at=model_portfolio.updated_at,
+                        visibility=model_portfolio.visibility,
+                        score=model_portfolio.score,
+                    )
+                    for model_portfolio in model_portfolios_response.model_portfolios
                 ],
-                total=model_portfolios_response["total"],
-                limit=model_portfolios_response["limit"],
-                offset=model_portfolios_response["offset"],
+                total=model_portfolios_response.total,
+                limit=model_portfolios_response.limit,
+                offset=model_portfolios_response.offset,
             ),
-            stocks=[
-                StockSearchResultResponse(**stock)
-                for stock in search_response["stocks"]
-            ],
+            stocks=StocksSearchResultResponse(
+                root=[
+                    StockSearchResultResponse(
+                        stock_id=stock.stock_id,
+                        symbol=stock.symbol,
+                        tradable=stock.tradable,
+                        marginable=stock.marginable,
+                        shortable=stock.shortable,
+                        fractionable=stock.fractionable,
+                        stock_class=stock.stock_class,
+                    )
+                    for stock in stocks_response
+                ]
+            ),
         )
     except Exception as error:
         _raise_search_http_exception(error)
@@ -119,7 +143,7 @@ def search_model_portfolios_and_stocks(
 
 @router.get(
     "/model-portfolios",
-    response_model=ModelPortfoliosSearchResponse,
+    response_model=ModelPortfoliosOpenSearchResultResponse,
     status_code=status.HTTP_200_OK,
 )
 def search_model_portfolios(
@@ -130,7 +154,7 @@ def search_model_portfolios(
     service: ModelPortfoliosStocksSearchService = Depends(
         get_model_portfolios_stocks_search_service
     ),
-) -> ModelPortfoliosSearchResponse:
+) -> ModelPortfoliosOpenSearchResultResponse:
     """Search model portfolios by portfolio name or description.
 
     Args:
@@ -141,7 +165,7 @@ def search_model_portfolios(
         service: Model portfolio and stock search service dependency.
 
     Returns:
-        ModelPortfoliosSearchResponse: Matching model portfolios and pagination metadata.
+        ModelPortfoliosOpenSearchResultResponse: Matching model portfolios and pagination metadata.
 
     Raises:
         HTTPException: If search validation fails, OpenSearch is unavailable,
@@ -155,14 +179,25 @@ def search_model_portfolios(
             limit=limit,
             offset=offset,
         )
-        return ModelPortfoliosSearchResponse(
+        return ModelPortfoliosOpenSearchResultResponse(
             model_portfolios=[
-                ModelPortfolioSearchResultResponse(**model_portfolio)
-                for model_portfolio in search_response["model_portfolios"]
+                ModelPortfolioOpenSearchResultResponse(
+                    portfolio_id=model_portfolio.portfolio_id,
+                    portfolio_name=model_portfolio.portfolio_name,
+                    description=model_portfolio.description,
+                    portfolio_owner_cognito_user_id=(
+                        model_portfolio.portfolio_owner_cognito_user_id
+                    ),
+                    created_at=model_portfolio.created_at,
+                    updated_at=model_portfolio.updated_at,
+                    visibility=model_portfolio.visibility,
+                    score=model_portfolio.score,
+                )
+                for model_portfolio in search_response.model_portfolios
             ],
-            total=search_response["total"],
-            limit=search_response["limit"],
-            offset=search_response["offset"],
+            total=search_response.total,
+            limit=search_response.limit,
+            offset=search_response.offset,
         )
     except Exception as error:
         _raise_search_http_exception(error)

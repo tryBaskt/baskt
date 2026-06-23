@@ -8,7 +8,7 @@ from decimal import Decimal
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
 
 # Baskt imports
-from domain.portfolio_allocation import PortfolioAllocationPosition, PortfolioAllocationTransactionSnapshot, PortfolioAllocationPositionSnapshot, PortfolioAllocation
+from domain.portfolio_allocation_domain import PortfolioAllocationPosition, PortfolioAllocationTransactionSnapshot, PortfolioAllocationPositionSnapshot, PortfolioAllocation
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
 
@@ -229,6 +229,8 @@ class PortfolioAllocationRepository:
             position_values[position.symbol] = filled_quantity * (
                 entry_price + position.direction * (current_price - entry_price)
             )
+
+        print("sdjfosdjfosidjfosd")
         
         return position_values, sum(position_values.values()), quotes
 

@@ -10,7 +10,7 @@ from alpaca.broker.models import ACHRelationship, Transfer, Bank, TradeAccount
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient, CognitoClientError
-from domain.baskt import BasktAccount
+from domain.baskt_domain import BasktAccount
 
 class AccountLifecycleServiceError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_ERROR") -> None:

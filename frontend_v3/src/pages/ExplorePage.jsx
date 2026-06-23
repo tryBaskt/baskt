@@ -115,15 +115,15 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
                 <div className="explore-results-list">
                   {stocks.map((stock) => (
                     <button
-                      key={stock.asset_id}
+                      key={stock.stock_id}
                       className="explore-result explore-stock-result"
                       type="button"
                       onClick={() => onOpenStock(stock)}
                     >
                       <div className="explore-result-copy">
                         <span className="stock-symbol-badge">{stock.symbol}</span>
-                        <h3>{stock.name}</h3>
-                        <p>{stock.exchange} &middot; {String(stock.asset_class).replaceAll("_", " ")}</p>
+                        <h3>{stock.symbol}</h3>
+                        <p>{String(stock.stock_class || "US equity").replaceAll("_", " ")}</p>
                       </div>
                       <div className="stock-capabilities">
                         {stock.tradable && <span>Tradable</span>}

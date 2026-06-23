@@ -4,6 +4,7 @@
 from __future__ import annotations
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime, timezone, timedelta
+from uuid import UUID
 
 # Pandas imports
 import pandas as pd
@@ -26,7 +27,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.common.exceptions import APIError
 
 # Baskt imports
-from domain.baskt import BasktPosition
+from domain.baskt_domain import BasktPosition
 
 
 CRYPTO_ELIGIBLE_US_STATES = frozenset(
@@ -359,12 +360,18 @@ class AlpacaBrokerClient:
         """
 
         try:
-            return self.client.get_trade_account_by_id(account_id=account_id)
+            validated_account_id = UUID(str(account_id))
+            trade_account_data = self.client.get(
+                f"/trading/accounts/{validated_account_id}/account"
+            )
+            trade_account_data.setdefault("last_daytrading_buying_power", None)
+            trade_account_data.setdefault("last_daytrade_count", None)
+            return TradeAccount(**trade_account_data)
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to get alpaca trade account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_GET_TRADE_ACCOUNT_FAILED"
-            )
+            ) from e
 
     def create_direct_ach_relationship(
         self,
@@ -1038,6 +1045,8 @@ class AlpacaBrokerClient:
             for a requested symbol, or any unexpected error occurs while
             fetching prices.
         """
+        if not symbols:
+            return {}
         try:
             request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = self.data_client.get_stock_latest_trade(request)

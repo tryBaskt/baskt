@@ -28,11 +28,14 @@ export default function StockPage({ stock, onBack }) {
 
   const selectedAnalytics =
     stockAnalytics?.[selectedPeriod] || stockAnalytics?.[selectedPeriod.toLowerCase()];
-  const cumulativeReturns = selectedAnalytics?.cumulative_returns || [];
-  const periodReturn = cumulativeReturns.length
-    ? Number(cumulativeReturns.at(-1))
-    : null;
-  const transactions = allocationAnalytics?.list_transaction || [];
+  const prices = selectedAnalytics?.prices || [];
+  const periodReturn =
+    selectedAnalytics?.final_cumulative_return !== null &&
+    selectedAnalytics?.final_cumulative_return !== undefined &&
+    Number.isFinite(Number(selectedAnalytics.final_cumulative_return))
+      ? Number(selectedAnalytics.final_cumulative_return) * 100
+      : null;
+  const transactions = allocationAnalytics?.transactions || [];
   const hasAllocation =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined;
@@ -52,7 +55,7 @@ export default function StockPage({ stock, onBack }) {
     setAllocationError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stock.asset_id}/analytics`,
+        `/account-analytics/stocks/${stock.stock_id}/analytics`,
         { signal }
       );
       setAllocationAnalytics(payload || null);
@@ -103,7 +106,7 @@ export default function StockPage({ stock, onBack }) {
     void loadAllocationAnalytics(controller.signal);
 
     return () => controller.abort();
-  }, [stock.asset_id, stock.symbol]);
+  }, [stock.stock_id, stock.symbol]);
 
   async function executeTrade(action) {
     setTradeError("");
@@ -122,7 +125,7 @@ export default function StockPage({ stock, onBack }) {
 
     try {
       setIsSubmitting(true);
-      await apiRequest(`/trade-execution/stocks/${stock.asset_id}/${action}`, {
+      await apiRequest(`/trade-execution/stocks/${stock.stock_id}/${action}`, {
         method: "POST",
         body: JSON.stringify({
           symbol: stock.symbol,
@@ -157,8 +160,8 @@ export default function StockPage({ stock, onBack }) {
           <span className="stock-symbol-mark">{stock.symbol}</span>
           <div>
             <p className="eyebrow">Stock detail</p>
-            <h2>{stock.name || stock.symbol}</h2>
-            <p>{stock.exchange} · {String(stock.asset_class || "US equity").replaceAll("_", " ")}</p>
+            <h2>{stock.symbol}</h2>
+            <p>{String(stock.stock_class || "US equity").replaceAll("_", " ")}</p>
           </div>
         </div>
         <div className="stock-capabilities" aria-label="Stock capabilities">
@@ -170,7 +173,7 @@ export default function StockPage({ stock, onBack }) {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Stock performance</p>
-            <h2>{stock.symbol} cumulative returns</h2>
+            <h2>{stock.symbol} price history</h2>
           </div>
           <div className="segmented-control" aria-label="Stock analytics period">
             {PERIODS.map((period) => (
@@ -194,13 +197,13 @@ export default function StockPage({ stock, onBack }) {
         ) : (
           <div className="model-performance-layout">
             <EquityChart
-              equity={cumulativeReturns}
+              equity={prices}
               timestamps={selectedAnalytics?.timestamp || []}
-              valueType="percent"
+              valueType="currency"
               variant="wide"
               align="left"
-              ariaLabel={`${selectedPeriod} ${stock.symbol} cumulative returns chart`}
-              emptyMessage="Stock returns are unavailable for this period."
+              ariaLabel={`${selectedPeriod} ${stock.symbol} price chart`}
+              emptyMessage="Stock prices are unavailable for this period."
             />
             <div className="model-performance-metrics" aria-label={`${selectedPeriod} stock metrics`}>
               <div>

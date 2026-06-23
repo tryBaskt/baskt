@@ -8,7 +8,7 @@ from typing import List, Optional
 
 
 @dataclass(frozen=True)
-class VectorBTPortfolioSimulation:
+class VectorBTPortfolioAnalytics:
     """Normalized performance results from a VectorBT simulation.
 
     All return and metric values are decimal fractions. For example, ``0.12``
@@ -17,7 +17,8 @@ class VectorBTPortfolioSimulation:
     """
 
     timestamps: List[datetime]
-    cumulative_returns: List[float]
+    cumulative_returns: Optional[List[float]]
+    prices: Optional[List[float]] # do cumulative returns for model portfolios and prices for stocks
     final_cumulative_return: float
     cagr: Optional[float]
     annualized_volatility: Optional[float]

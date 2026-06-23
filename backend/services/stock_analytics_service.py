@@ -199,7 +199,7 @@ class StockAnalyticsService:
 
 
         try:
-            simulation_result = self.asset_analytics_service.calculate_performance(
+            stock_analytics = self.asset_analytics_service.calculate_portfolio_analytics(
                 prices=simulation_prices,
                 target_exposure=target_exposure,
                 frequency=timeframe,
@@ -218,19 +218,15 @@ class StockAnalyticsService:
 
         return period, {
             "timeframe": timeframe,
-            "timestamp": [
-                timestamp.isoformat()
-                for timestamp in simulation_result.timestamps
+            "timestamp": [timestamp for timestamp in stock_analytics.timestamps],
+            "prices": [
+                float(price)
+                for price in simulation_prices[symbol].to_numpy()
             ],
-            "cumulative_returns": [
-                cumulative_return * 100.0
-                for cumulative_return in simulation_result.cumulative_returns
-            ],
-            "cagr": simulation_result.cagr,
-            "annualized_volatility": simulation_result.annualized_volatility,
-            "leverage_adjusted_direction": (
-                simulation_result.leverage_adjusted_direction
-            ),
+            "final_cumulative_return": stock_analytics.final_cumulative_return,
+            "cagr": stock_analytics.cagr,
+            "annualized_volatility": stock_analytics.annualized_volatility,
+            "leverage_adjusted_direction": stock_analytics.leverage_adjusted_direction
         }
 
 
@@ -295,6 +291,7 @@ class StockAnalyticsService:
                 for period, period_response in period_results:
                     if period_response is not None:
                         response[period] = period_response
+                        print(period_response["final_cumulative_return"])
 
             return response
 

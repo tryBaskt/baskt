@@ -11,7 +11,7 @@ from alpaca.trading.models import Calendar
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.vectorbt_client import VectorBTClient, VectorBTClientError
 from clients.yfinance_client import YFinanceClient, YFinanceClientError
-from domain.vectorbt import VectorBTPortfolioSimulation
+from domain.vectorbt_domain import VectorBTPortfolioAnalytics
 
 
 class AssetAnalyticsServiceError(Exception):
@@ -174,7 +174,7 @@ class AssetAnalyticsService:
             ) from error
 
 
-    def calculate_performance(
+    def calculate_portfolio_analytics(
         self,
         *,
         prices: pd.DataFrame,
@@ -183,7 +183,7 @@ class AssetAnalyticsService:
         initial_cash: float = 10_000.0,
         fees: float = 0.0,
         slippage: float = 0.0,
-    ) -> VectorBTPortfolioSimulation:
+    ) -> VectorBTPortfolioAnalytics:
         """Calculate performance for static or changing target exposures.
 
         Each non-null target-exposure row must contain the complete desired
@@ -258,7 +258,7 @@ class AssetAnalyticsService:
             ] = -max(0.0, long_exposure - short_exposure - 1.0)
 
         try:
-            return self.vectorbt_client.simulate_portfolio(
+            return self.vectorbt_client.calculate_portfolio_analytics(
                 prices=simulation_prices,
                 target_exposure=simulation_target_exposure,
                 frequency=frequency,

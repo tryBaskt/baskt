@@ -4,6 +4,7 @@
 from __future__ import annotations
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, RootModel
+from datetime import datetime
 
 
 class ModelPortfolioPositionRequest(BaseModel):
@@ -22,6 +23,7 @@ class CreateModelPortfolioRequest(BaseModel):
 class UpdateModelPortfolioRequest(BaseModel):
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
+
 
 class ModelPortfolioPositionResponse(BaseModel):
     symbol: str
@@ -48,8 +50,9 @@ class ModelPortfolioResponse(BaseModel):
 
 class ModelPortfolioAnalyticsPeriodResponse(BaseModel):
     timeframe: str
-    timestamp: List[str]
+    timestamp: List[datetime]
     cumulative_returns: List[float]
+    final_cumulative_return: float
     cagr: Optional[float] = None
     annualized_volatility: Optional[float] = None
     leverage_adjusted_direction: Optional[float] = None
@@ -58,10 +61,15 @@ class ModelPortfolioAnalyticsPeriodResponse(BaseModel):
 class ModelPortfolioAnalyticsResponse(RootModel[Dict[str, ModelPortfolioAnalyticsPeriodResponse]]):
     pass
 
+
 class ModelPortfolioMetadataResponse(BaseModel):
     portfolio_id: str
+    portfolio_owner_cognito_user_id: str
     portfolio_name: str
+    created_at: str
+    updated_at: str
     description: Optional[str] = None
 
-class ListUserModelPortfoliosResponse(BaseModel):
-    list_model_portfolio_metadata: List[ModelPortfolioMetadataResponse]
+
+class ModelPortfoliosMetadataResponse(RootModel[List[ModelPortfolioMetadataResponse]]):
+    pass

@@ -4,9 +4,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from fastapi import HTTPException
-from domain.portfolio_allocation import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
-from domain.model_portfolio import ModelPortfolioSnapshot, ModelPortfolioPosition
-from domain.baskt import BasktPosition, DeltaPosition
+from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
+from domain.model_portfolio_domain import ModelPortfolioSnapshot, ModelPortfolioPosition
+from domain.baskt_domain import BasktPosition, DeltaPosition
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from repository.order_repository import OrderRepository

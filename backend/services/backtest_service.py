@@ -4,16 +4,15 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, TypeAlias
 import pandas as pd
-from domain.backtest import BacktestPosition
+from domain.backtest_domain import BacktestPosition
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from services.asset_analytics_service import (
     AssetAnalyticsService,
     AssetAnalyticsServiceError,
 )
-from domain.baskt import BasktAsset
+from domain.stock_domain import Stock
 
-BacktestMetricsDict: TypeAlias = Dict[str, Optional[float]]
-BacktestRunResult: TypeAlias = Dict[str, List[str] | List[float] | BacktestMetricsDict]
+BacktestRunResult: TypeAlias = Dict[str, str | List[float] | Optional[float]]
 BacktestPositionConfig: TypeAlias = Dict[str, Any]
 
 class BacktestServiceError(Exception):
@@ -103,7 +102,7 @@ class BacktestService:
 
     def get_tradeable_fractionable_US_baskt_assets(
         self
-    ) -> List[BasktAsset]:
+    ) -> List[Stock]:
         """
         Get active US equity assets that can be traded fractionally in Baskt.
 
@@ -111,25 +110,26 @@ class BacktestService:
             None.
 
         Returns:
-            List[BasktAsset]: Tradable, fractionable US equity assets.
+            List[Stock]: Tradable, fractionable US equity assets.
 
         Raises:
             BacktestServiceError: If Alpaca fails while fetching assets.
         """
         try:
             assets = self.alpaca_broker_client.get_tradeable_fractionable_US_assets()
-            baskt_assets = [
-                BasktAsset(
+            stocks = [
+                Stock(
                     symbol=asset.symbol,
                     tradable=asset.tradable,
                     fractionable=asset.fractionable,
                     shortable=asset.shortable,
-                    asset_id=str(asset.id),
-                    asset_class=str(getattr(asset.asset_class, "name", asset.asset_class))
+                    marginable=asset.marginable,
+                    stock_id=str(asset.id),
+                    stock_class=str(getattr(asset.asset_class, "name", asset.asset_class))
                 )
                 for asset in assets
             ]
-            return baskt_assets
+            return stocks
         except AlpacaBrokerClientError as err:
             raise BacktestServiceError(
                 message=f"Failed to get tradeable, fractionable, US baskt assets: {err}",
@@ -263,7 +263,7 @@ class BacktestService:
             target_exposure.loc[first_timestamp, position.symbol] = exposure
 
         try:
-            simulation_result = self.asset_analytics_service.calculate_performance(
+            simulation_result = self.asset_analytics_service.calculate_portfolio_analytics(
                 prices=prices,
                 target_exposure=target_exposure,
                 frequency="1d",
@@ -276,23 +276,12 @@ class BacktestService:
                 f"Failed to calculate backtest performance: {error}"
             ) from error
 
-        metrics: BacktestMetricsDict = {
-            "final_cumulative_return": (
-                simulation_result.final_cumulative_return
-            ),
-            "cagr": simulation_result.cagr,
-            "leverage_adjusted_direction": (
-                simulation_result.leverage_adjusted_direction
-            ),
-            "annualized_volatility": (
-                simulation_result.annualized_volatility
-            ),
-        }
         return {
-            "dates": [
-                timestamp.strftime("%Y-%m-%d")
-                for timestamp in simulation_result.timestamps
-            ],
+            "start_date": start_date,
+            "end_date": end_date,
             "cumulative_returns": simulation_result.cumulative_returns,
-            "metrics": metrics,
+            "final_cumulative_return": simulation_result.final_cumulative_return,
+            "cagr": simulation_result.cagr,
+            "leverage_adjusted_direction": simulation_result.leverage_adjusted_direction,
+            "annualized_volatility": simulation_result.annualized_volatility,
         }

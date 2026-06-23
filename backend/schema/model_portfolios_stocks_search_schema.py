@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 
-class ModelPortfolioSearchResultResponse(BaseModel):
+class ModelPortfolioOpenSearchResultResponse(BaseModel):
     """Metadata for one model portfolio returned by search."""
-
     portfolio_id: str
     portfolio_name: str
     description: Optional[str] = None
@@ -20,10 +19,9 @@ class ModelPortfolioSearchResultResponse(BaseModel):
     score: Optional[float] = None
 
 
-class ModelPortfoliosSearchResponse(BaseModel):
+class ModelPortfoliosOpenSearchResultResponse(BaseModel):
     """Paginated collection of model portfolio search results."""
-
-    model_portfolios: List[ModelPortfolioSearchResultResponse]
+    model_portfolios: List[ModelPortfolioOpenSearchResultResponse]
     total: int
     limit: int
     offset: int
@@ -31,22 +29,20 @@ class ModelPortfoliosSearchResponse(BaseModel):
 
 class StockSearchResultResponse(BaseModel):
     """Stock metadata returned by an exact symbol search."""
-
-    asset_id: str
     symbol: str
-    name: str
-    exchange: str
-    asset_class: str
-    status: str
     tradable: bool
-    marginable: bool
-    shortable: bool
-    easy_to_borrow: bool
     fractionable: bool
+    shortable: bool
+    marginable: bool
+    stock_id: str
+    stock_class: str
 
 
-class ModelPortfoliosStocksSearchResponse(BaseModel):
+class StocksSearchResultResponse(RootModel[List[StockSearchResultResponse]]):
+    pass
+
+
+class ModelPortfoliosStocksOpenSearchResponse(BaseModel):
     """Combined model portfolio and stock search response."""
-
-    model_portfolios: ModelPortfoliosSearchResponse
-    stocks: List[StockSearchResultResponse]
+    model_portfolios: ModelPortfoliosOpenSearchResultResponse
+    stocks: StocksSearchResultResponse

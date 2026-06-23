@@ -61,3 +61,26 @@ class ModelPortfolioAnalyticsSnapshot:
     positions: List[ModelPortfolioAnalyticsPosition]
     timestamp: datetime
 
+
+@dataclass(frozen=True)
+class ModelPortfolioOpenSearchResult:
+    """Searchable model portfolio metadata returned to callers."""
+
+    portfolio_id: str
+    portfolio_name: str
+    description: str | None
+    portfolio_owner_cognito_user_id: str
+    created_at: str
+    updated_at: str
+    visibility: str
+    score: float | None
+
+
+@dataclass(frozen=True)
+class ModelPortfoliosOpenSearchResult:
+    """Paginated model portfolio search response."""
+    model_portfolios: List[ModelPortfolioOpenSearchResult]
+    total: int
+    limit: int
+    offset: int
+

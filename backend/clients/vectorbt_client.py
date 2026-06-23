@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 import pandas as pd
 import vectorbt as vbt
 
-from domain.vectorbt import VectorBTPortfolioSimulation
+from domain.vectorbt_domain import VectorBTPortfolioAnalytics
 
 
 class VectorBTClientError(Exception):
@@ -34,7 +34,7 @@ class VectorBTClientError(Exception):
 class VectorBTClient:
     """Run VectorBT portfolio simulations with caller-prepared inputs."""
 
-    def simulate_portfolio(
+    def calculate_portfolio_analytics(
         self,
         *,
         prices: pd.DataFrame,
@@ -44,7 +44,7 @@ class VectorBTClient:
         fees: float = 0.0,
         slippage: float = 0.0,
         excluded_direction_symbols: Optional[Sequence[str]] = None,
-    ) -> VectorBTPortfolioSimulation:
+    ) -> VectorBTPortfolioAnalytics:
         """Simulate a portfolio from prices and target percentage exposures.
 
         ``target_exposure`` uses VectorBT target-percent semantics. Non-null
@@ -138,8 +138,7 @@ class VectorBTClient:
                 else float(asset_value[included_columns].iloc[-1].sum())
                 / float(final_portfolio_value)
             )
-
-            return VectorBTPortfolioSimulation(
+            return VectorBTPortfolioAnalytics(
                 timestamps=[
                     timestamp.to_pydatetime()
                     if isinstance(timestamp, pd.Timestamp)
@@ -149,6 +148,11 @@ class VectorBTClient:
                 cumulative_returns=[
                     float(value) for value in cumulative_returns.to_numpy()
                 ],
+                prices=(
+                    [float(value) for value in prices.iloc[:, 0].to_numpy()]
+                    if len(prices.columns) == 1
+                    else None
+                ),
                 final_cumulative_return=float(cumulative_returns.iloc[-1]),
                 cagr=None if pd.isna(cagr) else float(cagr),
                 annualized_volatility=(
@@ -165,4 +169,3 @@ class VectorBTClient:
                 message=f"Failed to simulate portfolio with VectorBT: {error}",
                 code="VECTORBT_SIMULATION_FAILED",
             ) from error
-

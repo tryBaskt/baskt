@@ -98,8 +98,8 @@ export default function Transfer() {
       apiRequest("/accounts/banks"),
       apiRequest(`/accounts/transfers${toQuery({ limit: 20, offset: 0 })}`),
     ]);
-    setAchRelationships(achPayload?.list_ach_relationship || []);
-    setBanks(bankPayload?.list_banks || []);
+    setAchRelationships(Array.isArray(achPayload) ? achPayload : []);
+    setBanks(Array.isArray(bankPayload) ? bankPayload : []);
     setTransfers(transferPayload?.items || []);
   }
 

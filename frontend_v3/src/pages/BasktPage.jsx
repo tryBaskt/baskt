@@ -60,7 +60,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
         { signal }
       );
       setAllocationAnalytics(allocationPayload || null);
-      setTransactions(allocationPayload?.list_transaction || []);
+      setTransactions(allocationPayload?.transactions || []);
     } catch (allocationRequestError) {
       if (allocationRequestError?.name !== "AbortError") {
         setAllocationError(

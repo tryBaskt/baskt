@@ -15,7 +15,7 @@ from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.clients.cognito_client import CognitoClient
 from backend.services.account_lifecycle_service import AccountLifecycleService
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.domain.baskt import BasktAccount
+from backend.domain.baskt_domain import BasktAccount
 from alpaca.broker.enums import (
     AgreementType,
     BankAccountType,

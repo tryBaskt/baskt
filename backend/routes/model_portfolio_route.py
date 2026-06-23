@@ -12,7 +12,7 @@ from core.deps import (
     get_model_portfolio_analytics_service,
     get_model_portfolio_repository,
 )
-from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot
+from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
 from repository.model_portfolio_repository import (
     ModelPortfolioRepository,
     ModelPortfolioNotFoundError, 
@@ -31,7 +31,7 @@ from schema.model_portfolio_schema import (
     ModelPortfolioPositionResponse,
     ModelPortfolioSnapshotResponse,
     ModelPortfolioMetadataResponse,
-    ListUserModelPortfoliosResponse
+    ModelPortfoliosMetadataResponse,
 )
 from services.model_portfolio_analytics_service import (
     ModelPortfolioAnalyticsService,
@@ -195,11 +195,11 @@ def update_model_portfolio(
         _raise_model_portfolio_http_exception(e)
 
 
-@router.get("", response_model=ListUserModelPortfoliosResponse, status_code=HTTP_200_OK)
-def list_user_model_portfolios(
+@router.get("", response_model=ModelPortfoliosMetadataResponse, status_code=HTTP_200_OK)
+def get_model_portfolio_metadata_by_owner(
     user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-) -> ListUserModelPortfoliosResponse:
+) -> ModelPortfoliosMetadataResponse:
     """
     List all model portfolios owned by the authenticated user.
 
@@ -208,17 +208,20 @@ def list_user_model_portfolios(
         service: Repository dependency for model portfolio operations.
 
     Returns:
-        ListUserModelPortfoliosResponse: Collection of user portfolio
+        ModelPortfoliosMetadataResponse: Collection of user portfolio
         summaries.
     """
     cognito_user_id = user["sub"]
     try:
-        portfolios_meta_data = service.list_user_model_portfolio_names(portfolio_owner_cognito_user_id=cognito_user_id)
-        return ListUserModelPortfoliosResponse(
-            list_model_portfolio_metadata=[
+        portfolios_meta_data = service.get_model_portfolio_metadata_by_owner(portfolio_owner_cognito_user_id=cognito_user_id)
+        return ModelPortfoliosMetadataResponse(
+            root=[
                 ModelPortfolioMetadataResponse(
                     portfolio_id=portfolio_metadata["portfolio_id"],
+                    portfolio_owner_cognito_user_id=portfolio_metadata["portfolio_owner_cognito_user_id"],
                     portfolio_name=portfolio_metadata["portfolio_name"],
+                    created_at=portfolio_metadata["created_at"],
+                    updated_at=portfolio_metadata["updated_at"],
                     description=portfolio_metadata.get("description"),
                 )
                 for portfolio_metadata in portfolios_meta_data
@@ -247,7 +250,7 @@ def get_model_portfolio_analytics(
     """
     try:
         return ModelPortfolioAnalyticsResponse(
-            service.get_model_portfolio_bars(portfolio_id=portfolio_id)
+            root=service.get_model_portfolio_bars(portfolio_id=portfolio_id)
         )
     except Exception as e:
         _raise_model_portfolio_http_exception(e)

@@ -12,7 +12,7 @@ from services.asset_analytics_service import (
     AssetAnalyticsService,
     AssetAnalyticsServiceError,
 )
-from domain.model_portfolio import ModelPortfolioSnapshot, ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
+from domain.model_portfolio_domain import ModelPortfolioSnapshot, ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
 from repository.model_portfolio_repository import ModelPortfolioRepository
 
 # Third-party imports
@@ -446,7 +446,7 @@ class ModelPortfolioAnalyticsService:
             "1D": "1d",
         }[timeframe]
         try:
-            simulation_result = self.asset_analytics_service.calculate_performance(
+            model_portfolio_analytics = self.asset_analytics_service.calculate_portfolio_analytics(
                 prices=simulation_prices,
                 target_exposure=target_exposure,
                 frequency=vectorbt_frequency,
@@ -465,19 +465,15 @@ class ModelPortfolioAnalyticsService:
 
         return period, {
             "timeframe": timeframe,
-            "timestamp": [
-                timestamp.isoformat()
-                for timestamp in simulation_result.timestamps
-            ],
+            "timestamp": [timestamp for timestamp in model_portfolio_analytics.timestamps],
             "cumulative_returns": [
                 cumulative_return * 100.0
-                for cumulative_return in simulation_result.cumulative_returns
+                for cumulative_return in model_portfolio_analytics.cumulative_returns
             ],
-            "cagr": simulation_result.cagr,
-            "annualized_volatility": simulation_result.annualized_volatility,
-            "leverage_adjusted_direction": (
-                simulation_result.leverage_adjusted_direction
-            ),
+            "final_cumulative_return": model_portfolio_analytics.final_cumulative_return,
+            "cagr": model_portfolio_analytics.cagr,
+            "annualized_volatility": model_portfolio_analytics.annualized_volatility,
+            "leverage_adjusted_direction": model_portfolio_analytics.leverage_adjusted_direction
         }
 
 
