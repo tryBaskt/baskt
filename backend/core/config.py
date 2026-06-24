@@ -74,6 +74,15 @@ class Settings(BaseSettings):
         default="-model-portfolios",
         alias="MODEL_PORTFOLIO_SEARCH_INDEX_SUFFIX",
     )
+    trade_execution_queue_suffix: str = Field(
+        default="-trade-execution-queue",
+        alias="TRADE_EXECUTION_QUEUE_SUFFIX",
+    )
+    dev_trade_execution_queue_url: Optional[str] = Field(
+        default=None,
+        alias="DEV_TRADE_EXECUTION_QUEUE_URL",
+    )
+
     # Local-only credentials (on AWS, rely on IAM roles; these can be unset)
     aws_access_key_id: Optional[str] = Field(alias="AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = Field(alias="AWS_SECRET_ACCESS_KEY")
@@ -82,17 +91,6 @@ class Settings(BaseSettings):
     dev_cognito_region: str = Field(alias="DEV_COGNITO_REGION")
     dev_cognito_user_pool_id: str = Field(alias="DEV_COGNITO_USER_POOL_ID")
     dev_cognito_app_client_id: str = Field(alias="DEV_COGNITO_APP_CLIENT_ID")
-
-    # ---------- Alpaca -----------
-    # Environment-specific Alpaca credentials (e.g., DEV_ALPACA_API_KEY for dev environment)
-    dev_alpaca_api_key: Optional[str] = Field(default=None, alias="DEV_ALPACA_API_KEY")
-    dev_alpaca_api_secret: Optional[str] = Field(default=None, alias="DEV_ALPACA_API_SECRET")
-    test_alpaca_api_key: Optional[str] = Field(default=None, alias="TEST_ALPACA_API_KEY")
-    test_alpaca_api_secret: Optional[str] = Field(default=None, alias="TEST_ALPACA_API_SECRET")
-    stage_alpaca_api_key: Optional[str] = Field(default=None, alias="STAGE_ALPACA_API_KEY")
-    stage_alpaca_api_secret: Optional[str] = Field(default=None, alias="STAGE_ALPACA_API_SECRET")
-    prod_alpaca_api_key: Optional[str] = Field(default=None, alias="PROD_ALPACA_API_KEY")
-    prod_alpaca_api_secret: Optional[str] = Field(default=None, alias="PROD_ALPACA_API_SECRET")
 
     # ----------- Alpaca Broker -------------
     sandbox_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="SANDBOX_ALPACA_BROKER_API_KEY")
@@ -186,6 +184,16 @@ class Settings(BaseSettings):
     def model_portfolio_search_index(self) -> str:
         """Return the environment-specific Baskt search index name."""
         return f"{self.env}{self.model_portfolio_search_index_suffix}"
+
+    @property
+    def trade_execution_queue_name(self) -> str:
+        """Return the environment-specific trade execution queue name."""
+        return f"{self.env}{self.trade_execution_queue_suffix}"
+
+    @property
+    def trade_execution_queue_url(self) -> Optional[str]:
+        """Return the dev trade execution queue URL when configured."""
+        return self.dev_trade_execution_queue_url
 
     @property
     def alpaca_api_key(self) -> str:
