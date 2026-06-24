@@ -229,8 +229,6 @@ class PortfolioAllocationRepository:
             position_values[position.symbol] = filled_quantity * (
                 entry_price + position.direction * (current_price - entry_price)
             )
-
-        print("sdjfosdjfosidjfosd")
         
         return position_values, sum(position_values.values()), quotes
 

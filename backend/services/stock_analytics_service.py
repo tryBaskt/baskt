@@ -197,12 +197,16 @@ class StockAnalyticsService:
         )
         target_exposure.loc[simulation_prices.index[0], symbol] = 1.0
 
-
+        vectorbt_frequency = {
+            "5Min": "5min",
+            "1H": "1h",
+            "1D": "1d",
+        }[timeframe]
         try:
             stock_analytics = self.asset_analytics_service.calculate_portfolio_analytics(
                 prices=simulation_prices,
                 target_exposure=target_exposure,
-                frequency=timeframe,
+                frequency=vectorbt_frequency,
                 initial_cash=10_000.0,
                 fees=0.0,
                 slippage=0.0,

@@ -400,10 +400,10 @@ class ModelPortfolioAnalyticsService:
                 end_datetime=segment_end,
                 timeframe=timeframe,
             )
-            full_segment_prices_df = full_segment_prices_df.combine_first(
-                segment_prices
+            full_segment_prices_df = segment_prices.combine_first(
+                full_segment_prices_df
             )
-
+        
         simulation_prices = (
             full_segment_prices_df
             .sort_index()
@@ -445,6 +445,7 @@ class ModelPortfolioAnalyticsService:
             "1H": "1h",
             "1D": "1d",
         }[timeframe]
+
         try:
             model_portfolio_analytics = self.asset_analytics_service.calculate_portfolio_analytics(
                 prices=simulation_prices,
