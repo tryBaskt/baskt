@@ -18,8 +18,14 @@ from core.deps import (
     get_trade_execution_service,
 )
 from schema.trade_execution_schema import (
+    BuyStockRequest,
+    BuyStockResponse,
+    CloseStockRequest,
+    CloseStockResponse,
     DepositIntoPortfolioRequest,
     DepositIntoPortfolioResponse,
+    SellStockRequest,
+    SellStockResponse,
     WithdrawAllPortfolioRequest,
     WithdrawAllPortfolioResponse,
     WithdrawFromPortfolioRequest,
@@ -113,3 +119,64 @@ def sell_all_from_portfolio(
         return WithdrawAllPortfolioResponse(success=True)
     except Exception as e:
         _raise_trade_execution_http_exception(e)
+
+
+@router.post("/stocks/{asset_id}/buy", response_model=BuyStockResponse)
+def buy_stock(
+    asset_id: str,
+    request: BuyStockRequest,
+    trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+    user: Dict[str, Any] = Depends(get_current_user),
+    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+) -> BuyStockResponse:
+    try:
+        trade_execution_service.execute_buy_to_stock(
+            symbol=request.symbol.upper(),
+            asset_id=asset_id,
+            deposit_amount=request.amount,
+            cognito_user_id=user["sub"],
+            alpaca_account_id=user["custom:alpaca_acct_id"],
+        )
+        return BuyStockResponse(success=True)
+    except Exception as error:
+        _raise_trade_execution_http_exception(error)
+
+
+@router.post("/stocks/{asset_id}/sell", response_model=SellStockResponse)
+def sell_stock(
+    asset_id: str,
+    request: SellStockRequest,
+    trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+    user: Dict[str, Any] = Depends(get_current_user),
+    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+) -> SellStockResponse:
+    try:
+        trade_execution_service.execute_sell_to_stock(
+            symbol=request.symbol.upper(),
+            asset_id=asset_id,
+            withdraw_amount=request.amount,
+            alpaca_account_id=user["custom:alpaca_acct_id"],
+            cognito_user_id=user["sub"],
+        )
+        return SellStockResponse(success=True)
+    except Exception as error:
+        _raise_trade_execution_http_exception(error)
+
+
+@router.post("/stocks/{asset_id}/close", response_model=CloseStockResponse)
+def close_stock(
+    asset_id: str,
+    request: CloseStockRequest,
+    trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+    user: Dict[str, Any] = Depends(get_current_user),
+    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+) -> CloseStockResponse:
+    try:
+        trade_execution_service.execute_close_stock(
+            asset_id=asset_id,
+            alpaca_account_id=user["custom:alpaca_acct_id"],
+            cognito_user_id=user["sub"],
+        )
+        return CloseStockResponse(success=True)
+    except Exception as error:
+        _raise_trade_execution_http_exception(error)

@@ -1,15 +1,18 @@
 # backend/services/backtest_service.py
 
 from __future__ import annotations
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, TypeAlias
 import pandas as pd
-from domain.backtest import BacktestPosition
-from clients.yfinance_client import YFinanceClient, YFinanceClientError
+from domain.backtest_domain import BacktestPosition
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
-from domain.baskt import BasktAsset
+from services.asset_analytics_service import (
+    AssetAnalyticsService,
+    AssetAnalyticsServiceError,
+)
+from domain.stock_domain import Stock
 
-BacktestMetricsDict: TypeAlias = Dict[str, Optional[float]]
-BacktestRunResult: TypeAlias = Dict[str, List[str] | List[float] | BacktestMetricsDict]
+BacktestRunResult: TypeAlias = Dict[str, str | List[float] | Optional[float]]
 BacktestPositionConfig: TypeAlias = Dict[str, Any]
 
 class BacktestServiceError(Exception):
@@ -78,31 +81,28 @@ class BacktestService:
     def __init__(
         self, 
         *, 
-        yfinance_client: YFinanceClient, 
         alpaca_broker_client: AlpacaBrokerClient,
-        periods_per_year: int = 252
+        asset_analytics_service: AssetAnalyticsService,
     ) -> None:
         """
         Initialize the backtest service.
 
         Args:
-            yfinance_client: Market data client used to fetch historical price
-                series.
             alpaca_broker_client: Alpaca client used to fetch tradable Baskt
                 assets.
-            periods_per_year: Number of return periods in one year (252 for trading days).
+            asset_analytics_service: Shared service used to simulate portfolio
+                performance and calculate metrics.
 
         Returns:
             None.
         """
-        self.market_data = yfinance_client
-        self.periods_per_year = periods_per_year
         self.alpaca_broker_client = alpaca_broker_client
+        self.asset_analytics_service = asset_analytics_service
 
 
     def get_tradeable_fractionable_US_baskt_assets(
         self
-    ) -> List[BasktAsset]:
+    ) -> List[Stock]:
         """
         Get active US equity assets that can be traded fractionally in Baskt.
 
@@ -110,23 +110,26 @@ class BacktestService:
             None.
 
         Returns:
-            List[BasktAsset]: Tradable, fractionable US equity assets.
+            List[Stock]: Tradable, fractionable US equity assets.
 
         Raises:
             BacktestServiceError: If Alpaca fails while fetching assets.
         """
         try:
             assets = self.alpaca_broker_client.get_tradeable_fractionable_US_assets()
-            baskt_assets = [
-                BasktAsset(
+            stocks = [
+                Stock(
                     symbol=asset.symbol,
                     tradable=asset.tradable,
                     fractionable=asset.fractionable,
-                    asset_class=str(getattr(asset.asset_class, "name", asset.asset_class))
+                    shortable=asset.shortable,
+                    marginable=asset.marginable,
+                    stock_id=str(asset.id),
+                    stock_class=str(getattr(asset.asset_class, "name", asset.asset_class))
                 )
                 for asset in assets
             ]
-            return baskt_assets
+            return stocks
         except AlpacaBrokerClientError as err:
             raise BacktestServiceError(
                 message=f"Failed to get tradeable, fractionable, US baskt assets: {err}",
@@ -167,9 +170,12 @@ class BacktestService:
         """
         if not positions_conf:
             raise BacktestServiceValidationError("At least one position is required")
+        if price_col.lower() != "close":
+            raise BacktestServiceValidationError(
+                "Only the 'close' price column is supported"
+            )
 
-
-        # 1) Build domain positions with time series
+        # Build and validate position metadata before fetching prices once.
         positions: List[BacktestPosition] = []
         for p in positions_conf:
             try:
@@ -180,7 +186,6 @@ class BacktestService:
                 if direction not in {-1, 1}:
                     raise ValueError("direction must be 1 for long or -1 for short")
                 leverage = float(p.get("leverage", 1.0))
-                ts = self.market_data.fetch_history(sym, start_date, end_date)
             except KeyError as e:
                 raise BacktestServiceValidationError(
                     f"Missing required position field: {e}"
@@ -189,153 +194,94 @@ class BacktestService:
                 raise BacktestServiceValidationError(
                     f"Invalid position configuration for symbol '{p.get('symbol', 'UNKNOWN')}': {e}"
                 )
-            except YFinanceClientError as e:
-                raise BacktestServiceDataError(
-                    f"Failed to fetch market data for symbol '{p.get('symbol', 'UNKNOWN')}': {e}"
-                )
-
-            if ts is None or ts.empty:
-                continue
-
             positions.append(
                 BacktestPosition(
                     symbol=sym,
-                    time_series=ts,
                     weight=weight,
                     direction=direction,
                     leverage=leverage,
                 )
             )
 
-        if not positions:
-            raise BacktestServiceDataError("No price data available for the selected positions")
-        
-        # 2) Portfolio daily returns
-        portfolio_daily_ret = self._simulate_portfolio_daily_returns(
-            positions=positions, 
-            price_col=price_col
-        )
+        try:
+            start_datetime = datetime.combine(
+                date.fromisoformat(start_date),
+                time.min,
+                tzinfo=timezone.utc,
+            )
+            end_datetime = datetime.combine(
+                date.fromisoformat(end_date),
+                time.min,
+                tzinfo=timezone.utc,
+            ) + timedelta(days=1)
+        except ValueError as error:
+            raise BacktestServiceValidationError(
+                "start_date and end_date must use YYYY-MM-DD format"
+            ) from error
 
-        # 3) Metrics + cumulative return series (cropped to date range)
-        cum_ret_series, metrics = self._calculate_backtest_metrics(
-            positions=positions,
-            daily_ret=portfolio_daily_ret,
-            backtest_start_date=start_date,
-            backtest_end_date=end_date,
+        if end_datetime <= start_datetime:
+            raise BacktestServiceValidationError(
+                "end_date must be on or after start_date"
+            )
+
+        symbols = [position.symbol for position in positions]
+        try:
+            prices = self.asset_analytics_service.get_prices_over_time(
+                symbols=symbols,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                timeframe="1D",
+                source="yfinance",
+            )
+        except AssetAnalyticsServiceError as error:
+            raise BacktestServiceDataError(
+                f"Failed to fetch backtest market data: {error}"
+            ) from error
+
+        missing_symbols = [symbol for symbol in symbols if symbol not in prices.columns]
+        if missing_symbols:
+            raise BacktestServiceDataError(
+                f"Price data is missing for symbols {missing_symbols}"
+            )
+
+        prices = prices.loc[:, symbols].dropna()
+        if prices.empty:
+            raise BacktestServiceDataError(
+                "No overlapping price data is available for the selected positions"
+            )
+
+        target_exposure = pd.DataFrame(
+            float("nan"),
+            index=prices.index,
+            columns=prices.columns,
+            dtype=float,
         )
+        first_timestamp = prices.index[0]
+        target_exposure.loc[first_timestamp, :] = 0.0
+        for position in positions:
+            exposure = position.weight * position.direction * position.leverage
+            target_exposure.loc[first_timestamp, position.symbol] = exposure
+
+        try:
+            simulation_result = self.asset_analytics_service.calculate_portfolio_analytics(
+                prices=prices,
+                target_exposure=target_exposure,
+                frequency="1d",
+                initial_cash=10_000.0,
+                fees=0.0,
+                slippage=0.0,
+            )
+        except AssetAnalyticsServiceError as error:
+            raise BacktestServiceCalculationError(
+                f"Failed to calculate backtest performance: {error}"
+            ) from error
 
         return {
-            "dates": [d.strftime("%Y-%m-%d") for d in cum_ret_series.index],
-            "cumulative_returns": [float(x) for x in cum_ret_series.values],
-            "metrics": metrics,
+            "start_date": start_date,
+            "end_date": end_date,
+            "cumulative_returns": simulation_result.cumulative_returns,
+            "final_cumulative_return": simulation_result.final_cumulative_return,
+            "cagr": simulation_result.cagr,
+            "leverage_adjusted_direction": simulation_result.leverage_adjusted_direction,
+            "annualized_volatility": simulation_result.annualized_volatility,
         }
-
-
-    def _simulate_portfolio_daily_returns(
-        self,
-        *,
-        positions: List[BacktestPosition],
-        price_col: str = "close",
-    ) -> pd.Series:
-        """
-        Compute portfolio daily returns by aligning all position series on common dates.
-
-        Args:
-            positions: Domain positions with historical time series and exposure settings.
-            price_col: Price column used to compute percentage returns.
-
-        Returns:
-            pd.Series: Aggregated daily portfolio returns indexed by date.
-
-        Raises:
-            BacktestServiceValidationError: If positions is empty.
-            BacktestServiceCalculationError: If symbols have no overlapping dates.
-        """
-        if not positions:
-            raise BacktestServiceValidationError("positions list is empty")
-
-        # Common dates intersection
-        date_sets = [set(pos.time_series.index) for pos in positions]
-        common_dates = set.intersection(*date_sets)
-        if not common_dates:
-            raise BacktestServiceCalculationError("No overlapping dates across provided positions")
-
-        common_index = pd.DatetimeIndex(sorted(common_dates))
-        component_returns = pd.DataFrame(index=common_index)
-
-        for pos in positions:
-            df = pos.time_series.copy()
-            df = df.sort_index()
-            df.index = pd.to_datetime(df.index)
-
-            df = df.reindex(common_index)
-            prices = df[price_col].astype(float)
-
-            rets = prices.pct_change().fillna(0.0)
-            weighted_rets = rets * pos.weight * pos.direction * pos.leverage
-
-            component_returns[pos.symbol] = weighted_rets
-
-        portfolio_returns = component_returns.sum(axis=1)
-        return portfolio_returns
-
-
-    def _calculate_backtest_metrics(
-        self,
-        *,
-        positions: List[BacktestPosition],
-        daily_ret: pd.Series,
-        backtest_start_date: str,
-        backtest_end_date: str,
-    ) -> tuple[pd.Series, BacktestMetricsDict]:
-        """
-        Calculate cumulative return series and summary metrics for a backtest slice.
-
-        Args:
-            positions: Portfolio positions used to derive leverage-adjusted direction tilt.
-            daily_ret: Portfolio daily return series.
-            backtest_start_date: Inclusive start date for slicing the return series.
-            backtest_end_date: Inclusive end date for slicing the return series.
-
-        Returns:
-            A tuple of:
-                - sliced_cum: pd.Series of cumulative returns (starting at 0)
-                - metrics: dict containing final cumulative return, CAGR,
-                  leverage_adjusted_direction, and annualized_volatility
-
-        Raises:
-            BacktestServiceCalculationError: If the sliced return series is
-            empty.
-        """
-        sliced_ret = daily_ret.loc[backtest_start_date:backtest_end_date]
-
-        if sliced_ret.empty:
-            raise BacktestServiceCalculationError("Backtest slice returned empty data")
-
-        sliced_cum = (1 + sliced_ret).cumprod() - 1
-
-        # Final cumulative return
-        total_return = float(sliced_cum.iloc[-1])
-
-        # CAGR
-        n_periods = len(sliced_ret)
-        cagr = (1.0 + total_return) ** (self.periods_per_year / n_periods) - 1.0 if n_periods > 0 else None
-
-        # Leverage adjusted Direction Tilt
-        leverage_adjusted_direction = float(
-            sum(float(pos.weight) * int(pos.direction) * float(pos.leverage) for pos in positions)
-        )
-
-        # Annualized volatility
-        annualized_volatility_raw = sliced_ret.std(ddof=1) * (self.periods_per_year ** 0.5)
-        annualized_volatility = None if pd.isna(annualized_volatility_raw) else float(annualized_volatility_raw)
-
-        # Store metrics
-        metrics: BacktestMetricsDict = {
-            "final_cumulative_return": float(total_return),
-            "cagr": float(cagr) if cagr is not None else None,
-            "leverage_adjusted_direction": leverage_adjusted_direction,
-            "annualized_volatility": annualized_volatility,
-        }
-
-        return sliced_cum, metrics

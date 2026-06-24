@@ -7,17 +7,6 @@ from dataclasses import dataclass
 # Alpaca imports
 from alpaca.trading.enums import AccountStatus
 
-
-@dataclass(frozen=True)
-class BasktAsset:
-    """
-    Asset 
-    """
-    symbol: str
-    tradable: bool
-    fractionable: bool
-    asset_class: str
-
 @dataclass(frozen=True)
 class BasktPosition:
     """
@@ -27,6 +16,14 @@ class BasktPosition:
     filled_quantity: float 
     filled_avg_price: float 
     direction: int
+
+
+@dataclass(frozen=True)
+class DeltaPosition:
+    symbol: str
+    quantity: float
+    direction: int  # +1 long, -1 short
+
 
 @dataclass(frozen=True)
 class BasktAccount:

@@ -18,11 +18,11 @@ from schema.account_lifecycle_schema import (
 	CreateBasktTransferRequest,
 	BasktTradeAccountResponse,
 	BasktACHRelationshipResponse,
-	BasktListACHRelationshipResponse,
+	BasktACHRelationshipsResponse,
 	BasktBankResponse,
-	BasktListBankResponse,
-	BasktOneTransferResponse,
-	BasktTransferResponse
+	BasktBanksResponse,
+	BasktTransferResponse,
+	BasktTransfersResponse,
 )
 from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceBasktAccountDisabled, AccountLifecycleServiceError
 
@@ -131,11 +131,11 @@ def _to_bank_response(alpaca_account_id: str, bank: Bank) -> BasktBankResponse:
 	)
 
 
-def _to_transfer_response(alpaca_account_id: str, transfer: Transfer) -> BasktOneTransferResponse:
+def _to_transfer_response(alpaca_account_id: str, transfer: Transfer) -> BasktTransferResponse:
 	"""
 	Convert an Alpaca transfer model into the API response schema.
 	"""
-	return BasktOneTransferResponse(
+	return BasktTransferResponse(
 		alpaca_account_id=alpaca_account_id,
 		created_at=transfer.created_at.isoformat(),
 		updated_at=transfer.updated_at.isoformat() if transfer.updated_at else None,
@@ -262,12 +262,12 @@ def update_ach_relationship(
 		_raise_account_lifecycle_http_exception(err)
 
 
-@router.get("/ach-relationships", response_model=BasktListACHRelationshipResponse, status_code=HTTP_200_OK)
+@router.get("/ach-relationships", response_model=BasktACHRelationshipsResponse, status_code=HTTP_200_OK)
 def get_ach_relationships(
 	user: Dict[str, Any] = Depends(get_current_user),
 	alpaca_account: Any = Depends(get_current_active_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
-) -> BasktListACHRelationshipResponse:
+) -> BasktACHRelationshipsResponse:
 	"""
 	List ACH relationships for the authenticated account.
 	"""
@@ -279,8 +279,8 @@ def get_ach_relationships(
 			alpaca_account_id=alpaca_account_id,
 		)
 
-		return BasktListACHRelationshipResponse(
-			list_ach_relationship=[
+		return BasktACHRelationshipsResponse(
+			root=[
 				_to_ach_relationship_response(alpaca_account_id, ach_relationship)
 				for ach_relationship in ach_relationships
 			]
@@ -355,12 +355,12 @@ def update_bank(
 		_raise_account_lifecycle_http_exception(err)
 
 
-@router.get("/banks", response_model=BasktListBankResponse, status_code=HTTP_200_OK)
+@router.get("/banks", response_model=BasktBanksResponse, status_code=HTTP_200_OK)
 def get_banks(
 	user: Dict[str, Any] = Depends(get_current_user),
 	alpaca_account: Any = Depends(get_current_active_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
-) -> BasktListBankResponse:
+) -> BasktBanksResponse:
 	"""
 	List bank relationships for the authenticated account.
 	"""
@@ -372,22 +372,22 @@ def get_banks(
 			alpaca_account_id=alpaca_account_id,
 		)
 
-		return BasktListBankResponse(
-			list_banks=[_to_bank_response(alpaca_account_id, bank) for bank in banks]
+		return BasktBanksResponse(
+			root=[_to_bank_response(alpaca_account_id, bank) for bank in banks]
 		)
 
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
 
 
-@router.get("/transfers", response_model=BasktTransferResponse, status_code=HTTP_200_OK)
+@router.get("/transfers", response_model=BasktTransfersResponse, status_code=HTTP_200_OK)
 def get_transfers(
 	limit: int = Query(default=10, ge=1, le=100),
 	offset: int = Query(default=0, ge=0),
 	user: Dict[str, Any] = Depends(get_current_user),
 	alpaca_account: Any = Depends(get_current_active_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
-) -> BasktTransferResponse:
+) -> BasktTransfersResponse:
 	"""
 	List transfers for the authenticated account with pagination metadata.
 	"""
@@ -401,7 +401,7 @@ def get_transfers(
 			offset=offset,
 		)
 		transfer_items = [_to_transfer_response(alpaca_account_id, transfer) for transfer in transfers]
-		return BasktTransferResponse(
+		return BasktTransfersResponse(
 			items=transfer_items,
 			limit=limit,
 			offset=offset,

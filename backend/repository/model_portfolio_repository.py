@@ -12,7 +12,7 @@ import time
 from boto3.dynamodb.conditions import Key
 
 # Baskt imports 
-from domain.model_portfolio import ModelPortfolio, ModelPortfolioSnapshot, ModelPortfolioPosition
+from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot, ModelPortfolioPosition
 from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockBadGatewayError,
     ModelPortfolioUpdateLockRepository,
@@ -848,7 +848,7 @@ class ModelPortfolioRepository:
         return model_portfolio
     
 
-    def list_user_model_portfolio_names(self, portfolio_owner_cognito_user_id: str) -> List[Dict]:
+    def get_model_portfolio_metadata_by_owner(self, portfolio_owner_cognito_user_id: str) -> List[Dict]:
         """
         List portfolio IDs and names for one portfolio owner.
 
@@ -869,7 +869,10 @@ class ModelPortfolioRepository:
             items = self.dynamodb.query(
                 key_condition=Key("portfolio_owner_cognito_user_id").eq(portfolio_owner_cognito_user_id),
                 IndexName="portfolio_owner_cognito_user_id_index",
-                ProjectionExpression="portfolio_id, portfolio_name, description",
+                ProjectionExpression=(
+                    "portfolio_id, portfolio_owner_cognito_user_id, "
+                    "portfolio_name, description, created_at, updated_at"
+                ),
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
@@ -888,7 +891,10 @@ class ModelPortfolioRepository:
             portfolio_ids_names = [
                 {
                     "portfolio_id": item["portfolio_id"], 
+                    "portfolio_owner_cognito_user_id": item["portfolio_owner_cognito_user_id"],
                     "portfolio_name": item["portfolio_name"],
+                    "created_at": item["created_at"],
+                    "updated_at": item["updated_at"],
                     "description": item.get("description")
                 } 
                 for item in items

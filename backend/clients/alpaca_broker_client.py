@@ -4,6 +4,7 @@
 from __future__ import annotations
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime, timezone, timedelta
+from uuid import UUID
 
 # Pandas imports
 import pandas as pd
@@ -23,9 +24,10 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.enums import DataFeed
 from alpaca.data.requests import StockLatestQuoteRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.common.exceptions import APIError
 
 # Baskt imports
-from domain.baskt import BasktPosition
+from domain.baskt_domain import BasktPosition
 
 
 CRYPTO_ELIGIBLE_US_STATES = frozenset(
@@ -283,7 +285,6 @@ class AlpacaBrokerClient:
             }
         
         except Exception as e:
-            print(e)
             raise AlpacaBrokerClientError(
                 message=f"Failed to create Alpaca account: {e}",
                 code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
@@ -359,12 +360,18 @@ class AlpacaBrokerClient:
         """
 
         try:
-            return self.client.get_trade_account_by_id(account_id=account_id)
+            validated_account_id = UUID(str(account_id))
+            trade_account_data = self.client.get(
+                f"/trading/accounts/{validated_account_id}/account"
+            )
+            trade_account_data.setdefault("last_daytrading_buying_power", None)
+            trade_account_data.setdefault("last_daytrade_count", None)
+            return TradeAccount(**trade_account_data)
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to get alpaca trade account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_GET_TRADE_ACCOUNT_FAILED"
-            )
+            ) from e
 
     def create_direct_ach_relationship(
         self,
@@ -1038,6 +1045,8 @@ class AlpacaBrokerClient:
             for a requested symbol, or any unexpected error occurs while
             fetching prices.
         """
+        if not symbols:
+            return {}
         try:
             request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
             quotes = self.data_client.get_stock_latest_trade(request)
@@ -1056,6 +1065,33 @@ class AlpacaBrokerClient:
             result[symbol] = float(quotes[symbol].price)
 
         return result
+    
+    def get_asset_by_symbol(self, symbols: List[str]) -> Dict[str, Asset | Any]:
+        """
+        Fetch asset for each requested symbol.
+
+        Args:
+            symbols: List of ticker symbols.
+
+        Returns:
+            Dict[str, Asset]: Mapping of symbol to Asset.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the get asset request, 
+            the network request failed, no asset is returned for a requested 
+            symbol, or an unexpected error occurs.
+        """
+        res = {}
+        for symbol in symbols:
+            try:  
+                asset = self.client.get_asset(symbol_or_asset_id=symbol)
+                res[symbol] = asset
+            except Exception as e:
+                raise AlpacaBrokerClientError(
+                    message=f"Failed to fetch asset for symbol '{symbol}': {e}",
+                    code="ALPACA_BROKER_GET_ASSET_FAILED",
+                )
+        return res
     
     def get_baskt_positions_dict(self, alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         """
@@ -1386,3 +1422,47 @@ class AlpacaBrokerClient:
                 message=f"Failed to fetch stock prices at time '{timestamp}' for symbols {symbols}: {e}",
                 code="ALPACA_BROKER_GET_STOCKS_PRICES_AT_TIME_FAILED",
             ) from e
+        
+    ##############################
+    ######## STOCK SEARCH ########
+    ##############################
+
+    def get_stocks_by_symbol(
+        self,
+        *,
+        symbol: str
+    ) -> Optional[Asset]:
+        """Get an Alpaca asset by its exact stock symbol.
+
+        Args:
+            symbol: Exact stock ticker symbol to retrieve.
+
+        Returns:
+            Optional[Asset]: Matching Alpaca asset, or None when the symbol
+            does not exist.
+
+        Raises:
+            AlpacaBrokerClientError: If the symbol is empty or Alpaca fails
+                for a reason other than the asset not existing.
+        """
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise AlpacaBrokerClientError(
+                message="Stock symbol cannot be empty",
+                code="ALPACA_BROKER_STOCK_SYMBOL_REQUIRED",
+            )
+
+        try:
+            return self.client.get_asset(symbol_or_asset_id=normalized_symbol)
+        except APIError as error:
+            if error.status_code == 404:
+                return None
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
+                code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
+            ) from error
+        except Exception as error:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
+                code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
+            ) from error

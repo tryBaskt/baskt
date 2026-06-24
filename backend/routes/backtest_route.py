@@ -12,7 +12,8 @@ from pydantic import ValidationError
 
 # Baskt imports
 from core.deps import get_backtest_service, get_current_user
-from schema.backtest_schema import BacktestPositionRequest, BasktAssetResponse, BasktAssetsResponse, BacktestResponse
+from schema.backtest_schema import BacktestAnalyticsResponse, BacktestPositionRequest
+from schema.stock_schema import StockResponse, StocksResponse
 from services.backtest_service import (BacktestService, 
                                        BacktestServiceCalculationError,
                                        BacktestServiceError,
@@ -95,11 +96,11 @@ def _parse_positions_query(positions: str) -> List[Dict[str, Any]]:
         ) from err
 
 
-@router.get("/tradeable-fractionable-us-baskt-assets", response_model=BasktAssetsResponse)
+@router.get("/tradeable-fractionable-us-baskt-assets", response_model=StocksResponse)
 def get_tradeable_fractionable_us_baskt_assets(
     backtest_service: BacktestService = Depends(get_backtest_service),
     user: Dict[str, Any] = Depends(get_current_user)
-) -> BasktAssetsResponse:
+) -> StocksResponse:
     """
     Get active US equity assets that Baskt can trade fractionally.
 
@@ -108,20 +109,23 @@ def get_tradeable_fractionable_us_baskt_assets(
         user: Authenticated user from dependency injection.
 
     Returns:
-        BasktAssetsResponse: List of tradable, fractionable US Baskt assets.
+        StocksResponse: List of tradable, fractionable US Baskt assets.
 
     Raises:
         HTTPException: If the service fails to fetch assets.
     """
     try:
         baskt_assets = backtest_service.get_tradeable_fractionable_US_baskt_assets()
-        return BasktAssetsResponse(
-            baskt_assets=[
-                BasktAssetResponse(
+        return StocksResponse(
+            root=[
+                StockResponse(
                     symbol=baskt_asset.symbol,
                     tradable=baskt_asset.tradable,
                     fractionable=baskt_asset.fractionable,
-                    asset_class=baskt_asset.asset_class
+                    shortable=baskt_asset.shortable,
+                    marginable=baskt_asset.marginable,
+                    stock_id=baskt_asset.stock_id,
+                    stock_class=baskt_asset.stock_class,
                 )
                 for baskt_asset in baskt_assets
             ]
@@ -130,14 +134,14 @@ def get_tradeable_fractionable_us_baskt_assets(
         _raise_backtest_http_exception(err)
 
 
-@router.get("", response_model=BacktestResponse)
+@router.get("", response_model=BacktestAnalyticsResponse)
 def backtest(
     start_date: date,
     end_date: date,
     positions: str,
     user=Depends(get_current_user),
     svc: BacktestService = Depends(get_backtest_service),
-) -> BacktestResponse:
+) -> BacktestAnalyticsResponse:
     """
     Run a portfolio backtest for a date range and return timeseries + summary metrics.
 
@@ -154,7 +158,7 @@ def backtest(
         svc: BacktestService dependency that performs the backtest computation.
 
         Returns:
-        BacktestResponse: Dates, cumulative returns, and summary metrics.
+        BacktestAnalyticsResponse: Cumulative returns and summary metrics.
 
     Raises:
         HTTPException: If request validation, data retrieval, or backtest
@@ -167,7 +171,7 @@ def backtest(
             end_date=end_date.isoformat(),
             positions_conf=positions_conf
         )
-        return BacktestResponse(**result)
+        return BacktestAnalyticsResponse(**result)
 
     except Exception as e:
         _raise_backtest_http_exception(e)

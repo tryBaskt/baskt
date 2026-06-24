@@ -1,8 +1,9 @@
+# backend/schema/account_lifecycle_schema/py
+
+
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
-
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 
 class AlpacaTradingConfigurations(BaseModel):
@@ -86,8 +87,9 @@ class BasktACHRelationshipResponse(BaseModel):
     processor_token: Optional[str] = None
 
 
-class BasktListACHRelationshipResponse(BaseModel):
-    list_ach_relationship: List[BasktACHRelationshipResponse]
+class BasktACHRelationshipsResponse(RootModel[List[BasktACHRelationshipResponse]]):
+    pass
+
 
 class BasktBankResponse(BaseModel):
     bank_id: str # UUID
@@ -105,10 +107,12 @@ class BasktBankResponse(BaseModel):
     bank_code: str
     bank_code_type: str #IdentifierType
 
-class BasktListBankResponse(BaseModel):
-    list_banks: List[BasktBankResponse]
 
-class BasktOneTransferResponse(BaseModel):
+class BasktBanksResponse(RootModel[List[BasktBankResponse]]):
+    pass
+
+
+class BasktTransferResponse(BaseModel):
     alpaca_account_id: str # UUID
     created_at: str # datetime
     updated_at: Optional[str] = None # Optional[datetime] = None
@@ -125,8 +129,9 @@ class BasktOneTransferResponse(BaseModel):
     fee_payment_method: Optional[str] = None # Optional[FeePaymentMethod] = None
     additional_information: Optional[str] = None
 
-class BasktTransferResponse(BaseModel):
-    items: List[BasktOneTransferResponse]
+
+class BasktTransfersResponse(BaseModel):
+    items: List[BasktTransferResponse]
     limit: int
     offset: int
     has_next: bool

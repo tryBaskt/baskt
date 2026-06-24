@@ -1,6 +1,6 @@
 import pytest
 from conftest import TestEngine
-from backend.domain.model_portfolio import ModelPortfolio, ModelPortfolioPosition, ModelPortfolioSnapshot
+from backend.domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioPosition, ModelPortfolioSnapshot
 import uuid
 from datetime import datetime, timezone, timedelta
 

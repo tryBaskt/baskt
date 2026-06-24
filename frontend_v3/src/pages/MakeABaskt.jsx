@@ -4,7 +4,7 @@ import { ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
 import { percent } from "../lib/format";
 
-const defaultPosition = { symbol: "", target_weight: 1, direction: 1, leverage: 1 };
+const defaultPosition = { symbol: "", target_weight: 1, direction: 1, leverage: 1, shortable: false };
 const MIN_BACKTEST_DATE = "1970-01-01";
 
 function formatDateInput(date) {
@@ -50,6 +50,7 @@ function normalizePosition(position) {
     target_weight: Number(position.target_weight ?? position.weight ?? 0),
     direction: Number(position.direction || 1),
     leverage: 1,
+    shortable: Boolean(position.shortable),
   };
 }
 
@@ -95,6 +96,35 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
   const isBacktestDateRangeValid = backtestStartDate && backtestEndDate && backtestEndDate >= backtestStartDate;
   const isFullyAllocated = Math.abs(totalWeight - 1) < 0.0001;
 
+  const assetsBySymbol = useMemo(
+    () =>
+      new Map(
+        assets.map((asset) => [
+          String(asset.symbol || "").toUpperCase(),
+          asset,
+        ])
+      ),
+    [assets]
+  );
+
+  useEffect(() => {
+    if (!assetsBySymbol.size) {
+      return;
+    }
+
+    setPositions((current) =>
+      current.map((position) => {
+        const asset = assetsBySymbol.get(position.symbol);
+        const shortable = Boolean(asset?.shortable);
+        return {
+          ...position,
+          shortable,
+          direction: shortable ? position.direction : 1,
+        };
+      })
+    );
+  }, [assetsBySymbol]);
+
   useEffect(() => {
     let ignore = false;
     async function loadAssets() {
@@ -102,7 +132,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
         setIsAssetsLoading(true);
         const payload = await apiRequest("/backtest/tradeable-fractionable-us-baskt-assets");
         if (!ignore) {
-          setAssets(payload?.baskt_assets || []);
+          setAssets(Array.isArray(payload) ? payload : []);
         }
       } catch (assetError) {
         if (!ignore) {
@@ -195,9 +225,25 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
           ...defaultPosition,
           symbol: asset.symbol,
           target_weight: getRemainingWeight(current),
+          shortable: Boolean(asset.shortable),
         },
       ];
     });
+  }
+
+  function updatePositionDirection(index, value) {
+    const direction = Number(value);
+    setPositions((current) =>
+      current.map((position, positionIndex) => {
+        if (positionIndex !== index) {
+          return position;
+        }
+        if (direction === -1 && !position.shortable) {
+          return { ...position, direction: 1 };
+        }
+        return { ...position, direction };
+      })
+    );
   }
 
   function removePosition(index) {
@@ -316,7 +362,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
                     onClick={() => addAssetPosition(asset)}
                   >
                     <strong>{asset.symbol}</strong>
-                    <span>{String(asset.asset_class || "US equity").replace("_", " ")}</span>
+                    <span>{String(asset.stock_class || "US equity").replace("_", " ")}</span>
                     <small>{asset.fractionable ? "Fractionable" : "Whole shares"}</small>
                   </button>
                 ))
@@ -360,10 +406,13 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
               </label>
               <label>
                 <span>Side</span>
-                <select value={position.direction} onChange={(event) => updatePosition(index, "direction", event.target.value)}>
+                <select value={position.direction} onChange={(event) => updatePositionDirection(index, event.target.value)}>
                   <option value={1}>Long</option>
-                  <option value={-1}>Short</option>
+                  <option value={-1} disabled={!position.shortable}>Short</option>
                 </select>
+                {!position.shortable ? (
+                  <small className="field-help">Shorting unavailable for this stock.</small>
+                ) : null}
               </label>
               <label>
                 <span>Leverage</span>
@@ -435,7 +484,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
             <>
               <EquityChart
                 equity={backtest?.cumulative_returns || []}
-                timestamps={backtest?.dates || []}
+                timestamps={[]}
                 valueType="decimalPercent"
                 variant="compact"
                 ariaLabel="Backtest cumulative returns chart"
@@ -443,19 +492,19 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
               <div className="backtest-metrics">
                 <div>
                   <span>Return</span>
-                  <strong>{percent(Number(backtest?.metrics?.final_cumulative_return || 0) * 100)}</strong>
+                  <strong>{percent(Number(backtest?.final_cumulative_return || 0) * 100)}</strong>
                 </div>
                 <div>
                   <span>CAGR</span>
-                  <strong>{percent(Number(backtest?.metrics?.cagr || 0) * 100)}</strong>
+                  <strong>{percent(Number(backtest?.cagr || 0) * 100)}</strong>
                 </div>
                 <div>
                   <span>Volatility</span>
-                  <strong>{percent(Number(backtest?.metrics?.annualized_volatility || 0) * 100)}</strong>
+                  <strong>{percent(Number(backtest?.annualized_volatility || 0) * 100)}</strong>
                 </div>
                 <div>
                   <span>Leverage-adjusted direction tilt</span>
-                  <strong>{percent(Number(backtest?.metrics?.leverage_adjusted_direction || 0) * 100)}</strong>
+                  <strong>{percent(Number(backtest?.leverage_adjusted_direction || 0) * 100)}</strong>
                 </div>
               </div>
             </>

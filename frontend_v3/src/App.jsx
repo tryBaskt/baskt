@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import AppShell from "./components/AppShell";
 import BasktPage from "./pages/BasktPage";
+import ExplorePage from "./pages/ExplorePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MakeABaskt from "./pages/MakeABaskt";
 import MyBaskts from "./pages/MyBaskts";
 import SignupPage from "./pages/SignupPage";
+import StockPage from "./pages/StockPage";
 import Transfer from "./pages/Transfer";
 import { cognitoConfig } from "./authConfig";
 import { clearSession, getIdToken } from "./lib/session";
@@ -15,7 +17,9 @@ export default function App() {
   const [authView, setAuthView] = useState("login");
   const [currentPage, setCurrentPage] = useState("home");
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(null);
+  const [basktDetailBackPage, setBasktDetailBackPage] = useState("my-baskts");
   const [editingBaskt, setEditingBaskt] = useState(null);
+  const [selectedStock, setSelectedStock] = useState(null);
 
   const forgotPasswordUrl = useMemo(() => {
     const query = new URLSearchParams({
@@ -40,6 +44,7 @@ export default function App() {
     setCurrentPage("home");
     setSelectedPortfolioId(null);
     setEditingBaskt(null);
+    setSelectedStock(null);
   }
 
   if (!isAuthenticated) {
@@ -63,6 +68,7 @@ export default function App() {
         onCreateBaskt={() => navigate("make")}
         onOpenBaskt={(portfolioId) => {
           setSelectedPortfolioId(portfolioId);
+          setBasktDetailBackPage("my-baskts");
           setCurrentPage("baskt-detail");
         }}
       />
@@ -71,7 +77,7 @@ export default function App() {
     page = (
       <BasktPage
         portfolioId={selectedPortfolioId}
-        onBack={() => setCurrentPage("my-baskts")}
+        onBack={() => setCurrentPage(basktDetailBackPage)}
         onUpdate={(baskt) => {
           setEditingBaskt(baskt);
           setCurrentPage("make");
@@ -80,6 +86,22 @@ export default function App() {
     );
   } else if (currentPage === "transfer") {
     page = <Transfer />;
+  } else if (currentPage === "stock-detail" && selectedStock) {
+    page = <StockPage stock={selectedStock} onBack={() => setCurrentPage("explore")} />;
+  } else if (currentPage === "explore") {
+    page = (
+      <ExplorePage
+        onOpenBaskt={(portfolioId) => {
+          setSelectedPortfolioId(portfolioId);
+          setBasktDetailBackPage("explore");
+          setCurrentPage("baskt-detail");
+        }}
+        onOpenStock={(stock) => {
+          setSelectedStock(stock);
+          setCurrentPage("stock-detail");
+        }}
+      />
+    );
   }
 
   return (

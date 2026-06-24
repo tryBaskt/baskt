@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
-from domain.portfolio_allocation import PortfolioAllocationTransactionSnapshot
+from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot
 
 class AccountAnalyticsServiceError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_ANALYTICS_SERVICE_ERROR") -> None:
@@ -40,6 +40,15 @@ class AccountAnalyticsService:
             if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return {}
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            if not portfolio_allocation.position_history and portfolio_allocation.transaction_history: # Order placed but not filled
+                print(portfolio_allocation.transaction_history)
+                return {
+                    "transaction_history": portfolio_allocation.transaction_history,
+                    "total_filled_amount": 0.0,
+                    "equity": 0.0,
+                    "profit_loss": 0.0,
+                    "profit_loss_pct": 0.0
+                }
             total_filled_amount = portfolio_allocation.total_filled_amount
             _, equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
             return {
@@ -82,4 +91,3 @@ class AccountAnalyticsService:
             ) from err
 
         
-

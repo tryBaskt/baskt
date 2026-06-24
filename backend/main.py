@@ -21,6 +21,8 @@ from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
 from routes.account_analytics_route import router as account_analytics_router
 from routes.trade_execution_route import router as trade_execution_router
+from routes.model_portfolios_stocks_search_route import router as model_portfolios_stocks_search_router
+from routes.stock_analytics_route import router as stock_analytics_router
 
 
 def create_app() -> FastAPI:
@@ -47,6 +49,8 @@ def create_app() -> FastAPI:
     app.include_router(account_lifecycle_router)
     app.include_router(account_analytics_router)
     app.include_router(trade_execution_router)
+    app.include_router(model_portfolios_stocks_search_router)
+    app.include_router(stock_analytics_router)
 
     # Health check
     @app.get("/health")

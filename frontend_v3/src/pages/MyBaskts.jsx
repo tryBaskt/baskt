@@ -15,7 +15,7 @@ export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
       try {
         setIsLoading(true);
         const payload = await apiRequest("/model-portfolios");
-        const metadata = payload?.list_model_portfolio_metadata || [];
+        const metadata = Array.isArray(payload) ? payload : [];
         const detailedBaskts = await Promise.all(
           metadata.map(async (baskt) => {
             try {

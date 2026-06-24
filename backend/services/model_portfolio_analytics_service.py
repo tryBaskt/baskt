@@ -8,15 +8,16 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 # Baskt imports
-from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
-from domain.model_portfolio import ModelPortfolioSnapshot
+from services.asset_analytics_service import (
+    AssetAnalyticsService,
+    AssetAnalyticsServiceError,
+)
+from domain.model_portfolio_domain import ModelPortfolioSnapshot, ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
 from repository.model_portfolio_repository import ModelPortfolioRepository
-from domain.model_portfolio_analytics import ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
 
 # Third-party imports
 import numpy as np
 import pandas as pd
-import vectorbt as vbt
 
 
 class ModelPortfolioAnalyticsServiceError(Exception):
@@ -38,11 +39,11 @@ class ModelPortfolioAnalyticsService:
     def __init__(
         self,
         *,
-        alpaca_broker_client: AlpacaBrokerClient,
-        model_portfolio_repository: ModelPortfolioRepository
+        model_portfolio_repository: ModelPortfolioRepository,
+        asset_analytics_service: AssetAnalyticsService,
     ) -> None:
-        self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_repository = model_portfolio_repository
+        self.asset_analytics_service = asset_analytics_service
 
     def get_one_day_session_bounds(
         self,
@@ -74,7 +75,7 @@ class ModelPortfolioAnalyticsService:
         current_utc = current_datetime.astimezone(timezone.utc)
         market_timezone = ZoneInfo("America/New_York")
         current_market_date = current_utc.astimezone(market_timezone).date()
-        sessions = self.alpaca_broker_client.get_stock_market_calendar(
+        sessions = self.asset_analytics_service.get_market_calendar(
             start_date=current_market_date - timedelta(days=14),
             end_date=current_market_date,
         )
@@ -134,11 +135,11 @@ class ModelPortfolioAnalyticsService:
         """
         try:
             symbols = [position.symbol for position in model_porfolio_snapshot.positions]
-            symbol_prices_start = self.alpaca_broker_client.get_stock_prices_at_time(
+            symbol_prices_start = self.asset_analytics_service.get_prices_at_time(
                 symbols=symbols,
                 timestamp=start_datetime,
             )
-            symbol_prices_end = self.alpaca_broker_client.get_stock_prices_at_time(
+            symbol_prices_end = self.asset_analytics_service.get_prices_at_time(
                 symbols=symbols,
                 timestamp=end_datetime,
             )
@@ -174,7 +175,7 @@ class ModelPortfolioAnalyticsService:
             }
         except ModelPortfolioAnalyticsServiceError:
             raise
-        except AlpacaBrokerClientError as e:
+        except AssetAnalyticsServiceError as e:
             raise ModelPortfolioAnalyticsServiceError(
                 message=f"Failed to fetch prices for updated model portfolio weights: {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_PRICE_LOOKUP_FAILED",
@@ -293,8 +294,8 @@ class ModelPortfolioAnalyticsService:
             None. The provided segment_prices DataFrame is modified in place.
 
         Raises:
-            AlpacaBrokerClientError: If a required snapshot price cannot be
-            fetched from Alpaca.
+            AssetAnalyticsServiceError: If a required snapshot price cannot
+                be fetched.
         """
         if not analytics_snapshots:
             return
@@ -303,7 +304,7 @@ class ModelPortfolioAnalyticsService:
         first_symbols = sorted(
             position.symbol for position in first_snapshot.positions
         )
-        first_prices = self.alpaca_broker_client.get_stock_prices_at_time(
+        first_prices = self.asset_analytics_service.get_prices_at_time(
             symbols=first_symbols,
             timestamp=first_snapshot.timestamp,
         )
@@ -321,7 +322,7 @@ class ModelPortfolioAnalyticsService:
             }
             transition_symbols = sorted(current_symbols | next_symbols)
 
-            transition_prices = self.alpaca_broker_client.get_stock_prices_at_time(
+            transition_prices = self.asset_analytics_service.get_prices_at_time(
                 symbols=transition_symbols,
                 timestamp=next_snapshot.timestamp,
             )
@@ -358,7 +359,7 @@ class ModelPortfolioAnalyticsService:
         Raises:
             ModelPortfolioAnalyticsServiceError: If required price data is
             missing or the period cannot be simulated.
-            AlpacaBrokerClientError: If an Alpaca market-data call fails.
+            AssetAnalyticsServiceError: If market data cannot be fetched.
         """
         period_start_datetime = None
         period_end_datetime = current_datetime
@@ -393,16 +394,16 @@ class ModelPortfolioAnalyticsService:
             symbols = [
                 position.symbol for position in analytics_snapshot.positions
             ]
-            segment_prices = self.alpaca_broker_client.get_stock_prices_over_time(
+            segment_prices = self.asset_analytics_service.get_prices_over_time(
                 symbols=symbols,
                 start_datetime=segment_start,
                 end_datetime=segment_end,
                 timeframe=timeframe,
             )
-            full_segment_prices_df = full_segment_prices_df.combine_first(
-                segment_prices
+            full_segment_prices_df = segment_prices.combine_first(
+                full_segment_prices_df
             )
-
+        
         simulation_prices = (
             full_segment_prices_df
             .sort_index()
@@ -419,8 +420,6 @@ class ModelPortfolioAnalyticsService:
                 code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING",
             )
 
-        financing_symbol = "__BASKT_FINANCING__"
-        simulation_prices[financing_symbol] = 1.0
         target_exposure = pd.DataFrame(
             np.nan,
             index=simulation_prices.index,
@@ -430,8 +429,6 @@ class ModelPortfolioAnalyticsService:
         for analytics_snapshot in analytics_snapshots:
             snapshot_timestamp = analytics_snapshot.timestamp
             target_exposure.loc[snapshot_timestamp, :] = 0.0
-            long_exposure = 0.0
-            short_exposure = 0.0
             for position in analytics_snapshot.positions:
                 position_exposure = (
                     position.current_weight
@@ -442,66 +439,42 @@ class ModelPortfolioAnalyticsService:
                     snapshot_timestamp,
                     position.symbol,
                 ] = position_exposure
-                if position_exposure >= 0:
-                    long_exposure += position_exposure
-                else:
-                    short_exposure += abs(position_exposure)
-
-            required_financing = max(
-                0.0,
-                long_exposure - short_exposure - 1.0,
-            )
-            target_exposure.loc[
-                snapshot_timestamp,
-                financing_symbol,
-            ] = -required_financing
 
         vectorbt_frequency = {
             "5Min": "5min",
             "1H": "1h",
             "1D": "1d",
         }[timeframe]
-        portfolio = vbt.Portfolio.from_orders(
-            close=simulation_prices,
-            size=target_exposure,
-            size_type="targetpercent",
-            direction="both",
-            init_cash=10_000.0,
-            cash_sharing=True,
-            group_by=True,
-            call_seq="auto",
-            fees=0.0,
-            slippage=0.0,
-            freq=vectorbt_frequency,
-        )
 
-        cumulative_returns = portfolio.cumulative_returns() * 100.0
-        cagr = portfolio.annualized_return()
-        annualized_volatility = portfolio.annualized_volatility()
-        real_asset_value = portfolio.asset_value(group_by=False).drop(
-            columns=financing_symbol
-        )
-        leverage_adjusted_direction = (
-            real_asset_value.iloc[-1].sum() / portfolio.value().iloc[-1]
-        )
+        try:
+            model_portfolio_analytics = self.asset_analytics_service.calculate_portfolio_analytics(
+                prices=simulation_prices,
+                target_exposure=target_exposure,
+                frequency=vectorbt_frequency,
+                initial_cash=10_000.0,
+                fees=0.0,
+                slippage=0.0,
+            )
+        except AssetAnalyticsServiceError as error:
+            raise ModelPortfolioAnalyticsServiceError(
+                message=(
+                    "Failed to calculate model portfolio performance for "
+                    f"'{portfolio_id}' during period '{period}': {error}"
+                ),
+                code="MODEL_PORTFOLIO_ANALYTICS_CALCULATION_FAILED",
+            ) from error
 
         return period, {
             "timeframe": timeframe,
-            "timestamp": [
-                timestamp.isoformat() for timestamp in cumulative_returns.index
+            "timestamp": [timestamp for timestamp in model_portfolio_analytics.timestamps],
+            "cumulative_returns": [
+                cumulative_return * 100.0
+                for cumulative_return in model_portfolio_analytics.cumulative_returns
             ],
-            "cumulative_returns": cumulative_returns.tolist(),
-            "cagr": None if pd.isna(cagr) else float(cagr),
-            "annualized_volatility": (
-                None
-                if pd.isna(annualized_volatility)
-                else float(annualized_volatility)
-            ),
-            "leverage_adjusted_direction": (
-                None
-                if pd.isna(leverage_adjusted_direction)
-                else float(leverage_adjusted_direction)
-            ),
+            "final_cumulative_return": model_portfolio_analytics.final_cumulative_return,
+            "cagr": model_portfolio_analytics.cagr,
+            "annualized_volatility": model_portfolio_analytics.annualized_volatility,
+            "leverage_adjusted_direction": model_portfolio_analytics.leverage_adjusted_direction
         }
 
 
@@ -581,7 +554,7 @@ class ModelPortfolioAnalyticsService:
 
         except ModelPortfolioAnalyticsServiceError:
             raise
-        except AlpacaBrokerClientError as e:
+        except AssetAnalyticsServiceError as e:
             raise ModelPortfolioAnalyticsServiceError(
                 message=f"Failed to get model portfolio price bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",

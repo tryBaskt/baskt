@@ -11,7 +11,7 @@ class EquityGraphRequest(BaseModel):
 
 class EquityGraphResponse(BaseModel):
     equity: List[float]
-    timestamp: List[int]
+    timestamp: List[datetime]
 
 class AccountAnalyticsResponse(BaseModel):
     cash: Optional[str]
@@ -32,7 +32,7 @@ class PortfolioAllocationTransactionResponse(BaseModel):
 
 
 class PortfolioAllocationAnalyticsResponse(BaseModel):
-    list_transaction: Optional[List[PortfolioAllocationTransactionResponse]] = None
+    transactions: Optional[List[PortfolioAllocationTransactionResponse]] = None
     total_filled_amount: Optional[float] = None
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
