@@ -41,22 +41,21 @@ class AccountAnalyticsService:
                 return {}
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
             if not portfolio_allocation.position_history and portfolio_allocation.transaction_history: # Order placed but not filled
-                print(portfolio_allocation.transaction_history)
                 return {
                     "transaction_history": portfolio_allocation.transaction_history,
-                    "total_filled_amount": 0.0,
+                    "total_cost_basis": 0.0,
                     "equity": 0.0,
                     "profit_loss": 0.0,
                     "profit_loss_pct": 0.0
                 }
-            total_filled_amount = portfolio_allocation.total_filled_amount
+            total_cost_basis = portfolio_allocation.total_cost_basis
             _, equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
             return {
                 "transaction_history": portfolio_allocation.transaction_history,
-                "total_filled_amount": total_filled_amount,
+                "total_cost_basis": total_cost_basis,
                 "equity": equity,
-                "profit_loss": equity - total_filled_amount,
-                "profit_loss_pct": (equity - total_filled_amount) / total_filled_amount
+                "profit_loss": equity - total_cost_basis,
+                "profit_loss_pct": (equity - total_cost_basis) / total_cost_basis
             }
         
         except Exception as e:
@@ -64,7 +63,6 @@ class AccountAnalyticsService:
                 message=f"Failed to get portfolio allocation history for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
                 code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
             ) from e
-
 
     def get_account_analytics(self, cognito_user_id: str, alpaca_account_id: str) -> Dict[str, Any]:
 

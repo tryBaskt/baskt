@@ -171,26 +171,6 @@ class PortfolioAllocationRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_table_client = dynamodb_client
 
-    def _calculate_total_filled_amount_from_raw_position_history(self, position_history: List[Dict]) -> float:
-        """
-        Calculate direction-neutral basis from the latest raw position snapshot.
-
-        Args:
-            position_history: Raw DynamoDB position_history list.
-
-        Returns:
-            float: Sum of filled average price times filled quantity for the
-            latest position snapshot.
-        """
-        if not position_history:
-            return 0.0
-
-        latest_position_snapshot = position_history[-1]
-        return sum(
-            float(position["filled_avg_price"]) * float(position["filled_quantity"])
-            for position in latest_position_snapshot["positions"]
-        )
-
     def calculate_positions_current_value(self, portfolio_allocation_position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
         """
         Calculate each position's current portfolio value using latest prices.
@@ -346,7 +326,7 @@ class PortfolioAllocationRepository:
                         requested_amount=(None if snap.get("requested_amount") is None else float(snap["requested_amount"])),
                         number_orders=int(snap["number_orders"]),
                         transaction_type=str(snap["transaction_type"]),
-                        filled_amount=float(snap["filled_amount"]),
+                        cost_basis=float(snap["cost_basis"]),
                         status=str(snap["status"]),
                         order_fill_percent=float(snap["order_fill_percent"]),
                     )
@@ -456,29 +436,29 @@ class PortfolioAllocationRepository:
         )
     
 
-    def get_portfolio_allocation_total_filled_amount(self, cognito_user_id: str, portfolio_id: str) -> float:
+    def get_portfolio_allocation_total_cost_basis(self, cognito_user_id: str, portfolio_id: str) -> float:
         """
-        Retrieve the total filled amount for a user's portfolio allocation.
+        Retrieve the total cost basis for a user's portfolio allocation.
 
         Args:
             cognito_user_id: User identifier.
             portfolio_id: Portfolio identifier.
 
         Returns:
-            float: Total filled amount currently stored for the allocation.
+            float: Total cost basis currently stored for the allocation.
 
         Raises:
             PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
             the allocation.
             PortfolioAllocationNotFoundError: If the allocation record does not
             exist.
-            PortfolioAllocationUnprocessableEntityError: If total_filled_amount
+            PortfolioAllocationUnprocessableEntityError: If total_cost_basis
             is missing or cannot be converted to a float.
         """
         try:
             item = self.portfolio_allocation_table_client.get_item(
                 key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id},
-                projection_expression="total_filled_amount, position_history"
+                projection_expression="total_cost_basis"
             )
         except DynamoDBClientError as e:
             raise PortfolioAllocationBadGatewayError(
@@ -495,24 +475,11 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id
             )
 
-        if "total_filled_amount" not in item:
-            try:
-                return self._calculate_total_filled_amount_from_raw_position_history(
-                    position_history=item["position_history"]
-                )
-            except Exception as e:
-                raise PortfolioAllocationUnprocessableEntityError(
-                    operation="derive total filled amount from position history",
-                    cognito_user_id=cognito_user_id,
-                    portfolio_id=portfolio_id,
-                    cause=e,
-                ) from e
-
         try:
-            return float(item["total_filled_amount"])
+            return float(item["total_cost_basis"])
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(
-                operation="parse total filled amount",
+                operation="parse total cost basis",
                 cognito_user_id=cognito_user_id,
                 portfolio_id=portfolio_id,
                 cause=e,
@@ -572,13 +539,6 @@ class PortfolioAllocationRepository:
                 )
                 for position_snapshot in item["position_history"]
             ]
-            total_filled_amount = (
-                float(item["total_filled_amount"])
-                if "total_filled_amount" in item
-                else self._calculate_total_filled_amount_from_raw_position_history(
-                    position_history=item["position_history"]
-                )
-            )
 
             portfolio_allocation = PortfolioAllocation(
                 portfolio_id=item["portfolio_id"],
@@ -596,13 +556,15 @@ class PortfolioAllocationRepository:
                         ),
                         number_orders=int(transaction_snapshot["number_orders"]),
                         transaction_type=str(transaction_snapshot["transaction_type"]),
-                        filled_amount=float(transaction_snapshot["filled_amount"]),
+                        cost_basis=float(transaction_snapshot["cost_basis"]),
                         order_fill_percent=float(transaction_snapshot["order_fill_percent"]),
                         status=str(transaction_snapshot["status"]),
                     )
                     for transaction_snapshot in item["transaction_history"]
                 ],
-                total_filled_amount=total_filled_amount,
+                total_cost_basis=float(item["total_cost_basis"]),
+                portfolio_allocation_type=str(item["portfolio_allocation_type"])
+
             )
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(
@@ -661,13 +623,14 @@ class PortfolioAllocationRepository:
                         ),
                         "number_orders": int(transaction_snapshot.number_orders),
                         "transaction_type": str(transaction_snapshot.transaction_type),
-                        "filled_amount": Decimal(str(transaction_snapshot.filled_amount)),
+                        "cost_basis": Decimal(str(transaction_snapshot.cost_basis)),
                         "order_fill_percent": Decimal(str(transaction_snapshot.order_fill_percent)),
                         "status": str(transaction_snapshot.status),
                     }
                     for transaction_snapshot in portfolio_allocation.transaction_history
                 ],
-                "total_filled_amount": str(portfolio_allocation.total_filled_amount),
+                "total_cost_basis": str(portfolio_allocation.total_cost_basis),
+                "portfolio_allocation_type": str(portfolio_allocation.portfolio_allocation_type)
             }
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(

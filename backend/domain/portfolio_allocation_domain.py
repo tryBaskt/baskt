@@ -14,8 +14,8 @@ class PortfolioAllocationTransactionSnapshot:
     filled_at: datetime
     requested_amount: float # if None, it is withdraw all
     number_orders: int
-    transaction_type: str # BUY | UPDATE | SELL | CLOSE
-    filled_amount: float
+    transaction_type: str # BUY | SELL | CLOSE | DEPOSIT | WITHDRAW | WITHDRAW_ALL | UPDATE
+    cost_basis: float
     order_fill_percent: float
     status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED
 
@@ -40,7 +40,8 @@ class PortfolioAllocation:
     cognito_user_id: str
     position_history: List[PortfolioAllocationPositionSnapshot]
     transaction_history: List[PortfolioAllocationTransactionSnapshot]
-    total_filled_amount: float
+    total_cost_basis: float
+    portfolio_allocation_type: str # STOCK | MODEL_PORTFOLIO
 
 
 

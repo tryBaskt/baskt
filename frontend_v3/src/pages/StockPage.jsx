@@ -253,7 +253,7 @@ export default function StockPage({ stock, onBack }) {
           <div>
             <span>Position value</span>
             <strong>{currency(allocationAnalytics.equity, "Not available")}</strong>
-            <small>Cost basis {currency(allocationAnalytics.total_filled_amount, "Not available")}</small>
+            <small>Cost basis {currency(allocationAnalytics.total_cost_basis, "Not available")}</small>
           </div>
           <div>
             <span>Profit/Loss</span>
@@ -338,7 +338,7 @@ export default function StockPage({ stock, onBack }) {
                       <td>{formatDateTime(transaction.filled_at)}</td>
                       <td>{transaction.transaction_type}</td>
                       <td>{transaction.requested_amount === null ? "Close" : currency(transaction.requested_amount)}</td>
-                      <td>{currency(transaction.filled_amount)}</td>
+                      <td>{currency(transaction.cost_basis)}</td>
                       <td>{percent(transaction.order_fill_percent)}</td>
                       <td>{transaction.status}</td>
                     </tr>

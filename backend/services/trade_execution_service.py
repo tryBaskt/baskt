@@ -146,7 +146,7 @@ class TradeExecutionService:
         }
 
         # Current filled amount
-        curr_total_filled_amount = portfolio_allocation.total_filled_amount
+        curr_total_filled_amount = portfolio_allocation.total_cost_basis
 
         # Check all transactions for newly filled orders
         total_newly_filled_orders: List[Order] = []
@@ -159,7 +159,7 @@ class TradeExecutionService:
             # Each individual transaction
             curr_transaction_id = transaction_snapshot.transaction_id
             curr_number_orders = transaction_snapshot.number_orders
-            curr_filled_amount = transaction_snapshot.filled_amount
+            curr_filled_amount = transaction_snapshot.cost_basis
             curr_order_fill_percent = transaction_snapshot.order_fill_percent
 
             # unfilled orders from dynamodb
@@ -209,7 +209,7 @@ class TradeExecutionService:
                 
                 # Update transaction with new attributes
                 transaction_snapshot.filled_at = latest_filled_at
-                transaction_snapshot.filled_amount = curr_filled_amount + newly_filled_amount
+                transaction_snapshot.cost_basis = curr_filled_amount + newly_filled_amount
                 transaction_snapshot.order_fill_percent = newly_order_filled_percent
                 transaction_snapshot.status = newly_status
                 has_transaction_updates = True
@@ -254,7 +254,7 @@ class TradeExecutionService:
         )
 
         portfolio_allocation.position_history.append(new_position_snapshot)
-        portfolio_allocation.total_filled_amount = curr_total_filled_amount
+        portfolio_allocation.total_cost_basis = curr_total_filled_amount
 
         self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=portfolio_allocation)
 
@@ -393,6 +393,7 @@ class TradeExecutionService:
             alpaca_account_id: str,
             transaction_type: str,
             requested_amount: Optional[float],
+            portfolio_allocation_type: str,
             portfolio_owner_cognito_user_id: Optional[str] = None,
         ) -> Dict[str, List[Order] | str]:
         """
@@ -433,16 +434,17 @@ class TradeExecutionService:
             )
             order_results.extend(planned_orders)
 
-        portfolio_allocation = PortfolioAllocation(
-            portfolio_id=portfolio_id,
-            cognito_user_id=cognito_user_id,
-            position_history=[],
-            transaction_history=[],
-            total_filled_amount=0.0
-
-        )
         if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        else:
+            portfolio_allocation = PortfolioAllocation(
+                portfolio_id=portfolio_id,
+                cognito_user_id=cognito_user_id,
+                position_history=[],
+                transaction_history=[],
+                total_cost_basis=0.0,
+                portfolio_allocation_type=portfolio_allocation_type,
+            )
 
 
         # New transaction snapshot
@@ -454,21 +456,14 @@ class TradeExecutionService:
             requested_amount=requested_amount,
             number_orders=len(order_results),
             transaction_type=transaction_type,
-            filled_amount=0.0,
+            cost_basis=0.0,
             order_fill_percent=0.0,
             status="QUEUED",
         )
 
         portfolio_allocation.transaction_history.append(new_transaction_snapshot)
 
-        new_portfolio_allocation = PortfolioAllocation(
-            portfolio_id=portfolio_id, 
-            cognito_user_id=cognito_user_id, 
-            transaction_history=portfolio_allocation.transaction_history,
-            position_history=portfolio_allocation.position_history,
-            total_filled_amount=portfolio_allocation.total_filled_amount
-        )
-        self.portfolio_allocation_repository.set_portfolio_allocation(new_portfolio_allocation)
+        self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation)
 
         # Push all the orders to order repo
         self.order_repository.put_orders(
@@ -488,7 +483,14 @@ class TradeExecutionService:
     #######################################
     ########## MODEL PORTFOLIOS ###########
     #######################################
-    def execute_withdraw_all_from_portfolio(self, portfolio_id: str, portfolio_owner_cognito_user_id: str, alpaca_account_id: str, cognito_user_id: str, is_test: bool = False) -> Dict[str, List[Order] | str]:
+    def execute_withdraw_all_from_portfolio(
+        self, 
+        portfolio_id: str, 
+        portfolio_owner_cognito_user_id: str, 
+        alpaca_account_id: str, 
+        cognito_user_id: str, 
+        is_test: bool = False,
+    ) -> Dict[str, List[Order] | str]:
         """
         Liquidate all positions in a user's portfolio allocation.
         
@@ -548,9 +550,10 @@ class TradeExecutionService:
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 transaction_type="WITHDRAW_ALL",
                 requested_amount=None,
+                portfolio_allocation_type="MODEL_PORTFOLIO",
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
 
             # Remove follower from model portfolio
@@ -645,10 +648,11 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="WITHDRAW",
                 requested_amount=withdraw_amount,
+                portfolio_allocation_type="MODEL_PORTFOLIO",
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
@@ -722,7 +726,7 @@ class TradeExecutionService:
                         )
                     )
 
-            curr_allocation_amount = self.portfolio_allocation_repository.get_portfolio_allocation_total_filled_amount(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            curr_allocation_amount = self.portfolio_allocation_repository.get_portfolio_allocation_total_cost_basis(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
             
             # Create delta positions for new position in model Portfolio
             for new_position in new_model_portfolio_positions:
@@ -797,9 +801,10 @@ class TradeExecutionService:
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=follower_alpaca_account_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 transaction_type="UPDATE",
                 requested_amount=None,
+                portfolio_allocation_type="MODEL_PORTFOLIO",
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
@@ -916,10 +921,11 @@ class TradeExecutionService:
                 delta_positions=delta_positions,
                 portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="DEPOSIT",
                 requested_amount=deposit_amount,
+                portfolio_allocation_type="MODEL_PORTFOLIO",
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         
             # Add user as follower to model portfolio
@@ -996,6 +1002,8 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="CLOSE",
                 requested_amount=None,
+                portfolio_allocation_type="STOCK",
+                portfolio_owner_cognito_user_id=None,
             )
 
             return execution_trade_response
@@ -1058,6 +1066,8 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="SELL",
                 requested_amount=withdraw_amount,
+                portfolio_allocation_type="STOCK",
+                portfolio_owner_cognito_user_id=None,
             )
         finally:
             self.user_trade_lock_repository.release_lock(cognito_user_id=cognito_user_id, owner_token=owner_token)
@@ -1120,6 +1130,8 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="BUY",
                 requested_amount=deposit_amount,
+                portfolio_allocation_type="STOCK",
+                portfolio_owner_cognito_user_id=None,
             )
         
             return trade_execution_response

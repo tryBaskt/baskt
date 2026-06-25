@@ -111,7 +111,7 @@ def get_portfolio_allocation_analytics(
 				requested_amount=transaction.requested_amount,
 				number_orders=transaction.number_orders,
 				transaction_type=transaction.transaction_type,
-				filled_amount=transaction.filled_amount,
+				cost_basis=transaction.cost_basis,
 				order_fill_percent=transaction.order_fill_percent,
 				status=transaction.status
 			)
@@ -120,7 +120,7 @@ def get_portfolio_allocation_analytics(
 
 		return PortfolioAllocationAnalyticsResponse(
 			transactions=list_transaction,
-			total_filled_amount=analytics_dict["total_filled_amount"],
+			total_cost_basis=analytics_dict["total_cost_basis"],
 			equity=analytics_dict["equity"],
 			profit_loss=analytics_dict["profit_loss"],
 			profit_loss_pct=analytics_dict["profit_loss_pct"]
@@ -164,13 +164,13 @@ def get_stock_allocation_analytics(
 					requested_amount=transaction.requested_amount,
 					number_orders=transaction.number_orders,
 					transaction_type=transaction.transaction_type,
-					filled_amount=transaction.filled_amount,
+					cost_basis=transaction.cost_basis,
 					order_fill_percent=transaction.order_fill_percent,
 					status=transaction.status,
 				)
 				for transaction in analytics_dict["transaction_history"]
 			],
-			total_filled_amount=analytics_dict["total_filled_amount"],
+			total_cost_basis=analytics_dict["total_cost_basis"],
 			equity=analytics_dict["equity"],
 			profit_loss=analytics_dict["profit_loss"],
 			profit_loss_pct=analytics_dict["profit_loss_pct"],

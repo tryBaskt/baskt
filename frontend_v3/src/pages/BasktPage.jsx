@@ -224,7 +224,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           <div>
             <span>Allocation equity</span>
             <strong>{currency(allocationAnalytics?.equity, "Not available")}</strong>
-            <small>Basis {currency(allocationAnalytics?.total_filled_amount, "Not available")}</small>
+            <small>Basis {currency(allocationAnalytics?.total_cost_basis, "Not available")}</small>
           </div>
           <div>
             <span>Profit/Loss</span>
@@ -396,7 +396,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
                         ? "Withdraw all"
                         : currency(transaction.requested_amount)}
                     </td>
-                    <td>{currency(transaction.filled_amount)}</td>
+                    <td>{currency(transaction.cost_basis)}</td>
                     <td>{percent(transaction.order_fill_percent)}</td>
                     <td>{transaction.status}</td>
                   </tr>

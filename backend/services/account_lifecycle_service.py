@@ -83,7 +83,6 @@ class AccountLifecycleService:
 			alpaca_account_id = alpaca_account_data["alpaca_account_id"]
 			alpaca_account_number = alpaca_account_data["alpaca_account_number"]
 		except AlpacaBrokerClientError as err:
-			print(err)
 			raise AccountLifecycleServiceError(
 				message=f"Failed to create Alpaca account: {err}",
 				code="ACCOUNT_LIFECYCLE_ALPACA_CREATE_FAILED",
