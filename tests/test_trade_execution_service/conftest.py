@@ -872,6 +872,7 @@ class TestEngine:
         baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
         assert len(baskt_positions_dict) == 0
         allocation.total_cost_basis <= FLOAT_ERROR
+        len(allocation.position_history) == 0
 
         return wd_response
     

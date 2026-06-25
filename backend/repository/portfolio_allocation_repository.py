@@ -343,7 +343,6 @@ class PortfolioAllocationRepository:
         
         return result
     
-    
 
     def get_n_last_portfolio_allocation_transaction_snapshots(self, cognito_user_id: str, portfolio_id: str, n: int) -> List[PortfolioAllocationTransactionSnapshot]:
         """
@@ -484,8 +483,6 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id,
                 cause=e,
             ) from e
-
-
     
     def get_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str) -> PortfolioAllocation:
         """Load a full portfolio allocation aggregate for a user and portfolio.

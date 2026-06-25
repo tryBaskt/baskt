@@ -40,18 +40,17 @@ class AccountAnalyticsService:
             if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return {}
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
-            if not portfolio_allocation.position_history and portfolio_allocation.transaction_history: # Order placed but not filled
+            position_history = portfolio_allocation.position_history
+            if not position_history:
                 return {
-                    "transaction_history": portfolio_allocation.transaction_history,
                     "total_cost_basis": 0.0,
                     "equity": 0.0,
                     "profit_loss": 0.0,
-                    "profit_loss_pct": 0.0
+                    "profit_loss_pct": 0.0 
                 }
             total_cost_basis = portfolio_allocation.total_cost_basis
             _, equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
             return {
-                "transaction_history": portfolio_allocation.transaction_history,
                 "total_cost_basis": total_cost_basis,
                 "equity": equity,
                 "profit_loss": equity - total_cost_basis,
@@ -63,10 +62,26 @@ class AccountAnalyticsService:
                 message=f"Failed to get portfolio allocation history for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
                 code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
             ) from e
+        
+    def get_portfolio_allocation_transactions(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:
+         
+        try:
+            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+                return {}
+            
+            return self.portfolio_allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        
+        except Exception as e:
+            raise AccountAnalyticsServiceError(
+                message=f"Failed to get portfolio allocation transactions for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
+                code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
+            )
 
     def get_account_analytics(self, cognito_user_id: str, alpaca_account_id: str) -> Dict[str, Any]:
 
         try:
+            account_analytics = {}
+
             portfolio_history_dict = self.alpaca_broker_client.get_portfolio_history(alpaca_account_id=alpaca_account_id)
             trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             equity_graph_dict = {}
@@ -76,10 +91,11 @@ class AccountAnalyticsService:
                     "equity": portfolio_history.equity,
                     "timestamp": portfolio_history.timestamp # Equity and timestamp is for the equity graph
                 }
-            account_analytics = {}
+            account_analytics["account_equity_graph"] = equity_graph_dict
+
+            trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             account_analytics["cash"] = trade_account.cash
-            account_analytics["equity"] = trade_account.equity
-            account_analytics["equity_graph"] = equity_graph_dict
+            account_analytics["equity"] = trade_account.equity            
 
             return account_analytics
         

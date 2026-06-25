@@ -21,6 +21,24 @@ MARGIN = 0.001
 EPS = 1e-6
 LOCK_LEASE_SECONDS = 30
 
+MINIMUM_PORTFOLIO_BALANCE = 10
+MINIMUM_STOCK_BALANCE = 10
+
+class TradeExecutionServiceError(Exception):
+	def __init__(self, message: str, code: str = "TRADE_EXECUTION_SERVICE_ERROR") -> None:
+		"""
+		Initialize an Trade Execution service exception.
+
+		Args:
+			message: Human-readable error details.
+			code: Stable error code identifying the failed operation.
+
+		Returns:
+			None.
+		"""
+		super().__init__(message)
+		self.code = code
+
 class TradeExecutionService:
     def __init__(
         self, 
@@ -527,11 +545,19 @@ class TradeExecutionService:
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
 
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
-            )
+            # Make sure user has allocated to this portfolio
+            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+                raise TradeExecutionServiceError(
+                    message=f"No withdrawable positions in portfolio {portfolio_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_WITHDRAW_ALL"
+                )
+            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
             curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
+            if not curr_portfolio_allocation_positions:
+                raise TradeExecutionServiceError(
+                    message=f"No withdrawable positions in portfolio {portfolio_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_WITHDRAW_ALL"
+                )
 
             # Build the delta positions
             delta_positions: List[DeltaPosition] = []
@@ -604,11 +630,19 @@ class TradeExecutionService:
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 )
 
-            # Get latest allocation history
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
-            )
+            # Make sure user has allocated to this portfolio
+            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+                raise TradeExecutionServiceError(
+                    message=f"No withdrawable positions found in portfolio id {portfolio_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_WITHDRAW_FAIL"
+                )
+            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
+            curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
+            if not curr_portfolio_allocation_positions:
+                raise TradeExecutionServiceError(
+                    message=f"No withdrawable positions found in portfolio id {portfolio_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_WITHDRAW_FAIL"
+                )
 
             # Get value of each position and total allocation
             position_weights_dict, total_portfolio_allocation_value, quotes = self.portfolio_allocation_repository.calculate_positions_current_weight(
@@ -622,10 +656,15 @@ class TradeExecutionService:
             # Validate the withdraw amount is less than the portfolio allocation value
             if withdraw_amount > total_portfolio_allocation_value:
                 raise ValueError(f"Withdraw amount greater than market value: market value={total_portfolio_allocation_value} portfolio_id={portfolio_id}")
+            
+            if total_portfolio_allocation_value - withdraw_amount < MINIMUM_PORTFOLIO_BALANCE:
+                raise TradeExecutionServiceError(
+                    message=f"Minimum balance is {MINIMUM_PORTFOLIO_BALANCE} dollars. Withdraw results in {total_portfolio_allocation_value - withdraw_amount}. Withdraw all if needed.",
+                    code="TRADE_EXECUTION_WITHDRAW_FAILED"
+                )
 
             # Build delta positions
             delta_positions: List[DeltaPosition] = []
-            curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
             for position in curr_portfolio_allocation_positions:
                 symbol = position.symbol
                 direction = position.direction * -1 # opposite direction because we are withdrawing
@@ -671,7 +710,7 @@ class TradeExecutionService:
 
         try:
             # Realize filled orders before withdrawing
-            if is_test:
+            if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=follower_alpaca_account_id,
@@ -893,10 +932,24 @@ class TradeExecutionService:
             curr_model_portfolio_positions: List[ModelPortfolioPosition]  = curr_model_portfolio_snapshot.positions
             # Get the symbols of the latest positions
             portfolio_symbols = [position.symbol for position in curr_model_portfolio_positions]
-            # Get the quotes of the latest symbols
-            quotes = self.alpaca_broker_client.get_latest_price(portfolio_symbols)
             # Get the current weight of positions
             model_portfolio_position_value_dict,_,_ = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=curr_model_portfolio_snapshot)
+
+            # Get the current value of portfolio allocation (if any)
+            portfolio_allocation_equity = 0.0
+            if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+                curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+                if curr_portfolio_allocation_position_snapshot.positions:
+                    _, portfolio_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_portfolio_allocation_position_snapshot)
+                else:
+                    quotes = self.alpaca_broker_client.get_latest_price(portfolio_symbols)
+            else:
+                quotes = self.alpaca_broker_client.get_latest_price(portfolio_symbols)
+            if portfolio_allocation_equity + deposit_amount < MINIMUM_PORTFOLIO_BALANCE:
+                raise TradeExecutionServiceError(
+                    message=f"Minimum balance is {MINIMUM_PORTFOLIO_BALANCE} dollars. Deposit only results in {portfolio_allocation_equity + deposit_amount}.",
+                    code="TRADE_EXECUTION_DEPOSIT_FAILED"
+                )
 
             # Create the delta positions that will be executed
             delta_positions: List[DeltaPosition] = []
@@ -976,12 +1029,19 @@ class TradeExecutionService:
                     portfolio_id=asset_id
                 )
 
-            # Get latest allocation history
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id,
-                portfolio_id=asset_id
-            )
+            # Make sure user has allocated to this stock
+            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=asset_id):
+                raise TradeExecutionServiceError(
+                    message=f"No closable positions in stock id {asset_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_CLOSE_STOCK_FAILED"
+                )
+            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
             curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
+            if not curr_portfolio_allocation_positions:
+                raise TradeExecutionServiceError(
+                    message=f"No closable positions in stock id {asset_id} for cognito user {cognito_user_id} and alpaca account {alpaca_account_id}",
+                    code="TRADE_EXECUTION_CLOSE_STOCK_FAILED"
+                )
 
             # Build the delta positions
             delta_positions: List[DeltaPosition] = []
@@ -1030,7 +1090,6 @@ class TradeExecutionService:
         Raises:
             ValueError: If withdraw amount exceeds portfolio value or no withdrawable positions found
         """
-
         owner_token = str(uuid.uuid4())
         acquired = self.user_trade_lock_repository.acquire_lock(
             cognito_user_id=cognito_user_id,
@@ -1049,8 +1108,25 @@ class TradeExecutionService:
                     portfolio_id=asset_id
                 )
 
-            # Get value of each position and total allocation
-            quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+            stock_allocation_equity = 0.0
+            quotes = {}
+            if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=asset_id):
+                curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+                curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
+                if curr_portfolio_allocation_positions:
+                    _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_portfolio_allocation_position_snapshot)
+                else:
+                    quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+            else:
+                quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+
+
+            # Account balance constraint
+            if abs(stock_allocation_equity - withdraw_amount) < MINIMUM_STOCK_BALANCE:
+                raise TradeExecutionServiceError(
+                    message=f"Minimum balance is {MINIMUM_STOCK_BALANCE} dollars. Sell results in {abs(stock_allocation_equity - withdraw_amount)}. Close position if needed",
+                    code="TRADE_EXECUTION_SELL_FAILED"
+                )
 
             # Build delta positions
             price = quotes[symbol]
@@ -1113,8 +1189,23 @@ class TradeExecutionService:
                     portfolio_id=asset_id,
                 )
 
-            # Get the quotes of the latest symbols
-            quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+            # Get the current value of portfolio allocation (if any)
+            stock_allocation_equity = 0.0
+            if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=asset_id):
+                curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+                if curr_portfolio_allocation_position_snapshot.positions:   
+                    _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_portfolio_allocation_position_snapshot)
+                else:
+                    quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+            else:
+                quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+
+            # Account balance constraint
+            if stock_allocation_equity + deposit_amount < MINIMUM_STOCK_BALANCE:
+                raise TradeExecutionServiceError(
+                    message=f"Minimum balance is {MINIMUM_STOCK_BALANCE} dollars. Buy only results in {stock_allocation_equity + deposit_amount}.",
+                    code="TRADE_EXECUTION_BUY_FAILED"
+                )
 
             # Create the delta positions that will be executed
             price = quotes[symbol]
