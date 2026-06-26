@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, TypedDict
 
-from alpaca.trading.models import Asset
-
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
 from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
+from domain.stock_domain import Stock
 from domain.stock_domain import StockSearchResult, StocksSearchResult
 
 
@@ -106,23 +105,21 @@ class ModelPortfoliosStocksSearchService:
             return []
 
         try:
-            asset: Asset | None = self.alpaca_broker_client.get_stocks_by_symbol(
+            stock: Stock | None = self.alpaca_broker_client.get_stock_by_symbol(
                 symbol=normalized_query
             )
-            if asset is None:
+            if stock is None:
                 return []
 
             return [
                 StockSearchResult(
-                    stock_id=str(asset.id),
-                    symbol=str(asset.symbol),
-                    tradable=bool(asset.tradable),
-                    marginable=bool(asset.marginable),
-                    shortable=bool(asset.shortable),
-                    fractionable=bool(asset.fractionable),
-                    stock_class=str(
-                        getattr(asset.asset_class, "value", asset.asset_class)
-                    ),
+                    stock_id=stock.stock_id,
+                    symbol=stock.symbol,
+                    tradable=stock.tradable,
+                    marginable=stock.marginable,
+                    shortable=stock.shortable,
+                    fractionable=stock.fractionable,
+                    stock_class=stock.stock_class,
                 )
             ]
         except AlpacaBrokerClientError as error:

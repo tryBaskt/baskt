@@ -19,7 +19,8 @@ export default function App() {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(null);
   const [basktDetailBackPage, setBasktDetailBackPage] = useState("my-baskts");
   const [editingBaskt, setEditingBaskt] = useState(null);
-  const [selectedStock, setSelectedStock] = useState(null);
+  const [selectedStockRef, setSelectedStockRef] = useState(null);
+  const [stockDetailBackPage, setStockDetailBackPage] = useState("explore");
 
   const forgotPasswordUrl = useMemo(() => {
     const query = new URLSearchParams({
@@ -44,7 +45,7 @@ export default function App() {
     setCurrentPage("home");
     setSelectedPortfolioId(null);
     setEditingBaskt(null);
-    setSelectedStock(null);
+    setSelectedStockRef(null);
   }
 
   if (!isAuthenticated) {
@@ -59,7 +60,25 @@ export default function App() {
     );
   }
 
-  let page = <HomePage />;
+  let page = (
+    <HomePage
+      onOpenInvestment={(investment) => {
+        if (investment.type === "Stock") {
+          setSelectedStockRef({
+            stockId: investment.portfolioId,
+            symbol: investment.name,
+          });
+          setStockDetailBackPage("home");
+          setCurrentPage("stock-detail");
+          return;
+        }
+
+        setSelectedPortfolioId(investment.portfolioId);
+        setBasktDetailBackPage("home");
+        setCurrentPage("baskt-detail");
+      }}
+    />
+  );
   if (currentPage === "make") {
     page = <MakeABaskt editingBaskt={editingBaskt} onSaved={() => setCurrentPage("my-baskts")} />;
   } else if (currentPage === "my-baskts") {
@@ -86,8 +105,14 @@ export default function App() {
     );
   } else if (currentPage === "transfer") {
     page = <Transfer />;
-  } else if (currentPage === "stock-detail" && selectedStock) {
-    page = <StockPage stock={selectedStock} onBack={() => setCurrentPage("explore")} />;
+  } else if (currentPage === "stock-detail" && selectedStockRef) {
+    page = (
+      <StockPage
+        stockId={selectedStockRef.stockId}
+        symbol={selectedStockRef.symbol}
+        onBack={() => setCurrentPage(stockDetailBackPage)}
+      />
+    );
   } else if (currentPage === "explore") {
     page = (
       <ExplorePage
@@ -97,7 +122,11 @@ export default function App() {
           setCurrentPage("baskt-detail");
         }}
         onOpenStock={(stock) => {
-          setSelectedStock(stock);
+          setSelectedStockRef({
+            stockId: stock.stock_id,
+            symbol: stock.symbol,
+          });
+          setStockDetailBackPage("explore");
           setCurrentPage("stock-detail");
         }}
       />

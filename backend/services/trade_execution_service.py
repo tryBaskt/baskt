@@ -411,7 +411,8 @@ class TradeExecutionService:
             alpaca_account_id: str,
             transaction_type: str,
             requested_amount: Optional[float],
-            portfolio_allocation_type: str,
+            portfolio_allocation_type: Optional[str] = None,
+            portfolio_name: Optional[str] = None,
             portfolio_owner_cognito_user_id: Optional[str] = None,
         ) -> Dict[str, List[Order] | str]:
         """
@@ -462,6 +463,7 @@ class TradeExecutionService:
                 transaction_history=[],
                 total_cost_basis=0.0,
                 portfolio_allocation_type=portfolio_allocation_type,
+                portfolio_name=portfolio_name
             )
 
 
@@ -578,7 +580,6 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="WITHDRAW_ALL",
                 requested_amount=None,
-                portfolio_allocation_type="MODEL_PORTFOLIO",
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
 
@@ -690,7 +691,6 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_type="WITHDRAW",
                 requested_amount=withdraw_amount,
-                portfolio_allocation_type="MODEL_PORTFOLIO",
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         finally:
@@ -842,7 +842,6 @@ class TradeExecutionService:
                 alpaca_account_id=follower_alpaca_account_id,
                 transaction_type="UPDATE",
                 requested_amount=None,
-                portfolio_allocation_type="MODEL_PORTFOLIO",
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         finally:
@@ -926,7 +925,9 @@ class TradeExecutionService:
                 )
 
             # Get the current model portfolio snapshot
-            model_portfolio_snapshots = self.model_portfolio_repository.get_n_last_model_portfolio_snapshots(portfolio_id=portfolio_id, n=1)
+            model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
+            portfolio_name = model_portfolio.portfolio_name
+            model_portfolio_snapshots = model_portfolio.position_history
             curr_model_portfolio_snapshot = model_portfolio_snapshots[-1]
             # Get the latest positions of the model portfolio
             curr_model_portfolio_positions: List[ModelPortfolioPosition]  = curr_model_portfolio_snapshot.positions
@@ -978,6 +979,7 @@ class TradeExecutionService:
                 transaction_type="DEPOSIT",
                 requested_amount=deposit_amount,
                 portfolio_allocation_type="MODEL_PORTFOLIO",
+                portfolio_name=portfolio_name,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             )
         
@@ -1222,6 +1224,7 @@ class TradeExecutionService:
                 transaction_type="BUY",
                 requested_amount=deposit_amount,
                 portfolio_allocation_type="STOCK",
+                portfolio_name=symbol,
                 portfolio_owner_cognito_user_id=None,
             )
         

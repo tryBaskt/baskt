@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot
+from domain.stock_domain import Stock
 
 class AccountAnalyticsServiceError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_ANALYTICS_SERVICE_ERROR") -> None:
@@ -41,7 +42,7 @@ class AccountAnalyticsService:
                 return {}
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
             position_history = portfolio_allocation.position_history
-            if not position_history:
+            if (not position_history) or (not position_history[-1].positions):
                 return {
                     "total_cost_basis": 0.0,
                     "equity": 0.0,
@@ -63,11 +64,31 @@ class AccountAnalyticsService:
                 code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
             ) from e
         
+    def get_stock_metadata(self, asset_id: str):
+        try:
+            stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id.lower())
+            return {
+                "symbol": stock.symbol,
+                "stock_id": stock.stock_id,
+                "stock_class": stock.stock_class,
+                "shortable": stock.shortable,
+                "marginable": stock.marginable,
+                "tradable": stock.tradable,
+                "fractionable": stock.fractionable,
+            }
+
+        except Exception as e:
+            raise AccountAnalyticsServiceError(
+                message=f"Failed to get portfolio allocation stock metadata for asset id {asset_id}: {e}",
+                code="ACCOUNT_ANALYTICS_GET_STOCK_METADATA_FAILED"
+            )
+
+        
     def get_portfolio_allocation_transactions(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:
          
         try:
             if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
-                return {}
+                return []
             
             return self.portfolio_allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         
@@ -91,11 +112,29 @@ class AccountAnalyticsService:
                     "equity": portfolio_history.equity,
                     "timestamp": portfolio_history.timestamp # Equity and timestamp is for the equity graph
                 }
-            account_analytics["account_equity_graph"] = equity_graph_dict
+            account_analytics["equity_graph"] = equity_graph_dict
 
             trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             account_analytics["cash"] = trade_account.cash
-            account_analytics["equity"] = trade_account.equity            
+            account_analytics["equity"] = trade_account.equity  
+
+            account_analytics["portfolio_allocations"] = {}
+            portfolio_allocations = self.portfolio_allocation_repository.get_portfolio_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+            for portfolio_allocation in portfolio_allocations:
+                if (portfolio_allocation.position_history and not portfolio_allocation.position_history[-1].positions) and (portfolio_allocation.transaction_history[-1].status in ("CLOSE","WITHDRAW_ALL")):
+                    continue
+                curr_port_alloc_pos_snapshot = portfolio_allocation.position_history[-1]
+                portfolio_id = portfolio_allocation.portfolio_id
+                portfolio_allocation_equity = 0.0
+                if curr_port_alloc_pos_snapshot.positions:
+                    _, portfolio_allocation_equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_port_alloc_pos_snapshot)
+                account_analytics["portfolio_allocations"][portfolio_id] = {
+                    "portfolio_name": portfolio_allocation.portfolio_name,
+                    "portfolio_id": portfolio_id,
+                    "portfolio_allocation_type": portfolio_allocation.portfolio_allocation_type,
+                    "portfolio_allocation_equity": portfolio_allocation_equity,
+                    "portfolio_allocation_equity_percent": portfolio_allocation_equity / float(trade_account.equity)
+                }
 
             return account_analytics
         

@@ -42,6 +42,7 @@ class PortfolioAllocation:
     transaction_history: List[PortfolioAllocationTransactionSnapshot]
     total_cost_basis: float
     portfolio_allocation_type: str # STOCK | MODEL_PORTFOLIO
+    portfolio_name: str
 
 
 

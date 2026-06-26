@@ -17,6 +17,7 @@ class AccountAnalyticsResponse(BaseModel):
     cash: Optional[str]
     equity: Optional[str]
     equity_graph: Dict[str, EquityGraphResponse]
+    portfolio_allocations: Dict[str, Dict[str, float | str]]
 
 
 class PortfolioAllocationTransactionResponse(BaseModel):
@@ -25,7 +26,7 @@ class PortfolioAllocationTransactionResponse(BaseModel):
     filled_at: str
     requested_amount: Optional[float] # if None, it is withdraw all
     number_orders: int
-    transaction_type: str # DEPOSIT | UPDATE | WITHDRAW | WITHDRAW_ALL
+    transaction_type: str # BUY | SELL | CLOSE | DEPOSIT | UPDATE | WITHDRAW | WITHDRAW_ALL
     cost_basis: float
     order_fill_percent: float
     status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED
@@ -37,4 +38,7 @@ class PortfolioAllocationAnalyticsResponse(BaseModel):
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_loss_pct: Optional[float] = None
-
+    marginable: Optional[bool] = None
+    shortable: Optional[bool] = None
+    fractionable: Optional[bool] = None
+    tradable: Optional[bool] = None
