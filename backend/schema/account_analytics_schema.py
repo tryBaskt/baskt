@@ -22,8 +22,8 @@ class AccountAnalyticsResponse(BaseModel):
 
 class PortfolioAllocationTransactionResponse(BaseModel):
     transaction_id: str
-    created_at: str
-    filled_at: str
+    created_at: datetime
+    filled_at: datetime
     requested_amount: Optional[float] # if None, it is withdraw all
     number_orders: int
     transaction_type: str # BUY | SELL | CLOSE | DEPOSIT | UPDATE | WITHDRAW | WITHDRAW_ALL
@@ -38,7 +38,9 @@ class PortfolioAllocationAnalyticsResponse(BaseModel):
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_loss_pct: Optional[float] = None
-    marginable: Optional[bool] = None
-    shortable: Optional[bool] = None
-    fractionable: Optional[bool] = None
-    tradable: Optional[bool] = None
+    marginable: Optional[bool] = None # only for stock allocation
+    shortable: Optional[bool] = None # only for stock allocation
+    fractionable: Optional[bool] = None # only for stock allocation
+    tradable: Optional[bool] = None # only for stock allocation
+    symbol: Optional[str] = None
+    asset_id: Optional[str] = None

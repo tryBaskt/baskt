@@ -64,19 +64,9 @@ class AccountAnalyticsService:
                 code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
             ) from e
         
-    def get_stock_metadata(self, asset_id: str):
+    def get_stock_metadata(self, asset_id: str) -> Stock:
         try:
-            stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id.lower())
-            return {
-                "symbol": stock.symbol,
-                "stock_id": stock.stock_id,
-                "stock_class": stock.stock_class,
-                "shortable": stock.shortable,
-                "marginable": stock.marginable,
-                "tradable": stock.tradable,
-                "fractionable": stock.fractionable,
-            }
-
+            return self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
         except Exception as e:
             raise AccountAnalyticsServiceError(
                 message=f"Failed to get portfolio allocation stock metadata for asset id {asset_id}: {e}",
@@ -123,6 +113,8 @@ class AccountAnalyticsService:
             for portfolio_allocation in portfolio_allocations:
                 if (portfolio_allocation.position_history and not portfolio_allocation.position_history[-1].positions) and (portfolio_allocation.transaction_history[-1].status in ("CLOSE","WITHDRAW_ALL")):
                     continue
+                if not portfolio_allocation.position_history:
+                    continue
                 curr_port_alloc_pos_snapshot = portfolio_allocation.position_history[-1]
                 portfolio_id = portfolio_allocation.portfolio_id
                 portfolio_allocation_equity = 0.0
@@ -133,7 +125,7 @@ class AccountAnalyticsService:
                     "portfolio_id": portfolio_id,
                     "portfolio_allocation_type": portfolio_allocation.portfolio_allocation_type,
                     "portfolio_allocation_equity": portfolio_allocation_equity,
-                    "portfolio_allocation_equity_percent": portfolio_allocation_equity / float(trade_account.equity)
+                    "portfolio_allocation_equity_percent": portfolio_allocation_equity / float(trade_account.equity) if float(trade_account.equity) > 0.0 else 0.0
                 }
 
             return account_analytics
