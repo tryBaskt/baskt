@@ -4,32 +4,32 @@
 from __future__ import annotations
 from typing import Dict, Any, Optional
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
-
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException
-
 # Alpaca imports
 from alpaca.broker.models import Account
-
 # Baskt imports
 from core.deps import (
-	get_account_analytics_service, 
+	get_investment_analytics_service, 
 	get_current_user, 
 	get_current_active_alpaca_account, 
 	get_trade_execution_service,
 )
-from schema.account_analytics_schema import (
-	PortfolioAllocationAnalyticsResponse,
+from schema.investment_analytics_schema import (
 	AccountAnalyticsResponse,
-	EquityGraphResponse,
-	PortfolioAllocationTransactionResponse
+	EquityGraphResponse
 )
-from schema.stock_schema import StockResponse
-from services.account_analytics_service import AccountAnalyticsService
+from schema.stock_schema import (
+	StockResponse, 
+	StockAllocationResponse, 
+	StockAllocationTransactionResponse
+)
+from schema.portfolio_allocation_schema import (
+	PortfolioAllocationTransactionResponse,
+	PortfolioAllocationResponse
+)
+from services.investment_analytics_service import InvestmentAnalyticsService
 from services.trade_execution_service import TradeExecutionService
-
-# Alpaca imports
-from alpaca.broker.models import Account
 
 
 
@@ -45,13 +45,13 @@ def _raise_trade_execution_http_exception(err: Exception) -> None:
         detail=f"Unexpected account analytics error: {err}",
     ) from err
 
+
 @router.get("", response_model= AccountAnalyticsResponse, status_code=HTTP_200_OK)
-def account_analytics(
+def get_account_analytics(
 	user: Dict[str, Any] = Depends(get_current_user),
 	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
-	service: AccountAnalyticsService = Depends(get_account_analytics_service)
+	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service)
 ) -> AccountAnalyticsResponse:
-	
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 
@@ -75,15 +75,15 @@ def account_analytics(
 		
 	
 
-@router.get("/portfolios/{portfolio_id}/analytics", response_model=PortfolioAllocationAnalyticsResponse, status_code=HTTP_200_OK)
+@router.get("/portfolios/{portfolio_id}/analytics", response_model=PortfolioAllocationResponse, status_code=HTTP_200_OK)
 def get_portfolio_allocation_analytics(
 	portfolio_id: str,
 	portfolio_owner_cognito_user_id: str,
 	user: Dict[str, Any] = Depends(get_current_user),
 	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
-	service: AccountAnalyticsService = Depends(get_account_analytics_service),
+	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
-) -> PortfolioAllocationAnalyticsResponse:
+) -> PortfolioAllocationResponse:
 	
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
@@ -99,7 +99,7 @@ def get_portfolio_allocation_analytics(
 		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
 		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
 		if not analytics_dict and not transactions:
-			return PortfolioAllocationAnalyticsResponse()
+			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
 		
 		transactions_response = [
 			PortfolioAllocationTransactionResponse(
@@ -116,27 +116,28 @@ def get_portfolio_allocation_analytics(
 			for transaction in transactions
 		]
 
-		return PortfolioAllocationAnalyticsResponse(
-			transactions=transactions_response,
+		return PortfolioAllocationResponse(
+			portfolio_id=portfolio_id,
+			transaction_history=transactions_response,
 			total_cost_basis=analytics_dict["total_cost_basis"],
 			equity=analytics_dict["equity"],
 			profit_loss=analytics_dict["profit_loss"],
-			profit_loss_pct=analytics_dict["profit_loss_pct"]
+			profit_loss_percent=analytics_dict["profit_loss_percent"]
 		)
 	
 	except Exception as e:
 		_raise_trade_execution_http_exception(err=e)
 
 
-@router.get("/stocks/{asset_id}/analytics", response_model=PortfolioAllocationAnalyticsResponse, status_code=HTTP_200_OK)
+@router.get("/stocks/{stock_id}/analytics", response_model=StockAllocationResponse, status_code=HTTP_200_OK)
 def get_stock_allocation_analytics(
-	asset_id: str,
+	stock_id: str,
 	portfolio_owner_cognito_user_id: Optional[str] = None,
 	user: Dict[str, Any] = Depends(get_current_user),
 	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
-	service: AccountAnalyticsService = Depends(get_account_analytics_service),
+	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
-) -> PortfolioAllocationAnalyticsResponse:
+) -> StockAllocationResponse:
 	
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
@@ -145,59 +146,52 @@ def get_stock_allocation_analytics(
 		trade_execution_service.realize_filled_orders(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
-			portfolio_id=asset_id,
+			portfolio_id=stock_id,
 			portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
 		)
 
-		stock = service.get_stock_metadata(asset_id=asset_id)
-
-		portfolio_allocation_analytics_response = PortfolioAllocationAnalyticsResponse(
-			marginable=stock.marginable,
-			shortable=stock.shortable,
-			fractionable=stock.fractionable,
-			tradable=stock.tradable
-		)
-
-		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
-		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=stock_id)
+		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=stock_id)
 		if not analytics_dict and not transactions:
-			return portfolio_allocation_analytics_response
-		
-		portfolio_allocation_analytics_response.transactions = [
-			PortfolioAllocationTransactionResponse(
-				transaction_id=transaction.transaction_id,
-				created_at=transaction.created_at,
-				filled_at=transaction.filled_at,
-				requested_amount=transaction.requested_amount,
-				number_orders=transaction.number_orders,
-				transaction_type=transaction.transaction_type,
-				cost_basis=transaction.cost_basis,
-				order_fill_percent=transaction.order_fill_percent,
-				status=transaction.status
+			return StockAllocationResponse(
+				stock_id=stock_id
 			)
-			for transaction in transactions
-		]
-		portfolio_allocation_analytics_response.total_cost_basis = analytics_dict["total_cost_basis"]
-		portfolio_allocation_analytics_response.equity=analytics_dict["equity"],
-		portfolio_allocation_analytics_response.profit_loss=analytics_dict["profit_loss"],
-		portfolio_allocation_analytics_response.profit_loss_pct=analytics_dict["profit_loss_pct"]
-
-		return portfolio_allocation_analytics_response
+		
+		return StockAllocationResponse(
+			stock_id=stock_id,
+			transaction_history=[
+				StockAllocationTransactionResponse(
+					transaction_id=transaction.transaction_id,
+					created_at=transaction.created_at,
+					filled_at=transaction.filled_at,
+					requested_amount=transaction.requested_amount,
+					number_orders=transaction.number_orders,
+					transaction_type=transaction.transaction_type,
+					cost_basis=transaction.cost_basis,
+					order_fill_percent=transaction.order_fill_percent,
+					status=transaction.status
+				)
+				for transaction in transactions
+			],
+			total_cost_basis=analytics_dict["total_cost_basis"],
+			equity=analytics_dict["equity"],
+			profit_loss=analytics_dict["profit_loss"],
+			profit_loss_percent=analytics_dict["profit_loss_percent"]
+		)
 	
 	except Exception as e:
 		_raise_trade_execution_http_exception(err=e)
 
 
-@router.get("/stocks/{asset_id}/metadata", response_model=StockResponse, status_code=HTTP_200_OK)
+@router.get("/stocks/{stock_id}", response_model=StockResponse, status_code=HTTP_200_OK)
 def get_stock_metadata(
-	asset_id: str,
+	stock_id: str,
 	user: Dict[str, Any] = Depends(get_current_user),
-	service: AccountAnalyticsService = Depends(get_account_analytics_service),
+	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 ) -> StockResponse:
-	del user
-
 	try:
-		stock = service.get_stock_metadata(asset_id=asset_id)
+		stock = service.get_stock_by_stock_id(stock_id=stock_id)
+
 		return StockResponse(
 			symbol=stock.symbol,
 			tradable=stock.tradable,

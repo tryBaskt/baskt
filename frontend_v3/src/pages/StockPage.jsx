@@ -13,7 +13,7 @@ function getReturnTone(value) {
   return Number(value) >= 0 ? "metric-positive" : "metric-negative";
 }
 
-export default function StockPage({ stockId, symbol, onBack }) {
+export default function StockPage({ stockId, onBack }) {
   const [stock, setStock] = useState(null);
   const [stockAnalytics, setStockAnalytics] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
@@ -38,7 +38,7 @@ export default function StockPage({ stockId, symbol, onBack }) {
     Number.isFinite(Number(selectedAnalytics.final_cumulative_return))
       ? Number(selectedAnalytics.final_cumulative_return) * 100
       : null;
-  const transactions = allocationAnalytics?.transactions || [];
+  const transactions = allocationAnalytics?.transaction_history || [];
   const hasAllocation =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined;
@@ -58,7 +58,7 @@ export default function StockPage({ stockId, symbol, onBack }) {
     setStockError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stockId}/metadata`,
+        `/account-analytics/stocks/${stockId}`,
         { signal }
       );
       setStock(payload || null);
@@ -142,7 +142,7 @@ export default function StockPage({ stockId, symbol, onBack }) {
     void loadAllocationAnalytics(controller.signal);
 
     return () => controller.abort();
-  }, [stockId, symbol]);
+  }, [stockId]);
 
   async function executeTrade(action) {
     setTradeError("");
@@ -316,8 +316,8 @@ export default function StockPage({ stockId, symbol, onBack }) {
           </div>
           <div>
             <span>Profit/Loss %</span>
-            <strong className={getReturnTone(allocationAnalytics.profit_loss_pct)}>
-              {percent(Number(allocationAnalytics.profit_loss_pct) * 100)}
+            <strong className={getReturnTone(allocationAnalytics.profit_loss_percent)}>
+              {percent(Number(allocationAnalytics.profit_loss_percent) * 100)}
             </strong>
             <small>Return on allocated basis</small>
           </div>

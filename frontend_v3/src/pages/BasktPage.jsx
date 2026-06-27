@@ -37,16 +37,18 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     modelAnalytics?.[modelAnalyticsPeriod] ||
     modelAnalytics?.[modelAnalyticsPeriod.toLowerCase()];
   const selectedCumulativeReturns = selectedModelAnalytics?.cumulative_returns || [];
-  const selectedPeriodCumulativeReturn = selectedCumulativeReturns.length
-    ? Number(selectedCumulativeReturns.at(-1))
-    : null;
+  const selectedPeriodCumulativeReturn =
+    selectedModelAnalytics?.final_cumulative_return !== null &&
+    selectedModelAnalytics?.final_cumulative_return !== undefined
+      ? Number(selectedModelAnalytics.final_cumulative_return) * 100
+      : null;
   const hasAllocationMetrics =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined &&
     allocationAnalytics?.profit_loss !== null &&
     allocationAnalytics?.profit_loss !== undefined &&
-    allocationAnalytics?.profit_loss_pct !== null &&
-    allocationAnalytics?.profit_loss_pct !== undefined;
+    allocationAnalytics?.profit_loss_percent !== null &&
+    allocationAnalytics?.profit_loss_percent !== undefined;
 
   async function loadAllocationAnalytics(ownerCognitoUserId, signal) {
     setIsAllocationLoading(true);
@@ -60,7 +62,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
         { signal }
       );
       setAllocationAnalytics(allocationPayload || null);
-      setTransactions(allocationPayload?.transactions || []);
+      setTransactions(allocationPayload?.transaction_history || []);
     } catch (allocationRequestError) {
       if (allocationRequestError?.name !== "AbortError") {
         setAllocationError(
@@ -191,7 +193,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
     <div className="page-stack">
       <div className="detail-header">
         <button className="ghost-button" type="button" onClick={onBack}>Back</button>
-        {isOwner ? <button className="primary-button" type="button" onClick={() => onUpdate(baskt)}>Update</button> : null}
+        {isOwner ? <button className="primary-button" type="button" onClick={onUpdate}>Update</button> : null}
       </div>
       <ErrorBanner message={error} />
       <SuccessBanner message={success} />
@@ -233,7 +235,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           </div>
           <div>
             <span>Profit/Loss %</span>
-            <strong>{percent(Number(allocationAnalytics.profit_loss_pct) * 100)}</strong>
+            <strong>{percent(Number(allocationAnalytics.profit_loss_percent) * 100)}</strong>
             <small>Return on allocated basis</small>
           </div>
         </section>

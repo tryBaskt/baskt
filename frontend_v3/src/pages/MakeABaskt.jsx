@@ -54,12 +54,10 @@ function normalizePosition(position) {
   };
 }
 
-export default function MakeABaskt({ editingBaskt, onSaved }) {
-  const [name, setName] = useState(editingBaskt?.portfolio_name || "");
-  const [description, setDescription] = useState(editingBaskt?.description || "");
-  const [positions, setPositions] = useState(
-    editingBaskt?.position_history?.at(-1)?.positions?.map(normalizePosition) || []
-  );
+export default function MakeABaskt({ editingPortfolioId, onSaved }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [positions, setPositions] = useState([]);
   const [stockSearch, setStockSearch] = useState("");
   const [backtestStartDate, setBacktestStartDate] = useState(getDefaultBacktestStartDate);
   const [backtestEndDate, setBacktestEndDate] = useState(() => formatDateInput(new Date()));
@@ -68,6 +66,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isAssetsLoading, setIsAssetsLoading] = useState(true);
+  const [isPortfolioLoading, setIsPortfolioLoading] = useState(Boolean(editingPortfolioId));
   const [isBacktesting, setIsBacktesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -95,6 +94,44 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
   const todayDate = useMemo(() => formatDateInput(new Date()), []);
   const isBacktestDateRangeValid = backtestStartDate && backtestEndDate && backtestEndDate >= backtestStartDate;
   const isFullyAllocated = Math.abs(totalWeight - 1) < 0.0001;
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    if (!editingPortfolioId) {
+      setName("");
+      setDescription("");
+      setPositions([]);
+      setIsPortfolioLoading(false);
+      return () => controller.abort();
+    }
+
+    async function loadPortfolio() {
+      try {
+        setIsPortfolioLoading(true);
+        setError("");
+        const payload = await apiRequest(`/model-portfolios/${editingPortfolioId}`, {
+          signal: controller.signal,
+        });
+        setName(payload.portfolio_name || "");
+        setDescription(payload.description || "");
+        setPositions(
+          payload.position_history?.at(-1)?.positions?.map(normalizePosition) || []
+        );
+      } catch (portfolioError) {
+        if (portfolioError?.name !== "AbortError") {
+          setError(portfolioError?.message || "Could not load this Baskt for editing.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsPortfolioLoading(false);
+        }
+      }
+    }
+
+    void loadPortfolio();
+    return () => controller.abort();
+  }, [editingPortfolioId]);
 
   const assetsBySymbol = useMemo(
     () =>
@@ -255,7 +292,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     setError("");
     setSuccess("");
 
-    if (!name.trim() && !editingBaskt) {
+    if (!name.trim() && !editingPortfolioId) {
       setError("Please name your Baskt before saving.");
       return;
     }
@@ -267,18 +304,18 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
 
     try {
       setIsSaving(true);
-      const payload = editingBaskt
+      const payload = editingPortfolioId
         ? { positions: validPositions, description }
         : { name: name.trim(), description, positions: validPositions };
 
       await apiRequest(
-        editingBaskt ? `/model-portfolios/${editingBaskt.portfolio_id}` : "/model-portfolios",
+        editingPortfolioId ? `/model-portfolios/${editingPortfolioId}` : "/model-portfolios",
         {
-          method: editingBaskt ? "PUT" : "POST",
+          method: editingPortfolioId ? "PUT" : "POST",
           body: JSON.stringify(payload),
         }
       );
-      setSuccess(editingBaskt ? "Baskt updated." : "Baskt saved.");
+      setSuccess(editingPortfolioId ? "Baskt updated." : "Baskt saved.");
       onSaved?.();
     } catch (saveError) {
       setError(saveError?.message || "Could not save this Baskt.");
@@ -287,8 +324,13 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
     }
   }
 
-  if (isAssetsLoading) {
-    return <LoadingState title="Preparing assets" message="Loading fractionable US stocks." />;
+  if (isAssetsLoading || isPortfolioLoading) {
+    return (
+      <LoadingState
+        title={isPortfolioLoading ? "Loading Baskt" : "Preparing assets"}
+        message={isPortfolioLoading ? "Fetching the latest portfolio data." : "Loading fractionable US stocks."}
+      />
+    );
   }
 
   return (
@@ -299,8 +341,8 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
 
         <div className="builder-hero">
           <div>
-            <p className="eyebrow">{editingBaskt ? "Update Baskt" : "Make a Baskt"}</p>
-            <h2>{editingBaskt ? editingBaskt.portfolio_name : "Build a portfolio that behaves on purpose."}</h2>
+            <p className="eyebrow">{editingPortfolioId ? "Update Baskt" : "Make a Baskt"}</p>
+            <h2>{editingPortfolioId ? name : "Build a portfolio that behaves on purpose."}</h2>
             <p>
               Choose tradeable US stocks, set target weights, and let the backtest refresh as you edit.
             </p>
@@ -312,7 +354,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
         </div>
 
         <div className="portfolio-fields">
-          {!editingBaskt ? (
+          {!editingPortfolioId ? (
             <label className="field">
               <span>Baskt name</span>
               <input
@@ -436,7 +478,7 @@ export default function MakeABaskt({ editingBaskt, onSaved }) {
             <span>valid position{validPositions.length === 1 ? "" : "s"} ready to save</span>
           </div>
           <button className="primary-button" type="submit" disabled={isSaving}>
-            {isSaving ? "Saving..." : editingBaskt ? "Update Baskt" : "Save Baskt"}
+            {isSaving ? "Saving..." : editingPortfolioId ? "Update Baskt" : "Save Baskt"}
           </button>
         </div>
       </section>

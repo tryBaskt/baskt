@@ -1405,7 +1405,7 @@ class AlpacaBrokerClient:
         self,
         *,
         symbol: str
-    ) -> Stock:
+    ) -> Optional[Stock]:
         """Get an Alpaca asset by its exact stock symbol.
 
         Args:
@@ -1437,6 +1437,9 @@ class AlpacaBrokerClient:
                 stock_id=str(asset.id),
                 stock_class=str(asset.asset_class.name.upper())
             )
+        except APIError as error:
+            if error.status_code == 404:
+                return None
         except Exception as error:
             raise AlpacaBrokerClientError(
                 message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",

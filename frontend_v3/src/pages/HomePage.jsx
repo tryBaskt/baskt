@@ -20,7 +20,7 @@ function formatAllocationType(value) {
 
 export default function HomePage({ onOpenInvestment }) {
   const [analytics, setAnalytics] = useState(null);
-  const [period, setPeriod] = useState("1M");
+  const [period, setPeriod] = useState("1D");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -55,10 +55,6 @@ export default function HomePage({ onOpenInvestment }) {
     };
   }, []);
 
-  if (isLoading) {
-    return <LoadingState title="Loading account" message="Pulling your buying power and equity history." />;
-  }
-
   const selectedGraph = analytics?.equity_graph?.[period] || analytics?.equity_graph?.[period.toLowerCase()];
   const availablePeriods = periods.filter(
     (item) => analytics?.equity_graph?.[item] || analytics?.equity_graph?.[item.toLowerCase()]
@@ -84,8 +80,16 @@ export default function HomePage({ onOpenInvestment }) {
           <h2>Your money, positions, and momentum in one place.</h2>
         </div>
         <div className="metric-grid compact">
-          <MetricCard label="Buying power" value={currency(analytics?.cash)} detail="Available cash" />
-          <MetricCard label="Equity value" value={currency(analytics?.equity)} detail="Current account value" />
+          <MetricCard
+            label="Cash"
+            value={isLoading ? "Loading..." : currency(analytics?.cash)}
+            detail="Available cash"
+          />
+          <MetricCard
+            label="Equity value"
+            value={isLoading ? "Loading..." : currency(analytics?.equity)}
+            detail="Current account value"
+          />
         </div>
       </section>
 
@@ -108,11 +112,15 @@ export default function HomePage({ onOpenInvestment }) {
             ))}
           </div>
         </div>
-        <EquityChart
-          equity={selectedGraph?.equity || []}
-          timestamps={selectedGraph?.timestamp || []}
-          valueType="currency"
-        />
+        {isLoading ? (
+          <LoadingState title="Loading equity graph" message="Fetching account history." />
+        ) : (
+          <EquityChart
+            equity={selectedGraph?.equity || []}
+            timestamps={selectedGraph?.timestamp || []}
+            valueType="currency"
+          />
+        )}
       </section>
 
       <section className="panel">
@@ -123,11 +131,13 @@ export default function HomePage({ onOpenInvestment }) {
           </div>
           <div className="allocation-total">
             <span>Invested value</span>
-            <strong>{currency(investedEquity)}</strong>
+            <strong>{isLoading ? "Loading..." : currency(investedEquity)}</strong>
           </div>
         </div>
 
-        {allocationEntries.length ? (
+        {isLoading ? (
+          <LoadingState title="Loading investments" message="Fetching your Baskts and stocks." />
+        ) : allocationEntries.length ? (
           <div className="home-allocation-list">
             <div className="home-allocation-scroll">
               <table className="home-allocation-table">
