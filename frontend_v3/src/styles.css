@@ -501,6 +501,75 @@ textarea:focus {
   font-size: 28px;
 }
 
+.allocation-total {
+  min-width: 180px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaff;
+  text-align: right;
+}
+
+.allocation-total span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.allocation-total strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.home-allocation-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.home-allocation-scroll {
+  max-height: 320px;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.home-allocation-table {
+  min-width: 720px;
+}
+
+.home-allocation-action {
+  background: #fff;
+  cursor: pointer;
+}
+
+.home-allocation-action:hover {
+  background: #fbfaff;
+}
+
+.home-allocation-action:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, 0.25);
+  outline-offset: -3px;
+}
+
+.home-allocation-table td strong {
+  font-size: 16px;
+}
+
+.home-allocation-table th {
+  background: #fbfaff;
+}
+
+.stock-pill {
+  background: #eefdf5;
+  color: #047857;
+}
+
+.compact-empty {
+  padding: 28px;
+}
+
 .analytics-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

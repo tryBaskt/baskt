@@ -295,7 +295,6 @@ class StockAnalyticsService:
                 for period, period_response in period_results:
                     if period_response is not None:
                         response[period] = period_response
-                        print(period_response["final_cumulative_return"])
 
             return response
 

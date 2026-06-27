@@ -28,6 +28,7 @@ from alpaca.common.exceptions import APIError
 
 # Baskt imports
 from domain.baskt_domain import BasktPosition
+from domain.stock_domain import Stock
 
 
 CRYPTO_ELIGIBLE_US_STATES = frozenset(
@@ -1066,33 +1067,6 @@ class AlpacaBrokerClient:
 
         return result
     
-    def get_asset_by_symbol(self, symbols: List[str]) -> Dict[str, Asset | Any]:
-        """
-        Fetch asset for each requested symbol.
-
-        Args:
-            symbols: List of ticker symbols.
-
-        Returns:
-            Dict[str, Asset]: Mapping of symbol to Asset.
-
-        Raises:
-            AlpacaBrokerClientError: If Alpaca rejects the get asset request, 
-            the network request failed, no asset is returned for a requested 
-            symbol, or an unexpected error occurs.
-        """
-        res = {}
-        for symbol in symbols:
-            try:  
-                asset = self.client.get_asset(symbol_or_asset_id=symbol)
-                res[symbol] = asset
-            except Exception as e:
-                raise AlpacaBrokerClientError(
-                    message=f"Failed to fetch asset for symbol '{symbol}': {e}",
-                    code="ALPACA_BROKER_GET_ASSET_FAILED",
-                )
-        return res
-    
     def get_baskt_positions_dict(self, alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         """
         Fetch all positions for an Alpaca account and convert them to Baskt positions.
@@ -1427,18 +1401,18 @@ class AlpacaBrokerClient:
     ######## STOCK SEARCH ########
     ##############################
 
-    def get_stocks_by_symbol(
+    def get_stock_by_symbol(
         self,
         *,
         symbol: str
-    ) -> Optional[Asset]:
+    ) -> Optional[Stock]:
         """Get an Alpaca asset by its exact stock symbol.
 
         Args:
             symbol: Exact stock ticker symbol to retrieve.
 
         Returns:
-            Optional[Asset]: Matching Alpaca asset, or None when the symbol
+            Stock: Matching Alpaca asset, or None when the symbol
             does not exist.
 
         Raises:
@@ -1453,16 +1427,58 @@ class AlpacaBrokerClient:
             )
 
         try:
-            return self.client.get_asset(symbol_or_asset_id=normalized_symbol)
+            asset =  self.client.get_asset(symbol_or_asset_id=normalized_symbol)
+            return Stock(
+                symbol=str(asset.symbol),
+                tradable=bool(asset.tradable),
+                fractionable=bool(asset.fractionable),
+                shortable=bool(asset.shortable),
+                marginable=bool(asset.marginable),
+                stock_id=str(asset.id),
+                stock_class=str(asset.asset_class.name.upper())
+            )
         except APIError as error:
             if error.status_code == 404:
                 return None
-            raise AlpacaBrokerClientError(
-                message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
-                code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
-            ) from error
         except Exception as error:
             raise AlpacaBrokerClientError(
                 message=f"Failed to get stock for symbol '{normalized_symbol}': {error}",
                 code="ALPACA_BROKER_GET_STOCK_BY_SYMBOL_FAILED",
+            ) from error
+        
+
+    def get_stock_by_asset_id(
+        self,
+        *,
+        asset_id: str
+    ) -> Stock:
+        """Get an Alpaca asset by its exact stock asset_id.
+
+        Args:
+            asset_id: Exact stock asset_id symbol to retrieve.
+
+        Returns:
+            Stock: Matching Alpaca asset, or None when the symbol
+            does not exist.
+
+        Raises:
+            AlpacaBrokerClientError: If the symbol is empty or Alpaca fails
+                for a reason other than the asset not existing.
+        """
+
+        try:
+            asset = self.client.get_asset(symbol_or_asset_id=asset_id)
+            return Stock(
+                symbol=str(asset.symbol),
+                tradable=bool(asset.tradable),
+                fractionable=bool(asset.fractionable),
+                shortable=bool(asset.shortable),
+                marginable=bool(asset.marginable),
+                stock_id=str(asset.id),
+                stock_class=str(asset.asset_class.name.upper())
+            )
+        except Exception as error:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get stock for asset id '{asset_id}': {error}",
+                code="ALPACA_BROKER_GET_STOCK_BY_ASSET_ID_FAILED",
             ) from error

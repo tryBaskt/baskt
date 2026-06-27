@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "./components/AppShell";
 import BasktPage from "./pages/BasktPage";
 import ExplorePage from "./pages/ExplorePage";
@@ -12,14 +12,62 @@ import Transfer from "./pages/Transfer";
 import { cognitoConfig } from "./authConfig";
 import { clearSession, getIdToken } from "./lib/session";
 
+const STATIC_PAGES = new Set(["home", "make", "my-baskts", "explore", "transfer"]);
+
+function decodeRouteId(value) {
+  try {
+    return decodeURIComponent(value || "");
+  } catch {
+    return "";
+  }
+}
+
+function readLocation() {
+  const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  const [section, encodedId] = parts;
+  const id = decodeRouteId(encodedId);
+
+  if (section === "baskts" && id) {
+    return { route: { page: "baskt-detail", id }, authView: "login" };
+  }
+  if (section === "stocks" && id) {
+    return { route: { page: "stock-detail", id }, authView: "login" };
+  }
+  if (section === "make" && id) {
+    return { route: { page: "make", id }, authView: "login" };
+  }
+  if (section === "signup") {
+    return { route: { page: "home" }, authView: "signup" };
+  }
+  if (section === "login") {
+    return { route: { page: "home" }, authView: "login" };
+  }
+  if (STATIC_PAGES.has(section)) {
+    return { route: { page: section }, authView: "login" };
+  }
+  return { route: { page: "home" }, authView: "login" };
+}
+
+function routeHash(route) {
+  if (route.page === "baskt-detail") {
+    return `#/baskts/${encodeURIComponent(route.id)}`;
+  }
+  if (route.page === "stock-detail") {
+    return `#/stocks/${encodeURIComponent(route.id)}`;
+  }
+  if (route.page === "make" && route.id) {
+    return `#/make/${encodeURIComponent(route.id)}`;
+  }
+  return `#/${route.page}`;
+}
+
 export default function App() {
+  const initialLocation = useMemo(readLocation, []);
   const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getIdToken()));
-  const [authView, setAuthView] = useState("login");
-  const [currentPage, setCurrentPage] = useState("home");
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState(null);
+  const [authView, setAuthView] = useState(initialLocation.authView);
+  const [route, setRoute] = useState(initialLocation.route);
   const [basktDetailBackPage, setBasktDetailBackPage] = useState("my-baskts");
-  const [editingBaskt, setEditingBaskt] = useState(null);
-  const [selectedStock, setSelectedStock] = useState(null);
+  const [stockDetailBackPage, setStockDetailBackPage] = useState("explore");
 
   const forgotPasswordUrl = useMemo(() => {
     const query = new URLSearchParams({
@@ -31,81 +79,129 @@ export default function App() {
     return `https://${cognitoConfig.domain}/forgotPassword?${query.toString()}`;
   }, []);
 
-  function navigate(page) {
-    if (page !== "make") {
-      setEditingBaskt(null);
+  useEffect(() => {
+    function syncFromLocation() {
+      const location = readLocation();
+      setRoute(location.route);
+      setAuthView(location.authView);
     }
-    setCurrentPage(page);
+
+    window.addEventListener("hashchange", syncFromLocation);
+    if (!window.location.hash) {
+      window.history.replaceState(null, "", isAuthenticated ? "#/home" : "#/login");
+    }
+    return () => window.removeEventListener("hashchange", syncFromLocation);
+  }, [isAuthenticated]);
+
+  function navigate(nextRoute, { replace = false } = {}) {
+    setRoute(nextRoute);
+    const nextHash = routeHash(nextRoute);
+    if (replace) {
+      window.history.replaceState(null, "", nextHash);
+    } else if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    }
+  }
+
+  function showAuthView(view) {
+    setAuthView(view);
+    window.history.replaceState(null, "", view === "signup" ? "#/signup" : "#/login");
   }
 
   function logout() {
     clearSession();
     setIsAuthenticated(false);
-    setCurrentPage("home");
-    setSelectedPortfolioId(null);
-    setEditingBaskt(null);
-    setSelectedStock(null);
+    setAuthView("login");
+    setRoute({ page: "home" });
+    window.history.replaceState(null, "", "#/login");
   }
 
   if (!isAuthenticated) {
     return authView === "signup" ? (
-      <SignupPage onBackToLogin={() => setAuthView("login")} />
+      <SignupPage onBackToLogin={() => showAuthView("login")} />
     ) : (
       <LoginPage
         forgotPasswordUrl={forgotPasswordUrl}
-        onAuthenticated={() => setIsAuthenticated(true)}
-        onShowSignup={() => setAuthView("signup")}
+        onAuthenticated={() => {
+          setIsAuthenticated(true);
+          navigate({ page: "home" }, { replace: true });
+        }}
+        onShowSignup={() => showAuthView("signup")}
       />
     );
   }
 
-  let page = <HomePage />;
+  const currentPage = route.page;
+  let page = (
+    <HomePage
+      onOpenInvestment={(investment) => {
+        if (investment.type === "Stock") {
+          setStockDetailBackPage("home");
+          navigate({ page: "stock-detail", id: investment.portfolioId });
+          return;
+        }
+
+        setBasktDetailBackPage("home");
+        navigate({ page: "baskt-detail", id: investment.portfolioId });
+      }}
+    />
+  );
+
   if (currentPage === "make") {
-    page = <MakeABaskt editingBaskt={editingBaskt} onSaved={() => setCurrentPage("my-baskts")} />;
+    page = (
+      <MakeABaskt
+        editingPortfolioId={route.id || null}
+        onSaved={() => navigate({ page: "my-baskts" })}
+      />
+    );
   } else if (currentPage === "my-baskts") {
     page = (
       <MyBaskts
-        onCreateBaskt={() => navigate("make")}
+        onCreateBaskt={() => navigate({ page: "make" })}
         onOpenBaskt={(portfolioId) => {
-          setSelectedPortfolioId(portfolioId);
           setBasktDetailBackPage("my-baskts");
-          setCurrentPage("baskt-detail");
+          navigate({ page: "baskt-detail", id: portfolioId });
         }}
       />
     );
-  } else if (currentPage === "baskt-detail") {
+  } else if (currentPage === "baskt-detail" && route.id) {
     page = (
       <BasktPage
-        portfolioId={selectedPortfolioId}
-        onBack={() => setCurrentPage(basktDetailBackPage)}
-        onUpdate={(baskt) => {
-          setEditingBaskt(baskt);
-          setCurrentPage("make");
-        }}
+        portfolioId={route.id}
+        onBack={() => navigate({ page: basktDetailBackPage })}
+        onUpdate={() => navigate({ page: "make", id: route.id })}
       />
     );
   } else if (currentPage === "transfer") {
     page = <Transfer />;
-  } else if (currentPage === "stock-detail" && selectedStock) {
-    page = <StockPage stock={selectedStock} onBack={() => setCurrentPage("explore")} />;
+  } else if (currentPage === "stock-detail" && route.id) {
+    page = (
+      <StockPage
+        stockId={route.id}
+        onBack={() => navigate({ page: stockDetailBackPage })}
+      />
+    );
   } else if (currentPage === "explore") {
     page = (
       <ExplorePage
         onOpenBaskt={(portfolioId) => {
-          setSelectedPortfolioId(portfolioId);
           setBasktDetailBackPage("explore");
-          setCurrentPage("baskt-detail");
+          navigate({ page: "baskt-detail", id: portfolioId });
         }}
         onOpenStock={(stock) => {
-          setSelectedStock(stock);
-          setCurrentPage("stock-detail");
+          setStockDetailBackPage("explore");
+          navigate({ page: "stock-detail", id: stock.stock_id });
         }}
       />
     );
   }
 
   return (
-    <AppShell currentPage={currentPage} onNavigate={navigate} onLogout={logout}>
+    <AppShell
+      currentPage={currentPage}
+      onNavigate={(pageName) => navigate({ page: pageName })}
+      onLogout={logout}
+    >
       {page}
     </AppShell>
   );

@@ -18,6 +18,25 @@ class StockResponse(BaseModel):
 class StocksResponse(RootModel[List[StockResponse]]):
     pass
 
+class StockAllocationTransactionResponse(BaseModel):
+    transaction_id: str
+    created_at: datetime
+    filled_at: datetime
+    requested_amount: Optional[float] # if None, it is close
+    number_orders: int
+    transaction_type: str # BUY | SELL | CLOSE |
+    cost_basis: float
+    order_fill_percent: float
+    status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED
+
+class StockAllocationResponse(BaseModel):
+    stock_id: str
+    transaction_history: Optional[List[StockAllocationTransactionResponse]] = None
+    total_cost_basis: Optional[float] = None
+    equity: Optional[float] = None
+    profit_loss: Optional[float] = None
+    profit_loss_percent: Optional[float] = None
+
 class StockAnalyticsPeriodResponse(BaseModel):
     """Performance series and metrics for one stock analytics period."""
     timeframe: str

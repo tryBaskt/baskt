@@ -26,11 +26,12 @@ from repository.model_portfolio_follower_repository import ModelPortfolioFollowe
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
-from services.account_analytics_service import AccountAnalyticsService
+from services.investment_analytics_service import InvestmentAnalyticsService
 from services.asset_analytics_service import AssetAnalyticsService
 from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsService
 from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
 from services.stock_analytics_service import StockAnalyticsService
+from services.trade_execution_queuing_service import TradeExecutionQueuingService
 from alpaca.broker.models import Account
 
 # -----------------------------
@@ -73,6 +74,12 @@ def get_cognito_idp_client_cached() -> Any:
     s = get_settings()
     session = get_boto3_session()
     return session.client("cognito-idp", region_name=s.cognito_region)
+
+@lru_cache
+def get_sqs_client_cached() -> Any:
+    s = get_settings()
+    session = get_boto3_session()
+    return session.client("sqs", region_name=s.aws_region)
 
 # -----------------------------
 # Clients
@@ -251,11 +258,31 @@ def get_trade_execution_service(
         user_trade_lock_repository=user_trade_lock_repository
     )
 
-def get_account_analytics_service(
+@lru_cache
+def get_trade_execution_queue_url() -> str:
+    s = get_settings()
+    if s.trade_execution_queue_url:
+        return s.trade_execution_queue_url
+
+    sqs_client = get_sqs_client_cached()
+    response = sqs_client.get_queue_url(
+        QueueName=s.trade_execution_queue_name,
+    )
+    return str(response["QueueUrl"])
+
+def get_trade_execution_queuing_service(
+    sqs_client: Any = Depends(get_sqs_client_cached),
+) -> TradeExecutionQueuingService:
+    return TradeExecutionQueuingService(
+        sqs_client=sqs_client,
+        queue_url=get_trade_execution_queue_url(),
+    )
+
+def get_investment_analytics_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
-) -> AccountAnalyticsService:
-    return AccountAnalyticsService(
+) -> InvestmentAnalyticsService:
+    return InvestmentAnalyticsService(
         alpaca_broker_client=alpaca_broker_client,
         portfolio_allocation_repository=portfolio_allocation_repository,
     )

@@ -129,6 +129,7 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
                         {stock.tradable && <span>Tradable</span>}
                         {stock.fractionable && <span>Fractionable</span>}
                         {stock.shortable && <span>Shortable</span>}
+                        {stock.marginable && <span>Marginable</span>}
                       </div>
                     </button>
                   ))}

@@ -1,0 +1,9 @@
+*
+!backend/
+!backend/**
+!infrastructure/
+!infrastructure/dev/
+!infrastructure/dev/lambda/
+!infrastructure/dev/lambda/trade_execution_queue_worker/
+!infrastructure/dev/lambda/trade_execution_queue_worker/handler.py
+!infrastructure/dev/lambda/trade_execution_queue_worker/requirements.txt

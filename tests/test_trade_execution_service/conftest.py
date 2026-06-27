@@ -537,7 +537,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount) <= FLOAT_ERROR
+        assert abs(allocation.total_cost_basis - alpaca_filled_amount) <= FLOAT_ERROR
 
         # match portfolio_allocation to model_portfolio
         model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -640,7 +640,7 @@ class TestEngine:
                 assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
                 assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
                 alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-            assert abs(allocation.total_filled_amount - alpaca_filled_amount) <= FLOAT_ERROR
+            assert abs(allocation.total_cost_basis - alpaca_filled_amount) <= FLOAT_ERROR
 
             # match alpaca to model_positions
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -787,7 +787,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount2 += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount2) <= FLOAT_ERROR
+        assert abs(allocation.total_cost_basis - alpaca_filled_amount2) <= FLOAT_ERROR
 
         # match alpaca to test positions
         model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
@@ -871,7 +871,8 @@ class TestEngine:
         # match portfolio_allocation to alpaca
         baskt_positions_dict: Dict[str, BasktPosition] = self.alpaca_broker_client.get_baskt_positions_dict(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
         assert len(baskt_positions_dict) == 0
-        allocation.total_filled_amount <= FLOAT_ERROR
+        allocation.total_cost_basis <= FLOAT_ERROR
+        len(allocation.position_history) == 0
 
         return wd_response
     
@@ -963,7 +964,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount) / allocation.total_filled_amount <= MARGIN_ERROR
+        assert abs(allocation.total_cost_basis - alpaca_filled_amount) / allocation.total_cost_basis <= MARGIN_ERROR
 
         # Validate incremental deposit amount
         prev_filled_amount = self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"][-1] if self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"] else 0.0
@@ -1069,7 +1070,7 @@ class TestEngine:
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
             assert snapshot_position.direction == baskt_positions_dict[snapshot_position.symbol].direction
             alpaca_filled_amount2 += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
-        assert abs(allocation.total_filled_amount - alpaca_filled_amount2) <= FLOAT_ERROR
+        assert abs(allocation.total_cost_basis - alpaca_filled_amount2) <= FLOAT_ERROR
 
         withdraw_order_ids = {str(order.id) for order in wd_orders}
         net_withdraw_filled_amount = sum(

@@ -348,6 +348,89 @@ def test_stock_buy_partial_sell_buy_and_close(test_engine: TestEngine):
 
 
 @pytest.mark.integration
+def test_stock_short_under_minimum_errors(test_engine: TestEngine):
+    """Test that opening a stock short below the minimum balance errors."""
+    asset_id = str(uuid.uuid4())
+
+    try:
+        with pytest.raises(Exception) as exc_info:
+            test_engine.trade_execution_service.execute_sell_to_stock(
+                symbol="AAPL",
+                asset_id=asset_id,
+                withdraw_amount=5.00,
+                alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+                cognito_user_id=FUNDED_COGNITO_USER_ID,
+                is_test=True,
+            )
+
+        assert getattr(exc_info.value, "code", None) == "TRADE_EXECUTION_SELL_FAILED"
+    finally:
+        _cleanup_stock_test(
+            test_engine,
+            asset_id,
+            {},
+        )
+
+
+@pytest.mark.integration
+def test_stock_short_then_partial_cover(test_engine: TestEngine):
+    """Test shorting a stock and partially covering while staying above the minimum."""
+    asset_id = str(uuid.uuid4())
+    short_response = None
+    cover_response = None
+
+    try:
+        short_response = test_engine.trade_execution_service.execute_sell_to_stock(
+            symbol="AAPL",
+            asset_id=asset_id,
+            withdraw_amount=20.00,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            is_test=True,
+        )
+        test_engine.trade_execution_service.realize_filled_orders(
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            portfolio_id=asset_id,
+        )
+
+        cover_response = test_engine.trade_execution_service.execute_buy_to_stock(
+            symbol="AAPL",
+            asset_id=asset_id,
+            deposit_amount=5.00,
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            is_test=True,
+        )
+        test_engine.trade_execution_service.realize_filled_orders(
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            portfolio_id=asset_id,
+        )
+
+        allocation = test_engine.portfolio_allocation_repository.get_portfolio_allocation(
+            cognito_user_id=FUNDED_COGNITO_USER_ID,
+            portfolio_id=asset_id,
+        )
+        latest_snapshot = allocation.position_history[-1]
+
+        assert allocation.total_cost_basis > 10.00
+        assert allocation.total_cost_basis < 20.00
+        assert len(latest_snapshot.positions) == 1
+        assert latest_snapshot.positions[0].symbol == "AAPL"
+        assert latest_snapshot.positions[0].direction == -1
+    finally:
+        transaction_id_order_id_dict = {}
+        _record_order_response(transaction_id_order_id_dict, short_response)
+        _record_order_response(transaction_id_order_id_dict, cover_response)
+        _cleanup_stock_test(
+            test_engine,
+            asset_id,
+            transaction_id_order_id_dict,
+        )
+
+
+@pytest.mark.integration
 def test_basic_deposit(test_engine: TestEngine):
     portfolio_id = _create_portfolio(
         test_engine,

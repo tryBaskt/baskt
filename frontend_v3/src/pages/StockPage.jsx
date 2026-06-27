@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import EquityChart from "../components/EquityChart";
-import { ErrorBanner, SuccessBanner } from "../components/Status";
+import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { apiRequest } from "../lib/api";
 import { currency, formatDateTime, percent } from "../lib/format";
 
@@ -13,15 +13,18 @@ function getReturnTone(value) {
   return Number(value) >= 0 ? "metric-positive" : "metric-negative";
 }
 
-export default function StockPage({ stock, onBack }) {
+export default function StockPage({ stockId, onBack }) {
+  const [stock, setStock] = useState(null);
   const [stockAnalytics, setStockAnalytics] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState("1D");
   const [amount, setAmount] = useState("");
+  const [stockError, setStockError] = useState("");
   const [analyticsError, setAnalyticsError] = useState("");
   const [allocationError, setAllocationError] = useState("");
   const [tradeError, setTradeError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isStockLoading, setIsStockLoading] = useState(true);
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
   const [isAllocationLoading, setIsAllocationLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,7 +38,7 @@ export default function StockPage({ stock, onBack }) {
     Number.isFinite(Number(selectedAnalytics.final_cumulative_return))
       ? Number(selectedAnalytics.final_cumulative_return) * 100
       : null;
-  const transactions = allocationAnalytics?.transactions || [];
+  const transactions = allocationAnalytics?.transaction_history || [];
   const hasAllocation =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined;
@@ -50,12 +53,35 @@ export default function StockPage({ stock, onBack }) {
     [stock]
   );
 
+  async function loadStockDetails(signal) {
+    setIsStockLoading(true);
+    setStockError("");
+    try {
+      const payload = await apiRequest(
+        `/account-analytics/stocks/${stockId}`,
+        { signal }
+      );
+      setStock(payload || null);
+      return payload || null;
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        setStock(null);
+        setStockError(error?.message || "Could not load stock details.");
+      }
+      return null;
+    } finally {
+      if (!signal?.aborted) {
+        setIsStockLoading(false);
+      }
+    }
+  }
+
   async function loadAllocationAnalytics(signal) {
     setIsAllocationLoading(true);
     setAllocationError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stock.stock_id}/analytics`,
+        `/account-analytics/stocks/${stockId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(payload || null);
@@ -75,38 +101,48 @@ export default function StockPage({ stock, onBack }) {
 
     setStockAnalytics(null);
     setAllocationAnalytics(null);
+    setStock(null);
+    setStockError("");
     setAnalyticsError("");
     setAllocationError("");
+    setIsStockLoading(true);
     setIsAnalyticsLoading(true);
     setIsAllocationLoading(true);
 
-    void apiRequest(`/stock-analytics/${encodeURIComponent(stock.symbol)}`, {
-      signal: controller.signal,
-    })
-      .then((payload) => {
-        setStockAnalytics(payload || null);
-        if (!payload?.[selectedPeriod]) {
-          const availablePeriod = PERIODS.find((period) => payload?.[period]);
-          if (availablePeriod) {
-            setSelectedPeriod(availablePeriod);
+    void loadStockDetails(controller.signal).then((loadedStock) => {
+      if (!loadedStock || controller.signal.aborted) {
+        setIsAnalyticsLoading(false);
+        return;
+      }
+
+      void apiRequest(`/stock-analytics/${encodeURIComponent(loadedStock.symbol)}`, {
+        signal: controller.signal,
+      })
+        .then((payload) => {
+          setStockAnalytics(payload || null);
+          if (!payload?.[selectedPeriod]) {
+            const availablePeriod = PERIODS.find((period) => payload?.[period]);
+            if (availablePeriod) {
+              setSelectedPeriod(availablePeriod);
+            }
           }
-        }
-      })
-      .catch((error) => {
-        if (error?.name !== "AbortError") {
-          setAnalyticsError(error?.message || "Could not load stock performance.");
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsAnalyticsLoading(false);
-        }
-      });
+        })
+        .catch((error) => {
+          if (error?.name !== "AbortError") {
+            setAnalyticsError(error?.message || "Could not load stock performance.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsAnalyticsLoading(false);
+          }
+        });
+    });
 
     void loadAllocationAnalytics(controller.signal);
 
     return () => controller.abort();
-  }, [stock.stock_id, stock.symbol]);
+  }, [stockId]);
 
   async function executeTrade(action) {
     setTradeError("");
@@ -144,6 +180,22 @@ export default function StockPage({ stock, onBack }) {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (isStockLoading) {
+    return <LoadingState title="Loading stock" message="Fetching stock details." />;
+  }
+
+  if (!stock) {
+    return (
+      <div className="page-stack stock-detail-page">
+        <div className="detail-header">
+          <button className="ghost-button" type="button" onClick={onBack}>Back</button>
+        </div>
+        <ErrorBanner message={stockError} />
+        <EmptyState title="Stock unavailable" message="This stock could not be found." />
+      </div>
+    );
   }
 
   return (
@@ -253,7 +305,7 @@ export default function StockPage({ stock, onBack }) {
           <div>
             <span>Position value</span>
             <strong>{currency(allocationAnalytics.equity, "Not available")}</strong>
-            <small>Cost basis {currency(allocationAnalytics.total_filled_amount, "Not available")}</small>
+            <small>Cost basis {currency(allocationAnalytics.total_cost_basis, "Not available")}</small>
           </div>
           <div>
             <span>Profit/Loss</span>
@@ -264,8 +316,8 @@ export default function StockPage({ stock, onBack }) {
           </div>
           <div>
             <span>Profit/Loss %</span>
-            <strong className={getReturnTone(allocationAnalytics.profit_loss_pct)}>
-              {percent(Number(allocationAnalytics.profit_loss_pct) * 100)}
+            <strong className={getReturnTone(allocationAnalytics.profit_loss_percent)}>
+              {percent(Number(allocationAnalytics.profit_loss_percent) * 100)}
             </strong>
             <small>Return on allocated basis</small>
           </div>
@@ -338,7 +390,7 @@ export default function StockPage({ stock, onBack }) {
                       <td>{formatDateTime(transaction.filled_at)}</td>
                       <td>{transaction.transaction_type}</td>
                       <td>{transaction.requested_amount === null ? "Close" : currency(transaction.requested_amount)}</td>
-                      <td>{currency(transaction.filled_amount)}</td>
+                      <td>{currency(transaction.cost_basis)}</td>
                       <td>{percent(transaction.order_fill_percent)}</td>
                       <td>{transaction.status}</td>
                     </tr>
