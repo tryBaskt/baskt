@@ -42,7 +42,7 @@ def settings_dep() -> Settings:
     return get_settings()
 
 # -----------------------------
-# AWS 
+# AWS
 # -----------------------------
 
 @lru_cache
@@ -272,10 +272,18 @@ def get_trade_execution_queue_url() -> str:
 
 def get_trade_execution_queuing_service(
     sqs_client: Any = Depends(get_sqs_client_cached),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
 ) -> TradeExecutionQueuingService:
     return TradeExecutionQueuingService(
         sqs_client=sqs_client,
         queue_url=get_trade_execution_queue_url(),
+        model_portfolio_repository=model_portfolio_repository,
+        portfolio_allocation_repository=portfolio_allocation_repository,
+        alpaca_broker_client=alpaca_broker_client,
+        user_trade_lock_repository=user_trade_lock_repository,
     )
 
 def get_investment_analytics_service(

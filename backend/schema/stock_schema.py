@@ -21,13 +21,15 @@ class StocksResponse(RootModel[List[StockResponse]]):
 class StockAllocationTransactionResponse(BaseModel):
     transaction_id: str
     created_at: datetime
-    filled_at: datetime
-    requested_amount: Optional[float] # if None, it is close
-    number_orders: int
-    transaction_type: str # BUY | SELL | CLOSE |
-    cost_basis: float
-    order_fill_percent: float
-    status: str # QUEUED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED
+    filled_at: Optional[datetime] = None
+    updated_at: datetime
+    requested_amount: Optional[float]  # None for close
+    number_orders: Optional[int] = None
+    transaction_type: str  # BUY | SELL | CLOSE
+    cost_basis: Optional[float] = None
+    order_fill_percent: Optional[float] = None
+    status: str  # QUEUED | PROCESSING | ORDERED | PARTIALLY_FILLED | FULLY_FILLED | CANCELLED | FAILED
+    status_explanation: Optional[str] = None
 
 class StockAllocationResponse(BaseModel):
     stock_id: str

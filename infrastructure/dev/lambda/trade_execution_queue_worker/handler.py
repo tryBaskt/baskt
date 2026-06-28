@@ -113,6 +113,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
                 "portfolio_owner_cognito_user_id"
             ],
             deposit_amount=float(payload["amount"]),
+            transaction_id=payload["transaction_id"],
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
         )
@@ -125,6 +126,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
                 "portfolio_owner_cognito_user_id"
             ],
             withdraw_amount=float(payload["amount"]),
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )
@@ -136,6 +138,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
             portfolio_owner_cognito_user_id=payload[
                 "portfolio_owner_cognito_user_id"
             ],
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )
@@ -145,6 +148,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
         service.execute_buy_to_stock(
             symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             deposit_amount=float(payload["amount"]),
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
@@ -155,6 +159,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
         service.execute_sell_to_stock(
             symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             withdraw_amount=float(payload["amount"]),
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
@@ -164,6 +169,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "stock_close":
         service.execute_close_stock(
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )

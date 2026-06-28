@@ -21,7 +21,7 @@ from backend.repository.user_trade_lock_repository import UserTradeLockRepositor
 from backend.repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from backend.services.trade_execution_service import TradeExecutionService
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.domain.baskt_domain import BasktPosition, BasktAccount
+from backend.domain.baskt_domain import BasktPosition
 from time import sleep
 from datetime import datetime, timezone, timedelta
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
@@ -31,7 +31,6 @@ from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, 
 from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
 from backend.domain.baskt_domain import BasktPosition
-from backend.clients.dynamodb_client import DynamoDBClient
 from math import ceil, floor
 
 MARGIN_ERROR = 0.01
@@ -41,6 +40,7 @@ EPS = 1e-6
 
 load_dotenv()
 os.environ["ENV"] = "dev"
+os.environ["ALPACA_ENV"] = "sandbox"
 get_settings.cache_clear()
 
 #######################################

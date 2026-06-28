@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from alpaca.broker.models import Account
 # Baskt imports
 from core.deps import (
-	get_investment_analytics_service, 
-	get_current_user, 
-	get_current_active_alpaca_account, 
+	get_investment_analytics_service,
+	get_current_user,
+	get_current_active_alpaca_account,
 	get_trade_execution_service,
 )
 from schema.investment_analytics_schema import (
@@ -20,8 +20,8 @@ from schema.investment_analytics_schema import (
 	EquityGraphResponse
 )
 from schema.stock_schema import (
-	StockResponse, 
-	StockAllocationResponse, 
+	StockResponse,
+	StockAllocationResponse,
 	StockAllocationTransactionResponse
 )
 from schema.portfolio_allocation_schema import (
@@ -72,8 +72,8 @@ def get_account_analytics(
 	except Exception as err:
 		_raise_trade_execution_http_exception(err=err)
 
-		
-	
+
+
 
 @router.get("/portfolios/{portfolio_id}/analytics", response_model=PortfolioAllocationResponse, status_code=HTTP_200_OK)
 def get_portfolio_allocation_analytics(
@@ -84,7 +84,7 @@ def get_portfolio_allocation_analytics(
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 ) -> PortfolioAllocationResponse:
-	
+
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 
@@ -100,18 +100,20 @@ def get_portfolio_allocation_analytics(
 		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
 		if not analytics_dict and not transactions:
 			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
-		
+
 		transactions_response = [
 			PortfolioAllocationTransactionResponse(
 				transaction_id=transaction.transaction_id,
 				created_at=transaction.created_at,
 				filled_at=transaction.filled_at,
+				updated_at=transaction.updated_at,
 				requested_amount=transaction.requested_amount,
 				number_orders=transaction.number_orders,
 				transaction_type=transaction.transaction_type,
 				cost_basis=transaction.cost_basis,
 				order_fill_percent=transaction.order_fill_percent,
-				status=transaction.status
+				status=transaction.status,
+				status_explanation=transaction.status_explanation,
 			)
 			for transaction in transactions
 		]
@@ -124,7 +126,7 @@ def get_portfolio_allocation_analytics(
 			profit_loss=analytics_dict["profit_loss"],
 			profit_loss_percent=analytics_dict["profit_loss_percent"]
 		)
-	
+
 	except Exception as e:
 		_raise_trade_execution_http_exception(err=e)
 
@@ -138,7 +140,7 @@ def get_stock_allocation_analytics(
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 ) -> StockAllocationResponse:
-	
+
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 
@@ -156,7 +158,7 @@ def get_stock_allocation_analytics(
 			return StockAllocationResponse(
 				stock_id=stock_id
 			)
-		
+
 		return StockAllocationResponse(
 			stock_id=stock_id,
 			transaction_history=[
@@ -164,12 +166,14 @@ def get_stock_allocation_analytics(
 					transaction_id=transaction.transaction_id,
 					created_at=transaction.created_at,
 					filled_at=transaction.filled_at,
+					updated_at=transaction.updated_at,
 					requested_amount=transaction.requested_amount,
 					number_orders=transaction.number_orders,
 					transaction_type=transaction.transaction_type,
 					cost_basis=transaction.cost_basis,
 					order_fill_percent=transaction.order_fill_percent,
-					status=transaction.status
+					status=transaction.status,
+					status_explanation=transaction.status_explanation,
 				)
 				for transaction in transactions
 			],
@@ -178,7 +182,7 @@ def get_stock_allocation_analytics(
 			profit_loss=analytics_dict["profit_loss"],
 			profit_loss_percent=analytics_dict["profit_loss_percent"]
 		)
-	
+
 	except Exception as e:
 		_raise_trade_execution_http_exception(err=e)
 
