@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import wraps
+from inspect import signature
 from typing import Any, Dict, Optional
-
 from botocore.exceptions import BotoCoreError, ClientError
 
 from clients.alpaca_broker_client import AlpacaBrokerClient
@@ -17,12 +19,26 @@ from domain.portfolio_allocation_domain import (
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
-
+from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 
 MINIMUM_PORTFOLIO_BALANCE = 1.0
 MINIMUM_STOCK_BALANCE = 1.0
 TRADE_AMOUNT_MIN = 10.0
 QUEUE_LOCK_LEASE_SECONDS = 30
+
+
+def _with_user_trade_lock(method: Any) -> Any:
+    """Serialize one public queue operation for its Cognito user."""
+    method_signature = signature(method)
+
+    @wraps(method)
+    def wrapped(self: "TradeExecutionQueuingService", *args: Any, **kwargs: Any) -> Any:
+        bound = method_signature.bind(self, *args, **kwargs)
+        cognito_user_id = bound.arguments["cognito_user_id"]
+        with self._user_trade_lock(cognito_user_id=cognito_user_id):
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 class TradeExecutionQueuingServiceError(Exception):
@@ -48,6 +64,7 @@ class TradeExecutionQueuingService:
         portfolio_allocation_repository: PortfolioAllocationRepository,
         alpaca_broker_client: AlpacaBrokerClient,
         user_trade_lock_repository: UserTradeLockRepository,
+        model_portfolio_follower_repository: ModelPortfolioFollowerRepository
     ) -> None:
         if not queue_url:
             raise TradeExecutionQueuingServiceError(
@@ -60,6 +77,7 @@ class TradeExecutionQueuingService:
         self.portfolio_allocation_repository = portfolio_allocation_repository
         self.alpaca_broker_client = alpaca_broker_client
         self.user_trade_lock_repository = user_trade_lock_repository
+        self.model_portfolio_follower_repository = model_portfolio_follower_repository
 
     def _send_message(self, *, action: str, payload: Dict[str, Any]) -> str:
         """Publish one JSON trade message and return its SQS message ID."""
@@ -92,9 +110,38 @@ class TradeExecutionQueuingService:
         payload: Dict[str, Any],
     ) -> str:
         """Persist a transaction before publishing the message that executes it."""
+        if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(
+            cognito_user_id=portfolio_allocation.cognito_user_id,
+            portfolio_id=portfolio_allocation.portfolio_id,
+        ):
+            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=portfolio_allocation.cognito_user_id,
+                portfolio_id=portfolio_allocation.portfolio_id,
+            )
+
+        portfolio_allocation.transaction_history.append(transaction)
+        self.portfolio_allocation_repository.set_portfolio_allocation(
+            portfolio_allocation=portfolio_allocation
+        )
+        try:
+            return self._send_message(action=action, payload=payload)
+        except Exception:
+            transaction.status = "FAILED"
+            transaction.updated_at = datetime.now(timezone.utc)
+            transaction.status_explanation = (
+                "The trade passed validation but could not be added to the execution queue."
+            )
+            self.portfolio_allocation_repository.set_portfolio_allocation(
+                portfolio_allocation=portfolio_allocation
+            )
+            raise
+
+    @contextmanager
+    def _user_trade_lock(self, *, cognito_user_id: str):
+        """Acquire and always release the queue mutation lock for one user."""
         owner_token = str(uuid.uuid4())
         acquired = self.user_trade_lock_repository.acquire_lock(
-            cognito_user_id=portfolio_allocation.cognito_user_id,
+            cognito_user_id=cognito_user_id,
             owner_token=owner_token,
             lease_seconds=QUEUE_LOCK_LEASE_SECONDS,
         )
@@ -104,34 +151,10 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_LOCKED",
             )
         try:
-            if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(
-                cognito_user_id=portfolio_allocation.cognito_user_id,
-                portfolio_id=portfolio_allocation.portfolio_id,
-            ):
-                portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
-                    cognito_user_id=portfolio_allocation.cognito_user_id,
-                    portfolio_id=portfolio_allocation.portfolio_id,
-                )
-
-            portfolio_allocation.transaction_history.append(transaction)
-            self.portfolio_allocation_repository.set_portfolio_allocation(
-                portfolio_allocation=portfolio_allocation
-            )
-            try:
-                return self._send_message(action=action, payload=payload)
-            except Exception:
-                transaction.status = "FAILED"
-                transaction.updated_at = datetime.now(timezone.utc)
-                transaction.status_explanation = (
-                    "The trade passed validation but could not be added to the execution queue."
-                )
-                self.portfolio_allocation_repository.set_portfolio_allocation(
-                    portfolio_allocation=portfolio_allocation
-                )
-                raise
+            yield
         finally:
             self.user_trade_lock_repository.release_lock(
-                cognito_user_id=portfolio_allocation.cognito_user_id,
+                cognito_user_id=cognito_user_id,
                 owner_token=owner_token,
             )
 
@@ -140,6 +163,7 @@ class TradeExecutionQueuingService:
         *,
         requested_amount: Optional[float],
         transaction_type: str,
+        model_portfolio_snapshot_id: Optional[str] = None
     ) -> PortfolioAllocationTransactionSnapshot:
         """Build the initial transaction state owned by the queuing service."""
         queued_at = datetime.now(timezone.utc)
@@ -150,6 +174,7 @@ class TradeExecutionQueuingService:
             requested_amount=requested_amount,
             transaction_type=transaction_type,
             status="QUEUED",
+            model_portfolio_snapshot_id=model_portfolio_snapshot_id
         )
 
     def _allocation_equity(self, allocation: PortfolioAllocation) -> float:
@@ -226,6 +251,90 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
 
+    def queue_portfolio_update(
+        self,
+        *,
+        portfolio_id: str,
+        model_portfolio_snapshot_id: str,
+    ) -> Dict[str, str]:
+        """Queue an update transaction for every current portfolio follower."""
+        cognito_user_id = "unknown"
+        alpaca_account_id = "unknown"
+        try:
+            self._validate_required("portfolio_id", portfolio_id)
+            self._validate_required(
+                "model_portfolio_snapshot_id", model_portfolio_snapshot_id
+            )
+            model_portfolio = self.model_portfolio_repository.get_model_portfolio(
+                portfolio_id=portfolio_id
+            )
+            if not any(
+                snapshot.snapshot_id == model_portfolio_snapshot_id
+                for snapshot in model_portfolio.position_history
+            ):
+                raise TradeExecutionQueuingServiceError(
+                    message=(
+                        f"Model portfolio snapshot '{model_portfolio_snapshot_id}' "
+                        f"does not exist for portfolio '{portfolio_id}'."
+                    ),
+                    code="TRADE_EXECUTION_QUEUE_MODEL_PORTFOLIO_SNAPSHOT_NOT_FOUND",
+                )
+
+            model_portfolio_followers_dict = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
+            message_ids: Dict[str, str] = {}
+
+            for follower_dict in model_portfolio_followers_dict:
+                cognito_user_id = follower_dict["cognito_user_id"]
+                alpaca_account_id = follower_dict["alpaca_account_id"]
+                with self._user_trade_lock(cognito_user_id=cognito_user_id):
+
+                    portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                        cognito_user_id=cognito_user_id,
+                        portfolio_id=portfolio_id,
+                        with_wait=True
+                    )
+                    already_targets_snapshot = any(
+                        transaction.model_portfolio_snapshot_id
+                        == model_portfolio_snapshot_id
+                        and transaction.transaction_type.upper() in {"DEPOSIT", "UPDATE"}
+                        and transaction.status.upper() not in {"FAILED", "CANCELLED"}
+                        for transaction in portfolio_allocation.transaction_history
+                    )
+                    if already_targets_snapshot:
+                        continue
+
+                    transaction = self._new_transaction(
+                        requested_amount=None,
+                        transaction_type="UPDATE",
+                        model_portfolio_snapshot_id=model_portfolio_snapshot_id
+                    )
+
+                    message_ids[cognito_user_id] = self._queue_transaction(
+                        portfolio_allocation=portfolio_allocation,
+                        transaction=transaction,
+                        action="portfolio_update",
+                        payload={
+                            "portfolio_id": portfolio_id,
+                            "portfolio_owner_cognito_user_id": model_portfolio.portfolio_owner_cognito_user_id,
+                            "model_portfolio_snapshot_id": model_portfolio_snapshot_id,
+                            "transaction_id": transaction.transaction_id,
+                            "cognito_user_id": cognito_user_id,
+                            "alpaca_account_id": alpaca_account_id,
+                        }
+                    )
+            return message_ids
+        except TradeExecutionQueuingServiceError:
+            raise
+        except Exception as error:
+            raise TradeExecutionQueuingServiceError(
+                message=(
+                    f"Failed to queue portfolio update for portfolio '{portfolio_id}', "
+                    f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
+                ),
+                code="TRADE_EXECUTION_QUEUE_PORTFOLIO_UPDATE_FAILED",
+            ) from error
+
+    @_with_user_trade_lock
     def queue_portfolio_deposit(
         self,
         *,
@@ -305,6 +414,7 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_PORTFOLIO_DEPOSIT_FAILED",
             ) from error
 
+    @_with_user_trade_lock
     def queue_portfolio_withdrawal(
         self,
         *,
@@ -372,6 +482,7 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_PORTFOLIO_WITHDRAWAL_FAILED",
             ) from error
 
+    @_with_user_trade_lock
     def queue_portfolio_withdraw_all(
         self,
         *,
@@ -535,6 +646,7 @@ class TradeExecutionQueuingService:
             },
         )
 
+    @_with_user_trade_lock
     def queue_stock_buy(
         self,
         *,
@@ -565,6 +677,7 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_STOCK_BUY_FAILED",
             ) from error
 
+    @_with_user_trade_lock
     def queue_stock_sell(
         self,
         *,
@@ -595,6 +708,7 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_STOCK_SELL_FAILED",
             ) from error
 
+    @_with_user_trade_lock
     def queue_stock_close(
         self,
         *,

@@ -33,6 +33,7 @@ class ModelPortfolioPositionResponse(BaseModel):
 
 
 class ModelPortfolioSnapshotResponse(BaseModel):
+    snapshot_id: str
     positions: List[ModelPortfolioPositionResponse]
     timestamp: str
 

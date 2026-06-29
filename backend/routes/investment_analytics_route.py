@@ -104,6 +104,7 @@ def get_portfolio_allocation_analytics(
 		transactions_response = [
 			PortfolioAllocationTransactionResponse(
 				transaction_id=transaction.transaction_id,
+				model_portfolio_snapshot_id=transaction.model_portfolio_snapshot_id,
 				created_at=transaction.created_at,
 				filled_at=transaction.filled_at,
 				updated_at=transaction.updated_at,

@@ -11,6 +11,7 @@ from core.deps import (
     get_current_user,
     get_model_portfolio_analytics_service,
     get_model_portfolio_repository,
+    get_trade_execution_queuing_service,
 )
 from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
 from repository.model_portfolio_repository import (
@@ -37,6 +38,10 @@ from services.model_portfolio_analytics_service import (
     ModelPortfolioAnalyticsService,
     ModelPortfolioAnalyticsServiceError,
 )
+from services.trade_execution_queuing_service import (
+    TradeExecutionQueuingService,
+    TradeExecutionQueuingServiceError,
+)
 
 
 router = APIRouter(prefix="/model-portfolios", tags=["model-portfolios"])
@@ -57,6 +62,17 @@ MODEL_PORTFOLIO_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
 def _raise_model_portfolio_http_exception(err: Exception) -> None:
     if isinstance(err, HTTPException):
         raise err
+
+    if isinstance(err, TradeExecutionQueuingServiceError):
+        if err.code == "TRADE_EXECUTION_QUEUE_LOCKED":
+            status_code = status.HTTP_409_CONFLICT
+        elif err.code == "TRADE_EXECUTION_QUEUE_MODEL_PORTFOLIO_SNAPSHOT_NOT_FOUND":
+            status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        elif err.code == "TRADE_EXECUTION_QUEUE_SEND_FAILED":
+            status_code = status.HTTP_502_BAD_GATEWAY
+        else:
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        raise HTTPException(status_code=status_code, detail=str(err)) from err
 
     for exception_type, status_code in MODEL_PORTFOLIO_ERROR_STATUS_MAP:
         if isinstance(err, exception_type):
@@ -100,6 +116,7 @@ def get_model_portfolio(
         description=model_portfolio.description,
         position_history=[
             ModelPortfolioSnapshotResponse(
+                snapshot_id=snap.snapshot_id,
                 positions=[
                     ModelPortfolioPositionResponse(
                         symbol=pos.symbol,
@@ -157,6 +174,9 @@ def update_model_portfolio(
     request: UpdateModelPortfolioRequest,
     user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    queuing_service: TradeExecutionQueuingService = Depends(
+        get_trade_execution_queuing_service
+    ),
 ) -> None:
     """
     Update an existing model portfolio by appending a new snapshot.
@@ -181,13 +201,18 @@ def update_model_portfolio(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     try:
-        updated = service.update_model_portfolio(
+        updated, new_snapshot_id = service.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=request.positions,
             description=request.description,
         )
         if not updated:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio not found")
+            return
+        if new_snapshot_id is not None:
+            queuing_service.queue_portfolio_update(
+                portfolio_id=portfolio_id,
+                model_portfolio_snapshot_id=new_snapshot_id,
+            )
         return
     except HTTPException:
         raise

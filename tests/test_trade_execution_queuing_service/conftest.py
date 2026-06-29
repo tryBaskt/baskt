@@ -40,7 +40,7 @@ from collections import deque
 from typing import Deque
 MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
-MOCK_MARGIN = 0.001
+MOCK_MARGIN = 0.000
 EPS = 1e-6
 FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
 FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
@@ -163,6 +163,19 @@ class MockTradeExecutionLambda:
         # Real SQS invokes Lambda after send_message returns and the queueing
         # service releases this lock. The mock worker waits for the same state.
         self._wait_until_queue_lock_is_released(payload["cognito_user_id"])
+
+        if action == "portfolio_update":
+            self.trade_execution_service.execute_update_in_portfolio(
+                portfolio_id=payload["portfolio_id"],
+                portfolio_owner_cognito_user_id=payload[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                cognito_user_id=payload["cognito_user_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+                model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
+                transaction_id=payload["transaction_id"],
+            )
+            return
 
         if action == "portfolio_deposit":
             self.trade_execution_service.execute_deposit_to_portfolio(
@@ -620,7 +633,8 @@ def trade_execution_queuing_service(
     model_portfolio_repository: ModelPortfolioRepository,
     alpaca_broker_client: AlpacaBrokerClient,
     portfolio_allocation_repository: PortfolioAllocationRepository,
-    user_trade_lock_repository: UserTradeLockRepository
+    user_trade_lock_repository: UserTradeLockRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
 ) -> TradeExecutionQueuingService:
 
     queue_url = (
@@ -642,6 +656,7 @@ def trade_execution_queuing_service(
         portfolio_allocation_repository=portfolio_allocation_repository,
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
     )
 
 
@@ -1113,17 +1128,76 @@ class TestEngine:
         ]
 
         update_time = self.model_portfolio_update_times[portfolio_id][-1] + timedelta(minutes = 2)
-        updated = self.model_portfolio_repository.update_model_portfolio(
+        updated, new_snapshot_id = self.model_portfolio_repository.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=new_positions,
             update_time=update_time
         )
-
-        updated_orders_dict = self.trade_execution_service.execute_update_in_portfolio(
-            portfolio_id=portfolio_id, 
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
-            is_test=True
+        if not updated or new_snapshot_id is None:
+            return {}
+        followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(
+            portfolio_id=portfolio_id
         )
+        previous_transaction_ids = {}
+        for follower in followers:
+            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=follower["cognito_user_id"],
+                portfolio_id=portfolio_id,
+            )
+            previous_transaction_ids[follower["cognito_user_id"]] = {
+                transaction.transaction_id
+                for transaction in allocation.transaction_history
+            }
+
+        message_ids = self.trade_execution_queuing_service.queue_portfolio_update(
+            portfolio_id=portfolio_id,
+            model_portfolio_snapshot_id=new_snapshot_id,
+        )
+        if isinstance(self.sqs_client, MockSQSClient):
+            self.sqs_client.wait_until_idle()
+
+        updated_orders_dict = {}
+        followers_by_user = {
+            follower["cognito_user_id"]: follower
+            for follower in followers
+        }
+        for cognito_user_id, message_id in message_ids.items():
+            if isinstance(self.sqs_client, MockSQSClient):
+                processed_message = next(
+                    message
+                    for message in reversed(self.sqs_client.processed_messages)
+                    if message["MessageId"] == message_id
+                )
+                transaction_id = processed_message["message"]["payload"]["transaction_id"]
+            else:
+                transaction_id = self._wait_for_new_transaction(
+                    cognito_user_id=cognito_user_id,
+                    portfolio_id=portfolio_id,
+                    previous_transaction_ids=previous_transaction_ids[cognito_user_id],
+                    timeout_seconds=60.0,
+                )
+            transaction = self._wait_for_transaction_execution(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                transaction_id=transaction_id,
+                timeout_seconds=60.0,
+            )
+            rows = self._wait_for_transaction_orders(
+                transaction_id=transaction_id,
+                expected_order_count=int(transaction.number_orders or 0),
+                timeout_seconds=60.0,
+            )
+            order_ids = {str(row["order_id"]) for row in rows}
+            alpaca_account_id = followers_by_user[cognito_user_id]["alpaca_account_id"]
+            account_orders = self.alpaca_broker_client.client.get_orders_for_account(
+                account_id=alpaca_account_id
+            )
+            updated_orders_dict[cognito_user_id] = {
+                "transaction_id": transaction_id,
+                "orders": [
+                    order for order in account_orders if str(order.id) in order_ids
+                ],
+            }
         self.model_portfolio_update_times[portfolio_id].append(update_time)
 
         # Wait for orders to be filled
@@ -1414,10 +1488,19 @@ class TestEngine:
             alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
         assert abs(allocation.total_cost_basis - alpaca_filled_amount) / allocation.total_cost_basis <= MARGIN_ERROR
 
-        # Validate incremental deposit amount
-        prev_filled_amount = self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"][-1] if self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"] else 0.0
-        incremental_amount = alpaca_filled_amount - prev_filled_amount
-        assert abs(deposit_amount - incremental_amount) / deposit_amount <= MARGIN_ERROR
+        # Validate this transaction's fills. Allocation cost basis can decrease
+        # during a buy when the order is covering an existing short position.
+        deposit_order_ids = {str(order.id) for order in dep_orders}
+        net_deposit_filled_amount = sum(
+            float(row["filled_qty"]) * float(row["filled_avg_price"])
+            * (1 if str(row["side"]).upper() == "BUY" else -1)
+            for row in rows2
+            if row["order_id"] in deposit_order_ids
+        )
+        assert (
+            abs(deposit_amount - net_deposit_filled_amount) / deposit_amount
+            <= MARGIN_ERROR
+        )
 
         self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"].extend(dep_orders)
         self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"].append(alpaca_filled_amount)
@@ -1436,14 +1519,15 @@ class TestEngine:
         withdraw_amount: float,
         slippage_correction: int = 1
     ):
-        market_value = 0.0
-        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
-        snapshot = portfolio_allocation.position_history[-1]
-        symbols = [position.symbol for position in snapshot.positions]
-        quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
-        for snapshot_position in snapshot.positions:
-            price = quotes[snapshot_position.symbol]
-            market_value += (price * snapshot_position.filled_quantity)
+        # market_value = 0.0
+        # if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=co)
+        # portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        # snapshot = portfolio_allocation.position_history[-1]
+        # symbols = [position.symbol for position in snapshot.positions]
+        # quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        # for snapshot_position in snapshot.positions:
+        #     price = quotes[snapshot_position.symbol]
+        #     market_value += (price * snapshot_position.filled_quantity)
 
         wd_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
@@ -1458,6 +1542,14 @@ class TestEngine:
             ),
         )
         wd_orders = wd_response["orders"]
+        if cognito_user_id not in self.baskt_account_portfolio_positions:
+            self.baskt_account_portfolio_positions[cognito_user_id] = {}
+
+        if asset_id not in self.baskt_account_portfolio_positions[cognito_user_id]:
+            self.baskt_account_portfolio_positions[cognito_user_id][asset_id] = {
+                "all_orders":[],
+                "filled_amounts":[]
+            }
         # Wait for orders to be filled
         sleep(2)
 
@@ -1668,6 +1760,17 @@ class TestEngine:
             except Exception as e:
                 continue
 
+        for cognito_user_id, _, asset_id in traded_accounts:
+            user_allocations = self.baskt_account_portfolio_positions.get(
+                cognito_user_id,
+                {},
+            )
+            user_allocations.pop(asset_id, None)
+            if not user_allocations:
+                self.baskt_account_portfolio_positions.pop(cognito_user_id, None)
+
+        self.portfolio_allocation_history_size = 0
+
 
 
     def test_clean_up(
@@ -1734,6 +1837,17 @@ class TestEngine:
                     )
                 except Exception as e:
                     continue
+
+        for cognito_user_id, _, portfolio_id in traded_accounts:
+            user_allocations = self.baskt_account_portfolio_positions.get(
+                cognito_user_id,
+                {},
+            )
+            user_allocations.pop(portfolio_id, None)
+            if not user_allocations:
+                self.baskt_account_portfolio_positions.pop(cognito_user_id, None)
+
+        self.portfolio_allocation_history_size = 0
 
 
 

@@ -28,6 +28,7 @@ class ModelPortfolioSnapshot:
     """
     positions: List[ModelPortfolioPosition]
     timestamp: datetime
+    snapshot_id: str
 
 
 @dataclass(frozen=True)

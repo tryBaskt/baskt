@@ -276,6 +276,7 @@ def get_trade_execution_queuing_service(
     portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
 ) -> TradeExecutionQueuingService:
     return TradeExecutionQueuingService(
         sqs_client=sqs_client,
@@ -284,6 +285,7 @@ def get_trade_execution_queuing_service(
         portfolio_allocation_repository=portfolio_allocation_repository,
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
     )
 
 def get_investment_analytics_service(

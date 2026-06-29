@@ -677,11 +677,13 @@ class TestEngine:
         ]
 
         update_time = self.model_portfolio_update_times[portfolio_id][-1] + timedelta(minutes = 2)
-        updated = self.model_portfolio_repository.update_model_portfolio(
+        updated, new_snapshot_id = self.model_portfolio_repository.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=new_positions,
             update_time=update_time
         )
+        if not updated or new_snapshot_id is None:
+            return {}
 
         updated_orders_dict = self.trade_execution_service.execute_update_in_portfolio(
             portfolio_id=portfolio_id, 

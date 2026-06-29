@@ -15,6 +15,7 @@ class PortfolioAllocationTransactionSnapshot:
     requested_amount: Optional[float]
     transaction_type: str
     status: str
+    model_portfolio_snapshot_id: Optional[str] = None # only for model portfolios and when transaction is DEPOSIT or UPDATE
     filled_at: Optional[datetime] = None
     number_orders: Optional[int] = None
     cost_basis: Optional[float] = None

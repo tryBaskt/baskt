@@ -3,7 +3,7 @@
 # Python imports
 from __future__ import annotations
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from uuid import uuid4
 from decimal import Decimal
 import time
@@ -366,6 +366,7 @@ class ModelPortfolioRepository:
                 ]
 
                 timestamp = to_utc_from_iso(snap["timestamp"])
+                snapshot_id = str(snap["snapshot_id"])
 
             except Exception as e:
                 raise ModelPortfolioUnprocessableEntityError(
@@ -377,7 +378,8 @@ class ModelPortfolioRepository:
             result.append(
                 ModelPortfolioSnapshot(
                     positions=positions,
-                    timestamp=timestamp
+                    timestamp=timestamp,
+                    snapshot_id=snapshot_id,
                 )
             )
         
@@ -545,7 +547,11 @@ class ModelPortfolioRepository:
                 )
 
             # Create portfolio object
-            snapshot = ModelPortfolioSnapshot(positions=model_portfolio_positions, timestamp=creation_time)
+            snapshot = ModelPortfolioSnapshot(
+                positions=model_portfolio_positions,
+                timestamp=creation_time,
+                snapshot_id=str(uuid4())
+            )
             portfolio = ModelPortfolio(
                 portfolio_id=portfolio_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
@@ -576,6 +582,7 @@ class ModelPortfolioRepository:
                             for pos in snap.positions
                         ],
                         "timestamp": snap.timestamp.isoformat(),
+                        "snapshot_id": snap.snapshot_id,
                     }
                     for snap in portfolio.position_history
                 ],
@@ -601,7 +608,7 @@ class ModelPortfolioRepository:
         return portfolio_id
 
 
-    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: Optional[datetime] = None, description: Optional[str] = None) -> bool:
+    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: Optional[datetime] = None, description: Optional[str] = None) -> Tuple[bool, str | None]:
         """
         Append a new snapshot and persist updates to an existing model portfolio.
 
@@ -612,7 +619,9 @@ class ModelPortfolioRepository:
             description: Optional updated free-text description.
 
         Returns:
-            bool: True if the portfolio is updated, otherwise False.
+            Tuple[bool, Optional[str]]: A flag indicating whether anything was
+            updated and the new snapshot ID when positions changed. The
+            snapshot ID is None for description-only updates and no-op calls.
 
         Raises:
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
@@ -628,8 +637,35 @@ class ModelPortfolioRepository:
         # Ensure portfolio does exist
         existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
         if not existing:
-            return False
+            return False, None
         
+        curr_model_portfolio_snapshot = existing.position_history[-1]
+        curr_model_portfolio_positions = sorted(
+            curr_model_portfolio_snapshot.positions,
+            key=lambda position: position.symbol,
+        )
+        curr_model_portfolio_description = existing.description
+        new_positions = sorted(
+            positions_request,
+            key=lambda position: position.symbol
+        )
+        positions_unchanged = (
+            len(curr_model_portfolio_positions) == len(new_positions)
+            and all(
+                current_position.symbol == new_position.symbol
+                and current_position.target_weight == new_position.target_weight
+                and current_position.direction == new_position.direction
+                and current_position.leverage == new_position.leverage
+                for current_position, new_position in zip(
+                    curr_model_portfolio_positions,
+                    new_positions,
+                )
+            )
+        )
+        description_unchanged = curr_model_portfolio_description == description
+        if description_unchanged and positions_unchanged:
+            return False, None
+
         # Acquire lock
         owner_token = str(uuid4())
         try:
@@ -670,37 +706,51 @@ class ModelPortfolioRepository:
                     retry_after_seconds=int(60 - elapsed)
                 )
             
-            # Get latest prices
-            symbols = [pos.symbol for pos in positions_request]
-            try:
-                quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
-            except AlpacaBrokerClientError as e:
-                raise ModelPortfolioBadGatewayError(
-                    source="Alpaca",
-                    operation="fetching latest prices during update",
-                    portfolio_id=portfolio_id,
-                    cause=e,
-                ) from e
-            
-            try:
-                # Build model portfolio positions
-                model_portfolio_positions: List[ModelPortfolioPosition] = []
-                model_allocation = 10000.00
-                for position_request in positions_request:
-                    model_portfolio_positions.append(
-                        ModelPortfolioPosition(
-                            symbol=position_request.symbol,
-                            target_weight=position_request.target_weight,
-                            direction=position_request.direction,
-                            leverage=position_request.leverage,
-                            model_filled_avg_price=quotes[position_request.symbol],
-                            model_filled_quantity=(position_request.target_weight * model_allocation) / quotes[position_request.symbol]
-                        )
-                    )
+            new_snapshot_id: Optional[str] = None
+            updated_history = existing.position_history
 
-                # Create new snapshot
-                new_snapshot = ModelPortfolioSnapshot(positions=model_portfolio_positions, timestamp=update_time)
-                updated_history = existing.position_history + [new_snapshot]
+            if not positions_unchanged:
+                symbols = [position.symbol for position in positions_request]
+                try:
+                    quotes = self.alpaca_broker_client.get_latest_price(
+                        symbols=symbols
+                    )
+                except AlpacaBrokerClientError as e:
+                    raise ModelPortfolioBadGatewayError(
+                        source="Alpaca",
+                        operation="fetching latest prices during update",
+                        portfolio_id=portfolio_id,
+                        cause=e,
+                    ) from e
+
+            try:
+                if not positions_unchanged:
+                    model_portfolio_positions: List[ModelPortfolioPosition] = []
+                    model_allocation = 10000.00
+                    for position_request in positions_request:
+                        model_portfolio_positions.append(
+                            ModelPortfolioPosition(
+                                symbol=position_request.symbol,
+                                target_weight=position_request.target_weight,
+                                direction=position_request.direction,
+                                leverage=position_request.leverage,
+                                model_filled_avg_price=quotes[position_request.symbol],
+                                model_filled_quantity=(
+                                    position_request.target_weight
+                                    * model_allocation
+                                )
+                                / quotes[position_request.symbol],
+                            )
+                        )
+
+                    new_snapshot_id = str(uuid4())
+                    new_snapshot = ModelPortfolioSnapshot(
+                        positions=model_portfolio_positions,
+                        timestamp=update_time,
+                        snapshot_id=new_snapshot_id,
+                    )
+                    updated_history = existing.position_history + [new_snapshot]
+
                 portfolio = ModelPortfolio(
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
@@ -708,7 +758,7 @@ class ModelPortfolioRepository:
                     position_history=updated_history,
                     created_at=existing.created_at,
                     updated_at=update_time,
-                    description=description
+                    description=description,
                 )
 
                 item = {
@@ -729,6 +779,7 @@ class ModelPortfolioRepository:
                                 for pos in snap.positions
                             ],
                             "timestamp": snap.timestamp.isoformat(),
+                            "snapshot_id": snap.snapshot_id,
                         }
                         for snap in portfolio.position_history
                     ],
@@ -752,7 +803,7 @@ class ModelPortfolioRepository:
                     portfolio_id=portfolio_id,
                     cause=e,
                 ) from e
-            return True
+            return True, new_snapshot_id
 
         finally:
             # Release lock
@@ -826,7 +877,13 @@ class ModelPortfolioRepository:
                     for pos in snap["positions"]
                 ]
                 timestamp = to_utc_from_iso(snap["timestamp"])
-                position_history.append(ModelPortfolioSnapshot(positions=positions, timestamp=timestamp))
+                position_history.append(
+                    ModelPortfolioSnapshot(
+                        positions=positions,
+                        timestamp=timestamp,
+                        snapshot_id=str(snap["snapshot_id"]),
+                    )
+                )
 
             # Create model portfolio object
             model_portfolio = ModelPortfolio(

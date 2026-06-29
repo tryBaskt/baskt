@@ -33,6 +33,11 @@ def _parse_transaction_snapshot(item: Dict) -> PortfolioAllocationTransactionSna
     """Convert a stored DynamoDB transaction map into its domain model."""
     return PortfolioAllocationTransactionSnapshot(
         transaction_id=str(item["transaction_id"]),
+        model_portfolio_snapshot_id=(
+            None
+            if item.get("model_portfolio_snapshot_id") is None
+            else str(item["model_portfolio_snapshot_id"])
+        ),
         created_at=to_utc_from_iso(item["created_at"]),
         updated_at=to_utc_from_iso(item.get("updated_at", item["created_at"])),
         requested_amount=_optional_float(item.get("requested_amount")),
@@ -56,6 +61,7 @@ def _serialize_transaction_snapshot(
     """Convert a transaction domain model into a DynamoDB-compatible map."""
     return {
         "transaction_id": str(transaction.transaction_id),
+        "model_portfolio_snapshot_id": transaction.model_portfolio_snapshot_id,
         "created_at": transaction.created_at.isoformat(),
         "updated_at": transaction.updated_at.isoformat(),
         "filled_at": (
