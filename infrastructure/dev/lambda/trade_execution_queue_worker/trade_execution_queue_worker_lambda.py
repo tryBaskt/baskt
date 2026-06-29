@@ -268,6 +268,7 @@ def _ensure_role(iam: Any, queue_arn: str) -> str:
                         "Action": [
                             "dynamodb:GetItem",
                             "dynamodb:PutItem",
+                            "dynamodb:BatchWriteItem",
                             "dynamodb:UpdateItem",
                             "dynamodb:DeleteItem",
                             "dynamodb:Query",

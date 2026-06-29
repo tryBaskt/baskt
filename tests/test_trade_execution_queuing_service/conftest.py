@@ -771,10 +771,14 @@ class TestEngine:
             timeout_seconds=timeout_seconds,
         )
         order_ids = {str(row["order_id"]) for row in order_rows}
-        account_orders = self.alpaca_broker_client.client.get_orders_for_account(
-            account_id=alpaca_account_id
-        )
-        orders = [order for order in account_orders if str(order.id) in order_ids]
+        orders = [
+            self.alpaca_broker_client.get_order_by_id(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+                order_id=order_id,
+            )
+            for order_id in order_ids
+        ]
         return {"transaction_id": transaction_id, "orders": orders}
 
     def _wait_for_new_transaction(
@@ -1189,13 +1193,15 @@ class TestEngine:
             )
             order_ids = {str(row["order_id"]) for row in rows}
             alpaca_account_id = followers_by_user[cognito_user_id]["alpaca_account_id"]
-            account_orders = self.alpaca_broker_client.client.get_orders_for_account(
-                account_id=alpaca_account_id
-            )
             updated_orders_dict[cognito_user_id] = {
                 "transaction_id": transaction_id,
                 "orders": [
-                    order for order in account_orders if str(order.id) in order_ids
+                    self.alpaca_broker_client.get_order_by_id(
+                        alpaca_account_id=alpaca_account_id,
+                        cognito_user_id=cognito_user_id,
+                        order_id=order_id,
+                    )
+                    for order_id in order_ids
                 ],
             }
         self.model_portfolio_update_times[portfolio_id].append(update_time)
