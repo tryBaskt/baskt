@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import threading
+from copy import deepcopy
 from pathlib import Path
 import pytest
 from dotenv import load_dotenv
@@ -418,8 +419,10 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         sell_order = execute_quantity_sell(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, symbol=symbol, quantity=ceil(quantity))
         if ceil(quantity) - quantity <= 0:
             return sell_order, None
+        accepted_sell_order = deepcopy(sell_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(sell_order.id))
         buy_order = execute_quantity_buy(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, symbol=symbol, quantity=ceil(quantity) - quantity)
-        return sell_order, buy_order
+        return accepted_sell_order, buy_order
 
     def execute_close_position(symbol: str, alpaca_account_id: str, cognito_user_id: str):
         position: BasktPosition = state["positions"][alpaca_account_id][symbol]
@@ -430,6 +433,52 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
             order_side=order_side,
             qty=float(position.filled_quantity),
         )
+
+    def execute_long_to_short_sell(
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ):
+        close_order = execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        accepted_close_order = deepcopy(close_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(close_order.id))
+        short_orders = execute_quantity_fractional_sell(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [accepted_close_order] + [
+            order for order in short_orders if order is not None
+        ]
+
+    def execute_short_to_long_buy(
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ):
+        close_order = execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        accepted_close_order = deepcopy(close_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(close_order.id))
+        buy_order = execute_quantity_buy(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [accepted_close_order, buy_order]
 
 
     def get_baskt_positions_dict(alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
@@ -480,6 +529,8 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
     mock.execute_close_position.side_effect = execute_close_position
+    mock.execute_long_to_short_sell.side_effect = execute_long_to_short_sell
+    mock.execute_short_to_long_buy.side_effect = execute_short_to_long_buy
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
     mock.get_latest_price.side_effect = get_latest_price
     mock.get_order_by_id.side_effect = get_order_by_id

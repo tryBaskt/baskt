@@ -284,7 +284,7 @@ class AlpacaBrokerClient:
                 "alpaca_account_id": alpaca_account_id,
                 "alpaca_account_number": alpaca_account_number,
             }
-        
+
         except Exception as e:
             raise AlpacaBrokerClientError(
                 message=f"Failed to create Alpaca account: {e}",
@@ -314,7 +314,7 @@ class AlpacaBrokerClient:
                 message=f"Failed to get alpaca account by id for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_GET_ALPACA_ACCOUNT_BY_ID_FAILED"
             )
-    
+
     
     def close_alpaca_account(self, account_id: str, cognito_user_id: str) -> None:
         """
@@ -339,7 +339,7 @@ class AlpacaBrokerClient:
                 message=f"Failed to close alpaca account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CLOSE_ALPACA_ACCOUNT_FAILED"
             )
-        
+
     def get_trade_account(self, account_id: str, cognito_user_id: str) -> TradeAccount:
         """
         Fetch a trade account from Alpaca by broker account ID.
@@ -424,7 +424,7 @@ class AlpacaBrokerClient:
                 message=f"Failed to create direct ACH relationship for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CREATE_ACH_RELATIONSHIP_FAILED",
             ) from e
-        
+
 
     def create_plaid_ach_relationship(
         self,
@@ -830,32 +830,50 @@ class AlpacaBrokerClient:
     ###### TRADE EXECUTION #######
     ##############################
 
-    def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id: str) -> Order:
-        """
-        Submit an order request to close an open position for a symbol.
+    def _wait_for_filled_order(
+        self,
+        order: Order,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ) -> None:
+        """Wait until an accepted broker order fills or reaches a terminal state."""
+        from time import monotonic, sleep
 
-        Args:
-            symbol: Ticker symbol or asset identifier to close.
-            alpaca_account_id: Alpaca broker account ID that owns the position.
-            cognito_user_id: Cognito user ID used for error context.
-
-        Returns:
-            Order: Alpaca order response for the close-position request.
-
-        Raises:
-            AlpacaBrokerClientError: If Alpaca rejects the close-position
-            request, the position does not exist or is inaccessible, the
-            network request fails, or any unexpected error occurs.
-        """
-
-        try:
-            return self.client.close_position_for_account(account_id=alpaca_account_id, symbol_or_asset_id=symbol)
-        except Exception as e:
-            raise AlpacaBrokerClientError(
-                message=f"Failed to close Alpaca position '{symbol}' for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
-                code="ALPACA_BROKER_EXECUTE_CLOSE_POSITION_FAILED",
+        order_id = str(order.id)
+        timeout_seconds = 30.0
+        poll_interval_seconds = 0.25
+        deadline = monotonic() + timeout_seconds
+        latest_status = "UNKNOWN"
+        while monotonic() < deadline:
+            latest_order = self.get_order_by_id(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+                order_id=order_id,
             )
-        
+            latest_status = str(
+                getattr(latest_order.status, "name", latest_order.status)
+            ).upper()
+            if latest_status == "FILLED":
+                return
+            if latest_status in {"CANCELED", "EXPIRED", "REJECTED", "REPLACED"}:
+                raise AlpacaBrokerClientError(
+                    message=(
+                        f"Order '{order_id}' for '{order.symbol}' reached terminal "
+                        f"status '{latest_status}' before filling for Alpaca account "
+                        f"'{alpaca_account_id}' and Cognito user '{cognito_user_id}'."
+                    ),
+                    code="ALPACA_BROKER_ORDER_NOT_FILLED",
+                )
+            sleep(poll_interval_seconds)
+
+        raise AlpacaBrokerClientError(
+            message=(
+                f"Timed out waiting for order '{order_id}' for '{order.symbol}' "
+                f"to fill for Alpaca account '{alpaca_account_id}' and Cognito "
+                f"user '{cognito_user_id}'. Last status: {latest_status}."
+            ),
+            code="ALPACA_BROKER_ORDER_FILL_TIMEOUT",
+        )
 
     def execute_close_all_position(self, alpaca_account_id: str, cognito_user_id: str) -> List[Order | FailedClosePositionDetails]:
         """
@@ -885,6 +903,111 @@ class AlpacaBrokerClient:
                 message=f"Failed to close all open positions for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
                 code="ALPACA_BROKER_EXECUTE_CLOSE_ALL_POSITION_FAILED",
             )
+        
+
+    def execute_close_position(self, symbol: str, alpaca_account_id: str, cognito_user_id: str) -> Order:
+        """
+        Submit an order request to close an open position for a symbol.
+
+        Args:
+            symbol: Ticker symbol or asset identifier to close.
+            alpaca_account_id: Alpaca broker account ID that owns the position.
+            cognito_user_id: Cognito user ID used for error context.
+
+        Returns:
+            Order: Alpaca order response for the close-position request.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the close-position
+            request, the position does not exist or is inaccessible, the
+            network request fails, or any unexpected error occurs.
+        """
+
+        try:
+            return self.client.close_position_for_account(account_id=alpaca_account_id, symbol_or_asset_id=symbol)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to close Alpaca position '{symbol}' for alpaca account {alpaca_account_id} and cognito user id {cognito_user_id}: {e}",
+                code="ALPACA_BROKER_EXECUTE_CLOSE_POSITION_FAILED",
+            )
+
+
+    def execute_long_to_short_sell(
+        self,
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ) -> List[Order]:
+        """Close a long position, then open the requested residual short."""
+        if quantity <= curr_quantity:
+            raise AlpacaBrokerClientError(
+                message=(
+                    f"Long-to-short quantity '{quantity}' must exceed current "
+                    f"quantity '{curr_quantity}' for '{symbol}'."
+                ),
+                code="ALPACA_BROKER_LONG_TO_SHORT_QUANTITY_INVALID",
+            )
+
+        close_order = self.execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        self._wait_for_filled_order(
+            order=close_order,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+
+        short_orders = self.execute_quantity_fractional_sell(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [close_order] + [order for order in short_orders if order is not None]
+
+
+    def execute_short_to_long_buy(
+        self,
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ) -> List[Order]:
+        """Close a short position, then open the requested residual long."""
+        if quantity <= curr_quantity:
+            raise AlpacaBrokerClientError(
+                message=(
+                    f"Short-to-long quantity '{quantity}' must exceed current "
+                    f"quantity '{curr_quantity}' for '{symbol}'."
+                ),
+                code="ALPACA_BROKER_SHORT_TO_LONG_QUANTITY_INVALID",
+            )
+
+        close_order = self.execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        self._wait_for_filled_order(
+            order=close_order,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+
+        buy_order = self.execute_quantity_buy(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [close_order, buy_order]
+
+
 
     def execute_quantity_buy(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> Order:
         """
@@ -918,85 +1041,6 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_EXECUTE_QUANTITY_BUY_FAILED",
             )
 
-    def execute_quantity_fractional_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> List[Optional[Order]]:
-        """
-        Reduce a position using a two-step order flow for fractional quantities for a broker account.
-
-        The method first sells ceil(quantity) shares, then optionally buys back
-        the overage to land on the exact fractional reduction.
-
-        Args:
-            symbol: Ticker symbol to sell.
-            quantity: Quantity to reduce from the position; may be fractional.
-            alpaca_account_id: Alpaca broker account ID.
-            cognito_user_id: Cognito user ID (for logging/tracking).
-
-        Returns:
-            List[Optional[Order]]: The initial sell order and an optional
-            buy-back order. The second item is None when no buy-back is needed.
-
-        Raises:
-            AlpacaBrokerClientError: If Alpaca rejects the initial sell order
-            or the optional buy-back order, the request is invalid, the account
-            is inaccessible, the network request fails, or any unexpected
-            error occurs while submitting either order.
-        """
-        from math import ceil
-        from time import monotonic, sleep
-
-        order_req = MarketOrderRequest(
-            symbol=symbol,
-            qty=ceil(quantity),
-            side=OrderSide.SELL,
-            time_in_force=TimeInForce.DAY,
-        )
-        try:
-            order1 = self.client.submit_order_for_account(account_id=alpaca_account_id, order_data=order_req)
-        except Exception as e:
-            raise AlpacaBrokerClientError(
-                message=f"Failed to submit initial fractional sell for '{symbol}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
-                code="ALPACA_BROKER_FRACTIONAL_SELL_FAILED",
-            )
-
-        if ceil(quantity) - quantity <= 0:
-            return [order1, None]
-
-        order1_id = order1.id
-        timeout_seconds = 30.0
-        poll_interval_seconds = 0.25
-        deadline = monotonic() + timeout_seconds
-        latest_status = None
-        while monotonic() < deadline:
-            latest_order = self.get_order_by_id(
-                alpaca_account_id=alpaca_account_id,
-                cognito_user_id=cognito_user_id,
-                order_id=order1_id,
-            )
-            latest_status = getattr(latest_order.status, "name", latest_order.status)
-            if latest_status.upper() == "FILLED":
-                break
-            sleep(poll_interval_seconds)
-        else:
-            raise AlpacaBrokerClientError(
-                message=f"Timed out waiting for initial fractional sell for '{symbol}' to fill for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}'. Last status: {latest_status}",
-                code="ALPACA_BROKER_FRACTIONAL_SELL_FILL_TIMEOUT",
-            )
-
-        order_req = MarketOrderRequest(
-            symbol=symbol,
-            qty=ceil(quantity) - quantity,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-        )
-
-        try:
-            order2 = self.client.submit_order_for_account(account_id=alpaca_account_id, order_data=order_req)
-        except Exception as e:
-            raise AlpacaBrokerClientError(
-                message=f"Failed to submit fractional buy-back for '{symbol}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
-                code="ALPACA_BROKER_FRACTIONAL_BUYBACK_FAILED",
-            )
-        return [order1, order2]
 
     def execute_quantity_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> Order:
         """
@@ -1029,6 +1073,53 @@ class AlpacaBrokerClient:
                 message=f"Failed to submit sell order for '{symbol}' for alpaca account id {alpaca_account_id} and cognito_user_id {cognito_user_id}: {e}",
                 code="ALPACA_BROKER_SELL_ORDER_FAILED",
             )
+
+    def execute_quantity_fractional_sell(self, symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str) -> List[Optional[Order]]:
+        """
+        Reduce a position using a two-step order flow for fractional quantities for a broker account.
+
+        The method first sells ceil(quantity) shares, then optionally buys back
+        the overage to land on the exact fractional reduction.
+
+        Args:
+            symbol: Ticker symbol to sell.
+            quantity: Quantity to reduce from the position; may be fractional.
+            alpaca_account_id: Alpaca broker account ID.
+            cognito_user_id: Cognito user ID (for logging/tracking).
+
+        Returns:
+            List[Optional[Order]]: The initial sell order and an optional
+            buy-back order. The second item is None when no buy-back is needed.
+
+        Raises:
+            AlpacaBrokerClientError: If Alpaca rejects the initial sell order
+            or the optional buy-back order, the request is invalid, the account
+            is inaccessible, the network request fails, or any unexpected
+            error occurs while submitting either order.
+        """
+        from math import ceil
+
+        try:
+            order1 = self.execute_quantity_sell(symbol=symbol, quantity=ceil(quantity), alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to submit initial fractional sell for '{symbol}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_FRACTIONAL_SELL_FAILED",
+            )
+
+        if ceil(quantity) - quantity <= 0:
+            return [order1, None]
+
+        self._wait_for_filled_order(order=order1, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+
+        try:
+            order2 = self.execute_quantity_buy(symbol=symbol, quantity=ceil(quantity)-quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to submit fractional buy-back for '{symbol}' for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_FRACTIONAL_BUYBACK_FAILED",
+            )
+        return [order1, order2]
         
     def get_latest_price(self, symbols: List[str]) -> Dict[str, float]:
         """

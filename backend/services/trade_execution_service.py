@@ -448,6 +448,15 @@ class TradeExecutionService:
         if order2:
             order_results.append(order2)
 
+    def _append_long_to_short_sell_orders(self, order_results: List[Order], symbol: str, quantity: float, curr_quantity: float, alpaca_account_id: str, cognito_user_id: str) -> None:
+        orders = self.alpaca_broker_client.execute_long_to_short_sell(symbol=symbol, quantity=quantity, curr_quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        order_results.extend(orders)
+
+    def _append_short_to_long_buy_orders(self, order_results: List[Order], symbol: str, quantity: float, curr_quantity: float, alpaca_account_id: str, cognito_user_id: str) -> None:
+        orders = self.alpaca_broker_client.execute_short_to_long_buy(symbol=symbol, quantity=quantity, curr_quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        order_results.extend(orders)
+
+
     def _plan_orders_for_delta_position(
         self,
         delta_position: DeltaPosition,
@@ -477,14 +486,12 @@ class TradeExecutionService:
 
         # long -> short crossing through flat.
         if curr_direction == 1 and delta_direction == -1 and delta_quantity > curr_quantity:
-            self._append_sell_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-            self._append_fractional_sell_orders(order_results=order_results, symbol=symbol, quantity=delta_quantity - curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+            self._append_long_to_short_sell_orders(order_results=order_results, symbol=symbol, quantity=delta_quantity, curr_quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             return order_results
 
         # short -> long crossing through flat.
         if curr_direction == -1 and delta_direction == 1 and delta_quantity > curr_quantity:
-            self._append_buy_order(order_results=order_results, symbol=symbol, quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-            self._append_buy_order(order_results=order_results, symbol=symbol, quantity=delta_quantity - curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+            self._append_short_to_long_buy_orders(order_results=order_results, symbol=symbol, quantity=delta_quantity, curr_quantity=curr_quantity, alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             return order_results
 
         # Position reduction while staying long.
