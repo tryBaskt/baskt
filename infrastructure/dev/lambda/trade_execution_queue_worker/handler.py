@@ -203,6 +203,10 @@ def _process_record(record: Dict[str, Any]) -> None:
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Process SQS messages and report per-record failures for retry."""
+    if event.get("action") == "warmup":
+        _trade_execution_service()
+        return {"warmed": True}
+
     batch_item_failures = []
     for record in event.get("Records", []):
         try:

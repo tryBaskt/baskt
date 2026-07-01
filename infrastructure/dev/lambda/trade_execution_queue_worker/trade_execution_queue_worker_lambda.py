@@ -9,11 +9,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Dict
 
@@ -35,6 +37,24 @@ ECR_REPOSITORY_NAME = "dev-trade-execution-queue-worker"
 IMAGE_TAG = "latest"
 SQS_POLICY_NAME = "dev-trade-execution-queue-worker-sqs"
 DYNAMODB_POLICY_NAME = "dev-trade-execution-queue-worker-dynamodb"
+CONTROLLER_FUNCTION_NAME = "dev-trade-execution-market-hours-controller"
+CONTROLLER_ROLE_NAME = "dev-trade-execution-market-hours-controller-role"
+CONTROLLER_POLICY_NAME = "dev-trade-execution-market-hours-controller"
+SCHEDULER_ROLE_NAME = "dev-trade-execution-market-hours-scheduler-role"
+SCHEDULER_POLICY_NAME = "dev-trade-execution-market-hours-scheduler"
+SCHEDULE_GROUP_NAME = "default"
+MARKET_SCHEDULES = {
+    "dev-trade-execution-prepare": (
+        "cron(20-29 9 ? * MON-FRI *)",
+        "prepare",
+    ),
+    "dev-trade-execution-open": ("cron(30 9 ? * MON-FRI *)", "open"),
+    "dev-trade-execution-early-close": (
+        "cron(58 12 ? * MON-FRI *)",
+        "early_close",
+    ),
+    "dev-trade-execution-close": ("cron(58 15 ? * MON-FRI *)", "close"),
+}
 LAMBDA_BASIC_POLICY_ARN = (
     "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 )
@@ -283,6 +303,107 @@ def _ensure_role(iam: Any, queue_arn: str) -> str:
     return role["Arn"]
 
 
+def _lambda_assume_role_policy(service: str = "lambda.amazonaws.com") -> str:
+    """Return an IAM trust policy for the requested AWS service."""
+    return json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"Service": service},
+                    "Action": "sts:AssumeRole",
+                }
+            ],
+        }
+    )
+
+
+def _ensure_controller_role(iam: Any, worker_function_arn: str) -> str:
+    """Create or update the market-hours controller execution role."""
+    try:
+        role = iam.get_role(RoleName=CONTROLLER_ROLE_NAME)["Role"]
+    except iam.exceptions.NoSuchEntityException:
+        role = iam.create_role(
+            RoleName=CONTROLLER_ROLE_NAME,
+            AssumeRolePolicyDocument=_lambda_assume_role_policy(),
+            Description="Controls the trade worker SQS event-source mapping.",
+        )["Role"]
+
+    iam.attach_role_policy(
+        RoleName=CONTROLLER_ROLE_NAME,
+        PolicyArn=LAMBDA_BASIC_POLICY_ARN,
+    )
+    iam.put_role_policy(
+        RoleName=CONTROLLER_ROLE_NAME,
+        PolicyName=CONTROLLER_POLICY_NAME,
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "lambda:ListEventSourceMappings",
+                            "lambda:UpdateEventSourceMapping",
+                        ],
+                        "Resource": "*",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "lambda:InvokeFunction",
+                        "Resource": worker_function_arn,
+                    },
+                ],
+            }
+        ),
+    )
+    return role["Arn"]
+
+
+def _ensure_scheduler_role(iam: Any, controller_function_arn: str) -> str:
+    """Create or update the role used by EventBridge Scheduler."""
+    try:
+        role = iam.get_role(RoleName=SCHEDULER_ROLE_NAME)["Role"]
+    except iam.exceptions.NoSuchEntityException:
+        role = iam.create_role(
+            RoleName=SCHEDULER_ROLE_NAME,
+            AssumeRolePolicyDocument=_lambda_assume_role_policy(
+                "scheduler.amazonaws.com"
+            ),
+            Description="Invokes the trade market-hours controller.",
+        )["Role"]
+
+    iam.put_role_policy(
+        RoleName=SCHEDULER_ROLE_NAME,
+        PolicyName=SCHEDULER_POLICY_NAME,
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "lambda:InvokeFunction",
+                        "Resource": controller_function_arn,
+                    }
+                ],
+            }
+        ),
+    )
+    return role["Arn"]
+
+
+def _controller_zip() -> bytes:
+    """Package the dependency-free market-hours controller."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(
+            HANDLER_DIR / "market_hours_controller.py",
+            "market_hours_controller.py",
+        )
+    return buffer.getvalue()
+
+
 def _upsert_function(
     lambda_client: Any,
     *,
@@ -303,7 +424,7 @@ def _upsert_function(
                     Role=role_arn,
                     Code={"ImageUri": image_uri},
                     Description="Forwards queued trade-execution jobs to the backend.",
-                    Timeout=60,
+                    Timeout=120,
                     MemorySize=LAMBDA_MEMORY_SIZE_MB,
                     Environment=environment,
                     Architectures=LAMBDA_IMAGE_ARCHITECTURES,
@@ -329,7 +450,7 @@ def _upsert_function(
         lambda_client.update_function_configuration(
             FunctionName=FUNCTION_NAME,
             Role=role_arn,
-            Timeout=60,
+            Timeout=120,
             MemorySize=LAMBDA_MEMORY_SIZE_MB,
             Environment=environment,
         )
@@ -337,39 +458,157 @@ def _upsert_function(
     lambda_client.get_waiter("function_active_v2").wait(FunctionName=FUNCTION_NAME)
 
 
+def _upsert_controller_function(
+    lambda_client: Any,
+    *,
+    role_arn: str,
+    queue_arn: str,
+) -> str:
+    """Create or update the market-hours controller Lambda."""
+    code = _controller_zip()
+    environment = {
+        "Variables": {
+            "TRADE_EXECUTION_FUNCTION_NAME": FUNCTION_NAME,
+            "TRADE_EXECUTION_QUEUE_ARN": queue_arn,
+        }
+    }
+    try:
+        lambda_client.get_function(FunctionName=CONTROLLER_FUNCTION_NAME)
+    except lambda_client.exceptions.ResourceNotFoundException:
+        for attempt in range(6):
+            try:
+                response = lambda_client.create_function(
+                    FunctionName=CONTROLLER_FUNCTION_NAME,
+                    Runtime="python3.12",
+                    Handler="market_hours_controller.lambda_handler",
+                    Role=role_arn,
+                    Code={"ZipFile": code},
+                    Description="Controls trade execution during market hours.",
+                    Timeout=60,
+                    MemorySize=128,
+                    Environment=environment,
+                    Architectures=LAMBDA_IMAGE_ARCHITECTURES,
+                )
+                controller_arn = response["FunctionArn"]
+                break
+            except ClientError as error:
+                if (
+                    error.response.get("Error", {}).get("Code")
+                    != "InvalidParameterValueException"
+                    or attempt == 5
+                ):
+                    raise
+                time.sleep(5)
+    else:
+        lambda_client.update_function_code(
+            FunctionName=CONTROLLER_FUNCTION_NAME,
+            ZipFile=code,
+            Publish=False,
+        )
+        lambda_client.get_waiter("function_updated_v2").wait(
+            FunctionName=CONTROLLER_FUNCTION_NAME
+        )
+        response = lambda_client.update_function_configuration(
+            FunctionName=CONTROLLER_FUNCTION_NAME,
+            Role=role_arn,
+            Runtime="python3.12",
+            Handler="market_hours_controller.lambda_handler",
+            Timeout=60,
+            MemorySize=128,
+            Environment=environment,
+        )
+        controller_arn = response["FunctionArn"]
+
+    lambda_client.get_waiter("function_active_v2").wait(
+        FunctionName=CONTROLLER_FUNCTION_NAME
+    )
+    return controller_arn
+
+
 def _ensure_event_source(lambda_client: Any, queue_arn: str) -> str:
-    """Create or enable the SQS event-source mapping."""
+    """Create the SQS mapping; its state is controlled by market hours."""
     mappings = lambda_client.list_event_source_mappings(
         FunctionName=FUNCTION_NAME,
         EventSourceArn=queue_arn,
     )["EventSourceMappings"]
     if mappings:
         mapping = mappings[0]
-        if mapping.get("State") == "Disabled":
-            lambda_client.update_event_source_mapping(
-                UUID=mapping["UUID"],
-                Enabled=True,
-                BatchSize=10,
-                FunctionResponseTypes=["ReportBatchItemFailures"],
-            )
         return mapping["UUID"]
 
     mapping = lambda_client.create_event_source_mapping(
         EventSourceArn=queue_arn,
         FunctionName=FUNCTION_NAME,
         BatchSize=10,
-        Enabled=True,
+        Enabled=False,
         FunctionResponseTypes=["ReportBatchItemFailures"],
     )
     return mapping["UUID"]
 
 
+def _ensure_market_schedules(
+    scheduler: Any,
+    *,
+    controller_function_arn: str,
+    scheduler_role_arn: str,
+) -> None:
+    """Create or update all timezone-aware market-hours schedules."""
+    for schedule_name, (expression, action) in MARKET_SCHEDULES.items():
+        parameters = {
+            "Name": schedule_name,
+            "GroupName": SCHEDULE_GROUP_NAME,
+            "ScheduleExpression": expression,
+            "ScheduleExpressionTimezone": "America/New_York",
+            "FlexibleTimeWindow": {"Mode": "OFF"},
+            "State": "ENABLED",
+            "Target": {
+                "Arn": controller_function_arn,
+                "RoleArn": scheduler_role_arn,
+                "Input": json.dumps({"action": action}),
+            },
+        }
+        try:
+            scheduler.get_schedule(
+                Name=schedule_name,
+                GroupName=SCHEDULE_GROUP_NAME,
+            )
+        except scheduler.exceptions.ResourceNotFoundException:
+            operation = scheduler.create_schedule
+        else:
+            operation = scheduler.update_schedule
+
+        for attempt in range(6):
+            try:
+                operation(**parameters)
+                break
+            except ClientError as error:
+                error_code = error.response.get("Error", {}).get("Code")
+                if (
+                    error_code not in {"ConflictException", "ValidationException"}
+                    or attempt == 5
+                ):
+                    raise
+                time.sleep(5)
+
+
+def _synchronize_market_state(lambda_client: Any) -> None:
+    """Immediately align the mapping state after deployment."""
+    response = lambda_client.invoke(
+        FunctionName=CONTROLLER_FUNCTION_NAME,
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"action": "sync"}).encode(),
+    )
+    if response.get("FunctionError"):
+        details = response["Payload"].read().decode()
+        raise RuntimeError(f"Market-hours synchronization failed: {details}")
+
+
 def create_worker() -> None:
-    """Create or update the ECR image, SQS queue, and Lambda worker."""
+    """Create or update the queue, worker, and market-hours controller."""
     iam = boto3.client("iam")
     sqs = boto3.client("sqs", region_name=REGION)
     ecr = boto3.client("ecr", region_name=REGION)
     lambda_client = boto3.client("lambda", region_name=REGION)
+    scheduler = boto3.client("scheduler", region_name=REGION)
 
     queue = _ensure_queue(sqs)
     repository_uri = _ensure_ecr_repository(ecr)
@@ -382,6 +621,22 @@ def create_worker() -> None:
         queue_url=queue["queue_url"],
     )
     mapping_id = _ensure_event_source(lambda_client, queue["queue_arn"])
+    worker_function_arn = lambda_client.get_function(
+        FunctionName=FUNCTION_NAME
+    )["Configuration"]["FunctionArn"]
+    controller_role_arn = _ensure_controller_role(iam, worker_function_arn)
+    controller_function_arn = _upsert_controller_function(
+        lambda_client,
+        role_arn=controller_role_arn,
+        queue_arn=queue["queue_arn"],
+    )
+    scheduler_role_arn = _ensure_scheduler_role(iam, controller_function_arn)
+    _ensure_market_schedules(
+        scheduler,
+        controller_function_arn=controller_function_arn,
+        scheduler_role_arn=scheduler_role_arn,
+    )
+    _synchronize_market_state(lambda_client)
 
     print(f"Lambda function: {FUNCTION_NAME}")
     print(f"Lambda image: {image_uri}")
@@ -389,14 +644,33 @@ def create_worker() -> None:
     print(f"SQS queue ARN: {queue['queue_arn']}")
     print(f"Dead-letter queue URL: {queue['dlq_url']}")
     print(f"Event-source mapping: {mapping_id}")
+    print(f"Market-hours controller: {CONTROLLER_FUNCTION_NAME}")
+    print(f"Market-hours schedules: {', '.join(MARKET_SCHEDULES)}")
 
 
 def destroy_worker() -> None:
-    """Delete the Lambda worker, event-source mapping, queues, role, and ECR repo."""
+    """Delete the worker, controller, schedules, queues, roles, and ECR repo."""
     iam = boto3.client("iam")
     sqs = boto3.client("sqs", region_name=REGION)
     ecr = boto3.client("ecr", region_name=REGION)
     lambda_client = boto3.client("lambda", region_name=REGION)
+    scheduler = boto3.client("scheduler", region_name=REGION)
+
+    for schedule_name in MARKET_SCHEDULES:
+        try:
+            scheduler.delete_schedule(
+                Name=schedule_name,
+                GroupName=SCHEDULE_GROUP_NAME,
+            )
+            print(f"Deleted market-hours schedule: {schedule_name}")
+        except scheduler.exceptions.ResourceNotFoundException:
+            pass
+
+    try:
+        lambda_client.delete_function(FunctionName=CONTROLLER_FUNCTION_NAME)
+        print(f"Deleted Lambda function: {CONTROLLER_FUNCTION_NAME}")
+    except lambda_client.exceptions.ResourceNotFoundException:
+        pass
 
     try:
         function = lambda_client.get_function(FunctionName=FUNCTION_NAME)
@@ -439,6 +713,39 @@ def destroy_worker() -> None:
     try:
         iam.delete_role(RoleName=ROLE_NAME)
         print(f"Deleted IAM role: {ROLE_NAME}")
+    except iam.exceptions.NoSuchEntityException:
+        pass
+
+    try:
+        iam.delete_role_policy(
+            RoleName=CONTROLLER_ROLE_NAME,
+            PolicyName=CONTROLLER_POLICY_NAME,
+        )
+    except iam.exceptions.NoSuchEntityException:
+        pass
+    try:
+        iam.detach_role_policy(
+            RoleName=CONTROLLER_ROLE_NAME,
+            PolicyArn=LAMBDA_BASIC_POLICY_ARN,
+        )
+    except iam.exceptions.NoSuchEntityException:
+        pass
+    try:
+        iam.delete_role(RoleName=CONTROLLER_ROLE_NAME)
+        print(f"Deleted IAM role: {CONTROLLER_ROLE_NAME}")
+    except iam.exceptions.NoSuchEntityException:
+        pass
+
+    try:
+        iam.delete_role_policy(
+            RoleName=SCHEDULER_ROLE_NAME,
+            PolicyName=SCHEDULER_POLICY_NAME,
+        )
+    except iam.exceptions.NoSuchEntityException:
+        pass
+    try:
+        iam.delete_role(RoleName=SCHEDULER_ROLE_NAME)
+        print(f"Deleted IAM role: {SCHEDULER_ROLE_NAME}")
     except iam.exceptions.NoSuchEntityException:
         pass
 
