@@ -30,7 +30,11 @@ class BacktestAnalyticsResponse(BaseModel):
     cagr: Optional[float]
     leverage_adjusted_direction: Optional[float]
     annualized_volatility: Optional[float]
-
+    alpha: Optional[float]
+    beta: Optional[float]
+    sharpe_ratio: Optional[float]
+    maximum_drawdown: Optional[float]
+    maximum_drawdown_duration: Optional[float]
 
 
 

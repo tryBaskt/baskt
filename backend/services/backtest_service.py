@@ -225,9 +225,11 @@ class BacktestService:
             )
 
         symbols = [position.symbol for position in positions]
+        benchmark_symbol = "SPY"
+        market_data_symbols = list(dict.fromkeys([*symbols, benchmark_symbol]))
         try:
             prices = self.asset_analytics_service.get_prices_over_time(
-                symbols=symbols,
+                symbols=market_data_symbols,
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 timeframe="1D",
@@ -238,25 +240,29 @@ class BacktestService:
                 f"Failed to fetch backtest market data: {error}"
             ) from error
 
-        missing_symbols = [symbol for symbol in symbols if symbol not in prices.columns]
+        missing_symbols = [
+            symbol for symbol in market_data_symbols if symbol not in prices.columns
+        ]
         if missing_symbols:
             raise BacktestServiceDataError(
                 f"Price data is missing for symbols {missing_symbols}"
             )
 
-        prices = prices.loc[:, symbols].dropna()
+        prices = prices.loc[:, market_data_symbols].dropna()
         if prices.empty:
             raise BacktestServiceDataError(
                 "No overlapping price data is available for the selected positions"
             )
 
+        benchmark_returns = prices[benchmark_symbol].pct_change()
+        portfolio_prices = prices.loc[:, symbols]
         target_exposure = pd.DataFrame(
             float("nan"),
-            index=prices.index,
-            columns=prices.columns,
+            index=portfolio_prices.index,
+            columns=portfolio_prices.columns,
             dtype=float,
         )
-        first_timestamp = prices.index[0]
+        first_timestamp = portfolio_prices.index[0]
         target_exposure.loc[first_timestamp, :] = 0.0
         for position in positions:
             exposure = position.weight * position.direction * position.leverage
@@ -264,12 +270,13 @@ class BacktestService:
 
         try:
             simulation_result = self.asset_analytics_service.calculate_portfolio_analytics(
-                prices=prices,
+                prices=portfolio_prices,
                 target_exposure=target_exposure,
                 frequency="1d",
                 initial_cash=10_000.0,
                 fees=0.0,
                 slippage=0.0,
+                benchmark_returns=benchmark_returns,
             )
         except AssetAnalyticsServiceError as error:
             raise BacktestServiceCalculationError(
@@ -284,4 +291,9 @@ class BacktestService:
             "cagr": simulation_result.cagr,
             "leverage_adjusted_direction": simulation_result.leverage_adjusted_direction,
             "annualized_volatility": simulation_result.annualized_volatility,
+            "alpha": simulation_result.alpha,
+            "beta": simulation_result.beta,
+            "sharpe_ratio": simulation_result.sharpe_ratio,
+            "maximum_drawdown": simulation_result.maximum_drawdown,
+            "maximum_drawdown_duration": simulation_result.maximum_drawdown_duration,
         }

@@ -420,6 +420,36 @@ class ModelPortfolioAnalyticsService:
                 code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING",
             )
 
+        benchmark_symbol = "SPY"
+        benchmark_prices_df = self.asset_analytics_service.get_prices_over_time(
+            symbols=[benchmark_symbol],
+            start_datetime=simulation_prices.index[0],
+            end_datetime=period_end_datetime,
+            timeframe=timeframe,
+        )
+        if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
+            raise ModelPortfolioAnalyticsServiceError(
+                message=(
+                    f"Benchmark price data for '{benchmark_symbol}' is missing "
+                    f"during period '{period}'"
+                ),
+                code="MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_DATA_MISSING",
+            )
+        benchmark_prices = (
+            benchmark_prices_df[benchmark_symbol]
+            .sort_index()
+            .loc[lambda series: ~series.index.duplicated(keep="last")]
+        )
+        benchmark_prices = (
+            benchmark_prices
+            .reindex(benchmark_prices.index.union(simulation_prices.index))
+            .sort_index()
+            .ffill()
+            .bfill()
+            .reindex(simulation_prices.index)
+        )
+        benchmark_returns = benchmark_prices.pct_change()
+
         target_exposure = pd.DataFrame(
             np.nan,
             index=simulation_prices.index,
@@ -454,6 +484,7 @@ class ModelPortfolioAnalyticsService:
                 initial_cash=10_000.0,
                 fees=0.0,
                 slippage=0.0,
+                benchmark_returns=benchmark_returns,
             )
         except AssetAnalyticsServiceError as error:
             raise ModelPortfolioAnalyticsServiceError(
@@ -474,7 +505,12 @@ class ModelPortfolioAnalyticsService:
             "final_cumulative_return": model_portfolio_analytics.final_cumulative_return,
             "cagr": model_portfolio_analytics.cagr,
             "annualized_volatility": model_portfolio_analytics.annualized_volatility,
-            "leverage_adjusted_direction": model_portfolio_analytics.leverage_adjusted_direction
+            "leverage_adjusted_direction": model_portfolio_analytics.leverage_adjusted_direction,
+            "alpha": model_portfolio_analytics.alpha,
+            "beta": model_portfolio_analytics.beta,
+            "sharpe_ratio": model_portfolio_analytics.sharpe_ratio,
+            "maximum_drawdown": model_portfolio_analytics.maximum_drawdown,
+            "maximum_drawdown_duration": model_portfolio_analytics.maximum_drawdown_duration,
         }
 
 

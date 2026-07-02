@@ -153,8 +153,10 @@ class StockAnalyticsService:
             period_start_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
         try:
+            benchmark_symbol = "SPY"
+            market_data_symbols = list(dict.fromkeys([symbol, benchmark_symbol]))
             segment_prices_df = self.asset_analytics_service.get_prices_over_time(
-                symbols=[symbol],
+                symbols=market_data_symbols,
                 start_datetime=period_start_datetime,
                 end_datetime=period_end_datetime,
                 timeframe=timeframe,
@@ -179,15 +181,25 @@ class StockAnalyticsService:
                 ),
                 code="STOCK_ANALYTICS_PRICE_DATA_MISSING",
             )
+        if benchmark_symbol not in segment_prices_df.columns:
+            raise StockAnalyticsServiceError(
+                message=(
+                    f"Benchmark price data for '{benchmark_symbol}' is missing "
+                    f"during period '{period}'"
+                ),
+                code="STOCK_ANALYTICS_BENCHMARK_DATA_MISSING",
+            )
 
-        simulation_prices = (
-            segment_prices_df[[symbol]]
+        aligned_prices = (
+            segment_prices_df[market_data_symbols]
             .sort_index()
             .loc[lambda frame: ~frame.index.duplicated(keep="last")]
             .dropna()
         )
+        simulation_prices = aligned_prices[[symbol]]
         if simulation_prices.empty:
             return period, None
+        benchmark_returns = aligned_prices[benchmark_symbol].pct_change()
 
         target_exposure = pd.DataFrame(
             np.nan,
@@ -210,6 +222,7 @@ class StockAnalyticsService:
                 initial_cash=10_000.0,
                 fees=0.0,
                 slippage=0.0,
+                benchmark_returns=benchmark_returns,
             )
         except AssetAnalyticsServiceError as error:
             raise StockAnalyticsServiceError(
@@ -230,7 +243,12 @@ class StockAnalyticsService:
             "final_cumulative_return": stock_analytics.final_cumulative_return,
             "cagr": stock_analytics.cagr,
             "annualized_volatility": stock_analytics.annualized_volatility,
-            "leverage_adjusted_direction": stock_analytics.leverage_adjusted_direction
+            "leverage_adjusted_direction": stock_analytics.leverage_adjusted_direction,
+            "alpha": stock_analytics.alpha,
+            "beta": stock_analytics.beta,
+            "sharpe_ratio": stock_analytics.sharpe_ratio,
+            "maximum_drawdown": stock_analytics.maximum_drawdown,
+            "maximum_drawdown_duration": stock_analytics.maximum_drawdown_duration,
         }
 
 

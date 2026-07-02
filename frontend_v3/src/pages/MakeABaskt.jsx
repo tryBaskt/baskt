@@ -548,6 +548,26 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
                   <span>Leverage-adjusted direction tilt</span>
                   <strong>{percent(Number(backtest?.leverage_adjusted_direction || 0) * 100)}</strong>
                 </div>
+                <div>
+                  <span>Alpha</span>
+                  <strong>{percent(Number(backtest?.alpha || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>Beta</span>
+                  <strong>{Number(backtest?.beta || 0).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Sharpe ratio</span>
+                  <strong>{Number(backtest?.sharpe_ratio || 0).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Maximum drawdown</span>
+                  <strong>{percent(Number(backtest?.maximum_drawdown || 0) * 100)}</strong>
+                </div>
+                <div>
+                  <span>Maximum drawdown duration</span>
+                  <strong>{Number(backtest?.maximum_drawdown_duration || 0).toFixed(1)} days</strong>
+                </div>
               </div>
             </>
           ) : (
