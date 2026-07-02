@@ -375,7 +375,7 @@ export default function StockPage({ stockId, onBack }) {
                 <thead>
                   <tr>
                     <th>Created</th>
-                    <th>Filled</th>
+                    <th>Filled at</th>
                     <th>Type</th>
                     <th>Requested</th>
                     <th>Filled amount</th>
