@@ -75,10 +75,6 @@ export default function HomePage({ onOpenInvestment }) {
     <div className="page-stack">
       <ErrorBanner message={error} />
       <section className="hero-band purple">
-        <div>
-          <p className="eyebrow">Account analytics</p>
-          <h2>Your money, positions, and momentum in one place.</h2>
-        </div>
         <div className="metric-grid compact">
           <MetricCard
             label="Cash"

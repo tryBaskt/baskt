@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import sys
+import traceback
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Allow local-package imports (core.*, services.*, etc.) in both modes:
 # - running from backend/ (e.g. `uvicorn main:app`)
@@ -25,10 +33,77 @@ from routes.model_portfolios_stocks_search_route import router as model_portfoli
 from routes.stock_analytics_route import router as stock_analytics_router
 
 
+error_logger = logging.getLogger("uvicorn.error")
+
+
+def _exception_traceback(error: BaseException) -> str:
+    """Format an exception and its complete cause/context chain."""
+    return "".join(
+        traceback.format_exception(
+            type(error),
+            error,
+            error.__traceback__,
+            chain=True,
+        )
+    )
+
+
+def _log_request_exception(
+    request: Request,
+    error: BaseException,
+    *,
+    status_code: int,
+) -> None:
+    """Log request context followed by the complete exception traceback."""
+    error_logger.error(
+        "Request failed: %s %s -> %s\n%s",
+        request.method,
+        request.url.path,
+        status_code,
+        _exception_traceback(error),
+    )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(title=settings.app_name)
+
+    @app.exception_handler(HTTPException)
+    async def log_http_exception(
+        request: Request,
+        error: HTTPException,
+    ):
+        _log_request_exception(
+            request,
+            error,
+            status_code=error.status_code,
+        )
+        return await http_exception_handler(request, error)
+
+    @app.exception_handler(RequestValidationError)
+    async def log_request_validation_exception(
+        request: Request,
+        error: RequestValidationError,
+    ):
+        error_logger.error(
+            "Request validation failed: %s %s -> 422\n%s",
+            request.method,
+            request.url.path,
+            error.errors(),
+        )
+        return await request_validation_exception_handler(request, error)
+
+    @app.exception_handler(Exception)
+    async def log_unhandled_exception(
+        request: Request,
+        error: Exception,
+    ) -> JSONResponse:
+        _log_request_exception(request, error, status_code=500)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     # CORS
     # If cors_origins == ["*"], allow everything (dev).

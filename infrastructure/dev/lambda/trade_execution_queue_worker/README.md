@@ -1,7 +1,17 @@
 # Dev Trade Execution Queue Worker
 
-This Lambda is deployed as a Docker image. It consumes SQS messages and forwards
-them to the backend trade-execution routes.
+The trade worker is deployed as a Docker image and consumes SQS messages through
+`TradeExecutionService`. The same deployment also creates a lightweight
+market-hours controller and timezone-aware EventBridge Scheduler schedules.
+
+For the hard-coded 2026 U.S. equity calendar, the controller:
+
+- warms the worker every minute from 9:20 through 9:29 a.m. ET;
+- enables the SQS event-source mapping at 9:30 a.m. ET;
+- disables it at 12:59:30 p.m. ET on scheduled early-close days; and
+- disables it at 3:59:30 p.m. ET on regular trading days.
+
+Messages continue accumulating in SQS while the mapping is disabled.
 
 ## Deploy
 
@@ -30,6 +40,7 @@ Every message must include:
 
 Supported actions:
 
+- `portfolio_update`
 - `portfolio_deposit`
 - `portfolio_withdraw`
 - `portfolio_withdraw_all`

@@ -312,6 +312,46 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
                 </strong>
                 <small>Long + / short -</small>
               </div>
+              <div>
+                <span>Alpha</span>
+                <strong className={getReturnTone(selectedModelAnalytics?.alpha)}>
+                  {selectedModelAnalytics?.alpha !== null && selectedModelAnalytics?.alpha !== undefined
+                    ? percent(Number(selectedModelAnalytics.alpha) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Beta</span>
+                <strong className="metric-accent">
+                  {selectedModelAnalytics?.beta !== null && selectedModelAnalytics?.beta !== undefined
+                    ? Number(selectedModelAnalytics.beta).toFixed(2)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Sharpe ratio</span>
+                <strong className="metric-accent">
+                  {selectedModelAnalytics?.sharpe_ratio !== null && selectedModelAnalytics?.sharpe_ratio !== undefined
+                    ? Number(selectedModelAnalytics.sharpe_ratio).toFixed(2)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Maximum drawdown</span>
+                <strong className={getReturnTone(selectedModelAnalytics?.maximum_drawdown)}>
+                  {selectedModelAnalytics?.maximum_drawdown !== null && selectedModelAnalytics?.maximum_drawdown !== undefined
+                    ? percent(Number(selectedModelAnalytics.maximum_drawdown) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Maximum drawdown duration</span>
+                <strong className="metric-accent">
+                  {selectedModelAnalytics?.maximum_drawdown_duration !== null && selectedModelAnalytics?.maximum_drawdown_duration !== undefined
+                    ? `${Number(selectedModelAnalytics.maximum_drawdown_duration).toFixed(1)} days`
+                    : "Not available"}
+                </strong>
+              </div>
             </div>
           </div>
         )}
@@ -379,7 +419,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
               <thead>
                 <tr>
                   <th>Created</th>
-                  <th>Filled</th>
+                  <th>Filled at</th>
                   <th>Type</th>
                   <th>Requested</th>
                   <th>Filled amount</th>

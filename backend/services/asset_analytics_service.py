@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 import pandas as pd
 from alpaca.trading.models import Calendar
@@ -183,6 +183,7 @@ class AssetAnalyticsService:
         initial_cash: float = 10_000.0,
         fees: float = 0.0,
         slippage: float = 0.0,
+        benchmark_returns: Optional[pd.Series] = None,
     ) -> VectorBTPortfolioAnalytics:
         """Calculate performance for static or changing target exposures.
 
@@ -202,6 +203,8 @@ class AssetAnalyticsService:
             initial_cash: Starting simulation cash.
             fees: Proportional transaction fees.
             slippage: Proportional execution slippage.
+            benchmark_returns: Optional benchmark returns aligned to the
+                simulation timestamps for alpha and beta.
 
         Returns:
             VectorBTPortfolioSimulation: Normalized simulation performance.
@@ -266,6 +269,7 @@ class AssetAnalyticsService:
                 fees=fees,
                 slippage=slippage,
                 excluded_direction_symbols=[financing_symbol],
+                benchmark_returns=benchmark_returns,
             )
         except VectorBTClientError as error:
             raise AssetAnalyticsServiceError(

@@ -67,7 +67,7 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
             <small>Modern portfolio automation</small>
           </span>
         </div>
-        <h1>Build, test, and fund portfolios with calm precision.</h1>
+        <h1>Build, test, and fund portfolios that meet your needs.</h1>
         <p>
           A professional workspace for creating weighted stock baskets, monitoring
           equity, and managing account transfers.

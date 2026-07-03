@@ -7,11 +7,92 @@ from typing import List, Dict, Tuple, Optional
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+import time
 
 # Baskt imports
 from domain.portfolio_allocation_domain import PortfolioAllocationPosition, PortfolioAllocationTransactionSnapshot, PortfolioAllocationPositionSnapshot, PortfolioAllocation
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
+
+WAIT_TIME_SECONDS = 10
+
+
+def _optional_datetime(value: object) -> Optional[datetime]:
+    return None if value is None else to_utc_from_iso(str(value))
+
+
+def _optional_float(value: object) -> Optional[float]:
+    return None if value is None else float(value)
+
+
+def _optional_int(value: object) -> Optional[int]:
+    return None if value is None else int(value)
+
+
+def _parse_transaction_snapshot(item: Dict) -> PortfolioAllocationTransactionSnapshot:
+    """Convert a stored DynamoDB transaction map into its domain model."""
+    return PortfolioAllocationTransactionSnapshot(
+        transaction_id=str(item["transaction_id"]),
+        model_portfolio_snapshot_id=(
+            None
+            if item.get("model_portfolio_snapshot_id") is None
+            else str(item["model_portfolio_snapshot_id"])
+        ),
+        created_at=to_utc_from_iso(item["created_at"]),
+        updated_at=to_utc_from_iso(item.get("updated_at", item["created_at"])),
+        requested_amount=_optional_float(item.get("requested_amount")),
+        transaction_type=str(item["transaction_type"]),
+        status=str(item["status"]),
+        filled_at=_optional_datetime(item.get("filled_at")),
+        number_orders=_optional_int(item.get("number_orders")),
+        cost_basis=_optional_float(item.get("cost_basis")),
+        order_fill_percent=_optional_float(item.get("order_fill_percent")),
+        status_explanation=(
+            None
+            if item.get("status_explanation") is None
+            else str(item["status_explanation"])
+        ),
+    )
+
+
+def _serialize_transaction_snapshot(
+    transaction: PortfolioAllocationTransactionSnapshot,
+) -> Dict:
+    """Convert a transaction domain model into a DynamoDB-compatible map."""
+    return {
+        "transaction_id": str(transaction.transaction_id),
+        "model_portfolio_snapshot_id": transaction.model_portfolio_snapshot_id,
+        "created_at": transaction.created_at.isoformat(),
+        "updated_at": transaction.updated_at.isoformat(),
+        "filled_at": (
+            transaction.filled_at.isoformat()
+            if transaction.filled_at is not None
+            else None
+        ),
+        "requested_amount": (
+            Decimal(str(transaction.requested_amount))
+            if transaction.requested_amount is not None
+            else None
+        ),
+        "number_orders": (
+            int(transaction.number_orders)
+            if transaction.number_orders is not None
+            else None
+        ),
+        "transaction_type": str(transaction.transaction_type),
+        "cost_basis": (
+            Decimal(str(transaction.cost_basis))
+            if transaction.cost_basis is not None
+            else None
+        ),
+        "order_fill_percent": (
+            Decimal(str(transaction.order_fill_percent))
+            if transaction.order_fill_percent is not None
+            else None
+        ),
+        "status": str(transaction.status),
+        "status_explanation": transaction.status_explanation,
+    }
 
 
 class PortfolioAllocationInternalServerError(Exception):
@@ -172,6 +253,11 @@ class PortfolioAllocationRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_table_client = dynamodb_client
 
+    def _wait_exists(self, cognito_user_id: str, portfolio_id: str):
+        expire_time = time.time() + WAIT_TIME_SECONDS
+        while time.time() < expire_time and not self.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+            time.sleep(0.25)
+
     def calculate_positions_current_value(self, portfolio_allocation_position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
         """
         Calculate each position's current portfolio value using latest prices.
@@ -190,6 +276,11 @@ class PortfolioAllocationRepository:
         """
 
         curr_positions = portfolio_allocation_position_snapshot.positions
+        if not curr_positions:
+            raise PortfolioAllocationInternalServerError(
+                message=f"No positions in snapshot",
+                code="PORTFOLIO_ALLOCATION_CALC_POS_CURRENT_VALUE_FAILED"
+            )
         symbols = [pos.symbol for pos in curr_positions]
         try:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
@@ -210,7 +301,7 @@ class PortfolioAllocationRepository:
             position_values[position.symbol] = filled_quantity * (
                 entry_price + position.direction * (current_price - entry_price)
             )
-        
+
         return position_values, sum(position_values.values()), quotes
 
     def calculate_positions_current_weight(self, portfolio_allocation_position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
@@ -241,7 +332,7 @@ class PortfolioAllocationRepository:
             {
                 symbol: value / total_portfolio_allocation_value
                 for symbol, value in position_values.items()
-            }, 
+            },
             total_portfolio_allocation_value,
             quotes
         )
@@ -264,8 +355,8 @@ class PortfolioAllocationRepository:
 
         key = {"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id}
         return self.portfolio_allocation_table_client.item_exists(key=key)
-    
-    def get_portfolio_allocation_transaction_history(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:
+
+    def get_portfolio_allocation_transaction_history(self, cognito_user_id: str, portfolio_id: str, with_wait: bool = False) -> List[PortfolioAllocationTransactionSnapshot]:
         """
         Retrieve transaction snapshots for a user's portfolio allocation.
 
@@ -285,6 +376,8 @@ class PortfolioAllocationRepository:
             PortfolioAllocationUnprocessableEntityError: If transaction history
             is missing or cannot be parsed into the domain model.
         """
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
 
         try:
             item = self.portfolio_allocation_table_client.get_item(
@@ -299,39 +392,27 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id,
                 cause=e,
             ) from e
-        
+
         if not item:
             raise PortfolioAllocationNotFoundError(
                 cognito_user_id=cognito_user_id,
                 portfolio_id=portfolio_id,
             )
-        
-        if "transaction_history" not in item: 
+
+        if "transaction_history" not in item:
             raise PortfolioAllocationUnprocessableEntityError(
                 operation="load transaction history",
                 cognito_user_id=cognito_user_id,
                 portfolio_id=portfolio_id,
                 cause=KeyError("transaction_history"),
             )
-        
+
         # Parse all transaction snapshots
         transaction_history = item["transaction_history"]
         result = []
         try:
             for snap in transaction_history:
-                result.append(
-                    PortfolioAllocationTransactionSnapshot(
-                        transaction_id=str(snap["transaction_id"]),
-                        created_at=to_utc_from_iso(snap["created_at"]),
-                        filled_at=to_utc_from_iso(snap["filled_at"]),
-                        requested_amount=(None if snap.get("requested_amount") is None else float(snap["requested_amount"])),
-                        number_orders=int(snap["number_orders"]),
-                        transaction_type=str(snap["transaction_type"]),
-                        cost_basis=float(snap["cost_basis"]),
-                        status=str(snap["status"]),
-                        order_fill_percent=float(snap["order_fill_percent"]),
-                    )
-                )
+                result.append(_parse_transaction_snapshot(snap))
 
 
         except Exception as e:
@@ -341,11 +422,11 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id,
                 cause=e,
             ) from e
-        
-        return result
-    
 
-    def get_n_last_portfolio_allocation_transaction_snapshots(self, cognito_user_id: str, portfolio_id: str, n: int) -> List[PortfolioAllocationTransactionSnapshot]:
+        return result
+
+
+    def get_n_last_portfolio_allocation_transaction_snapshots(self, cognito_user_id: str, portfolio_id: str, n: int, with_wait: bool = False) -> List[PortfolioAllocationTransactionSnapshot]:
         """
         Retrieve the last n allocation snapshots for a user's portfolio.
 
@@ -367,13 +448,13 @@ class PortfolioAllocationRepository:
             PortfolioAllocationNotFoundError: If the allocation record does not
             exist.
         """
-        
+
         if n <= 0:
             raise ValueError(
                 f"validate n argument '{n}' greater than 0"
             )
-        
-        transaction_history = self.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+
+        transaction_history = self.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id, with_wait=with_wait)
         if n > len(transaction_history):
             raise ValueError(
                 f"validate n argument '{n}' less than or equal to the number of snapshots '{len(transaction_history)}'"
@@ -381,10 +462,12 @@ class PortfolioAllocationRepository:
         last_n_snapshots = transaction_history[-n:]
 
         return last_n_snapshots
-    
 
-    def get_latest_portfolio_allocation_position_snapshot(self, cognito_user_id: str, portfolio_id: str) -> PortfolioAllocationPositionSnapshot:
-        
+    def get_portfolio_allocation_position_snapshots(self, cognito_user_id: str, portfolio_id: str, with_wait: bool = False) -> List[PortfolioAllocationPositionSnapshot]:
+
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+
         try:
             item = self.portfolio_allocation_table_client.get_item(
                 key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id},
@@ -404,8 +487,8 @@ class PortfolioAllocationRepository:
                 cognito_user_id=cognito_user_id,
                 portfolio_id=portfolio_id
             )
-        
-        if "position_history" not in item: 
+
+        if "position_history" not in item:
             raise PortfolioAllocationUnprocessableEntityError(
                 operation="load position history",
                 cognito_user_id=cognito_user_id,
@@ -419,7 +502,64 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id,
                 cause=KeyError("position_history"),
             )
-        
+
+        return [
+            PortfolioAllocationPositionSnapshot(
+                positions=[
+                    PortfolioAllocationPosition(
+                        symbol=position["symbol"],
+                        filled_quantity=float(position["filled_quantity"]),
+                        direction=int(position["direction"]),
+                        filled_avg_price=float(position["filled_avg_price"])
+                    )
+                    for position in position_snapshot["positions"]
+                ],
+                timestamp=to_utc_from_iso(position_snapshot["timestamp"])
+            )
+            for position_snapshot in item["position_history"]
+        ]
+
+
+    def get_latest_portfolio_allocation_position_snapshot(self, cognito_user_id: str, portfolio_id: str, with_wait: bool = False) -> PortfolioAllocationPositionSnapshot:
+
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+
+        try:
+            item = self.portfolio_allocation_table_client.get_item(
+                key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id},
+                projection_expression="position_history"
+            )
+        except DynamoDBClientError as e:
+            raise PortfolioAllocationBadGatewayError(
+                source="DynamoDB",
+                operation="loading portfolio allocation",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise PortfolioAllocationNotFoundError(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id
+            )
+
+        if "position_history" not in item:
+            raise PortfolioAllocationUnprocessableEntityError(
+                operation="load position history",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=KeyError("position_history"),
+            )
+        if len(item["position_history"]) < 1:
+            raise PortfolioAllocationUnprocessableEntityError(
+                operation="load position history",
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                cause=KeyError("position_history"),
+            )
+
         position_snapshot = item["position_history"][-1]
 
         return PortfolioAllocationPositionSnapshot(
@@ -434,7 +574,7 @@ class PortfolioAllocationRepository:
             ],
             timestamp=to_utc_from_iso(position_snapshot["timestamp"])
         )
-    
+
 
     def get_portfolio_allocation_total_cost_basis(self, cognito_user_id: str, portfolio_id: str) -> float:
         """
@@ -484,7 +624,7 @@ class PortfolioAllocationRepository:
                 portfolio_id=portfolio_id,
                 cause=e,
             ) from e
-        
+
     def get_portfolio_allocations_by_cognito_user_id(self, cognito_user_id: str) -> List[PortfolioAllocation]:
         """
         Load all portfolio allocations for a Cognito user.
@@ -536,21 +676,7 @@ class PortfolioAllocationRepository:
                 ]
 
                 transaction_history = [
-                    PortfolioAllocationTransactionSnapshot(
-                        transaction_id=str(transaction_snapshot["transaction_id"]),
-                        created_at=to_utc_from_iso(transaction_snapshot["created_at"]),
-                        filled_at=to_utc_from_iso(transaction_snapshot["filled_at"]),
-                        requested_amount=(
-                            float(transaction_snapshot["requested_amount"])
-                            if transaction_snapshot["requested_amount"] is not None
-                            else None
-                        ),
-                        number_orders=int(transaction_snapshot["number_orders"]),
-                        transaction_type=str(transaction_snapshot["transaction_type"]),
-                        cost_basis=float(transaction_snapshot["cost_basis"]),
-                        order_fill_percent=float(transaction_snapshot["order_fill_percent"]),
-                        status=str(transaction_snapshot["status"]),
-                    )
+                    _parse_transaction_snapshot(transaction_snapshot)
                     for transaction_snapshot in item["transaction_history"]
                 ]
 
@@ -573,8 +699,8 @@ class PortfolioAllocationRepository:
                 cognito_user_id=cognito_user_id,
                 cause=e,
             ) from e
-    
-    def get_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str) -> PortfolioAllocation:
+
+    def get_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str, with_wait: bool = False) -> PortfolioAllocation:
         """Load a full portfolio allocation aggregate for a user and portfolio.
 
         Args:
@@ -593,6 +719,9 @@ class PortfolioAllocationRepository:
             data cannot be parsed.
         """
 
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+
         try:
             item = self.portfolio_allocation_table_client.get_item(key={"cognito_user_id": cognito_user_id, "portfolio_id": portfolio_id})
         except DynamoDBClientError as e:
@@ -609,7 +738,7 @@ class PortfolioAllocationRepository:
                 cognito_user_id=cognito_user_id,
                 portfolio_id=portfolio_id
             )
-        
+
         try:
             position_history = [
                 PortfolioAllocationPositionSnapshot(
@@ -632,21 +761,7 @@ class PortfolioAllocationRepository:
                 cognito_user_id=item["cognito_user_id"],
                 position_history=position_history,
                 transaction_history=[
-                    PortfolioAllocationTransactionSnapshot(
-                        transaction_id=str(transaction_snapshot["transaction_id"]),
-                        created_at=to_utc_from_iso(transaction_snapshot["created_at"]),
-                        filled_at=to_utc_from_iso(transaction_snapshot["filled_at"]),
-                        requested_amount=(
-                            float(transaction_snapshot["requested_amount"])
-                            if transaction_snapshot["requested_amount"] is not None
-                            else None
-                        ),
-                        number_orders=int(transaction_snapshot["number_orders"]),
-                        transaction_type=str(transaction_snapshot["transaction_type"]),
-                        cost_basis=float(transaction_snapshot["cost_basis"]),
-                        order_fill_percent=float(transaction_snapshot["order_fill_percent"]),
-                        status=str(transaction_snapshot["status"]),
-                    )
+                    _parse_transaction_snapshot(transaction_snapshot)
                     for transaction_snapshot in item["transaction_history"]
                 ],
                 total_cost_basis=float(item["total_cost_basis"]),
@@ -700,24 +815,10 @@ class PortfolioAllocationRepository:
                     for position_snapshot in portfolio_allocation.position_history
                 ],
                 "transaction_history": [
-                    {
-                        "transaction_id": str(transaction_snapshot.transaction_id),
-                        "created_at": transaction_snapshot.created_at.isoformat(),
-                        "filled_at": transaction_snapshot.filled_at.isoformat(),
-                        "requested_amount": (
-                            Decimal(str(transaction_snapshot.requested_amount))
-                            if transaction_snapshot.requested_amount is not None
-                            else None
-                        ),
-                        "number_orders": int(transaction_snapshot.number_orders),
-                        "transaction_type": str(transaction_snapshot.transaction_type),
-                        "cost_basis": Decimal(str(transaction_snapshot.cost_basis)),
-                        "order_fill_percent": Decimal(str(transaction_snapshot.order_fill_percent)),
-                        "status": str(transaction_snapshot.status),
-                    }
+                    _serialize_transaction_snapshot(transaction_snapshot)
                     for transaction_snapshot in portfolio_allocation.transaction_history
                 ],
-                "total_cost_basis": str(portfolio_allocation.total_cost_basis),
+                "total_cost_basis": Decimal(str(portfolio_allocation.total_cost_basis)),
                 "portfolio_allocation_type": str(portfolio_allocation.portfolio_allocation_type),
                 "portfolio_name": str(portfolio_allocation.portfolio_name)
             }

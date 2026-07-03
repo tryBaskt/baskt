@@ -106,6 +106,19 @@ def _execute_message(message: Dict[str, Any]) -> None:
     payload = _payload(message)
     service = _trade_execution_service()
 
+    if action == "portfolio_update":
+        service.execute_update_in_portfolio(
+            portfolio_id=payload["portfolio_id"],
+            portfolio_owner_cognito_user_id=payload[
+                "portfolio_owner_cognito_user_id"
+            ],
+            cognito_user_id=payload["cognito_user_id"],
+            alpaca_account_id=payload["alpaca_account_id"],
+            model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
+            transaction_id=payload["transaction_id"],
+        )
+        return
+
     if action == "portfolio_deposit":
         service.execute_deposit_to_portfolio(
             portfolio_id=payload["portfolio_id"],
@@ -113,6 +126,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
                 "portfolio_owner_cognito_user_id"
             ],
             deposit_amount=float(payload["amount"]),
+            transaction_id=payload["transaction_id"],
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
         )
@@ -125,6 +139,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
                 "portfolio_owner_cognito_user_id"
             ],
             withdraw_amount=float(payload["amount"]),
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )
@@ -136,6 +151,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
             portfolio_owner_cognito_user_id=payload[
                 "portfolio_owner_cognito_user_id"
             ],
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )
@@ -145,6 +161,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
         service.execute_buy_to_stock(
             symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             deposit_amount=float(payload["amount"]),
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
@@ -155,6 +172,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
         service.execute_sell_to_stock(
             symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             withdraw_amount=float(payload["amount"]),
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
@@ -164,6 +182,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "stock_close":
         service.execute_close_stock(
             asset_id=payload["asset_id"],
+            transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
         )
@@ -184,6 +203,10 @@ def _process_record(record: Dict[str, Any]) -> None:
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Process SQS messages and report per-record failures for retry."""
+    if event.get("action") == "warmup":
+        _trade_execution_service()
+        return {"warmed": True}
+
     batch_item_failures = []
     for record in event.get("Records", []):
         try:

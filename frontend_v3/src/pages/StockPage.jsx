@@ -290,6 +290,46 @@ export default function StockPage({ stockId, onBack }) {
                 </strong>
                 <small>Long + / short -</small>
               </div>
+              <div>
+                <span>Alpha</span>
+                <strong className={getReturnTone(selectedAnalytics?.alpha)}>
+                  {selectedAnalytics?.alpha !== null && selectedAnalytics?.alpha !== undefined
+                    ? percent(Number(selectedAnalytics.alpha) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Beta</span>
+                <strong className="metric-accent">
+                  {selectedAnalytics?.beta !== null && selectedAnalytics?.beta !== undefined
+                    ? Number(selectedAnalytics.beta).toFixed(2)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Sharpe ratio</span>
+                <strong className="metric-accent">
+                  {selectedAnalytics?.sharpe_ratio !== null && selectedAnalytics?.sharpe_ratio !== undefined
+                    ? Number(selectedAnalytics.sharpe_ratio).toFixed(2)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Maximum drawdown</span>
+                <strong className={getReturnTone(selectedAnalytics?.maximum_drawdown)}>
+                  {selectedAnalytics?.maximum_drawdown !== null && selectedAnalytics?.maximum_drawdown !== undefined
+                    ? percent(Number(selectedAnalytics.maximum_drawdown) * 100)
+                    : "Not available"}
+                </strong>
+              </div>
+              <div>
+                <span>Maximum drawdown duration</span>
+                <strong className="metric-accent">
+                  {selectedAnalytics?.maximum_drawdown_duration !== null && selectedAnalytics?.maximum_drawdown_duration !== undefined
+                    ? `${Number(selectedAnalytics.maximum_drawdown_duration).toFixed(1)} days`
+                    : "Not available"}
+                </strong>
+              </div>
             </div>
           </div>
         )}
@@ -375,7 +415,7 @@ export default function StockPage({ stockId, onBack }) {
                 <thead>
                   <tr>
                     <th>Created</th>
-                    <th>Filled</th>
+                    <th>Filled at</th>
                     <th>Type</th>
                     <th>Requested</th>
                     <th>Filled amount</th>

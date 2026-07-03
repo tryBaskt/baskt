@@ -44,6 +44,7 @@ class VectorBTClient:
         fees: float = 0.0,
         slippage: float = 0.0,
         excluded_direction_symbols: Optional[Sequence[str]] = None,
+        benchmark_returns: Optional[pd.Series] = None,
     ) -> VectorBTPortfolioAnalytics:
         """Simulate a portfolio from prices and target percentage exposures.
 
@@ -67,6 +68,8 @@ class VectorBTClient:
             excluded_direction_symbols: Synthetic symbols to exclude when
                 calculating leverage-adjusted direction, such as a financing
                 position.
+            benchmark_returns: Optional benchmark returns aligned to the price
+                index. Required for alpha and beta.
 
         Returns:
             VectorBTPortfolioResult: Normalized return series and metrics. All
@@ -121,6 +124,19 @@ class VectorBTClient:
 
             cagr = portfolio.annualized_return()
             annualized_volatility = portfolio.annualized_volatility()
+            sharpe_ratio = portfolio.sharpe_ratio()
+            maximum_drawdown = portfolio.max_drawdown()
+            maximum_drawdown_duration = portfolio.drawdowns.max_duration()
+            alpha = None
+            beta = None
+            if benchmark_returns is not None:
+                aligned_benchmark_returns = benchmark_returns.reindex(prices.index)
+                alpha = portfolio.returns_acc.alpha(
+                    benchmark_rets=aligned_benchmark_returns,
+                )
+                beta = portfolio.returns_acc.beta(
+                    benchmark_rets=aligned_benchmark_returns,
+                )
 
             asset_value = portfolio.asset_value(group_by=False)
             if isinstance(asset_value, pd.Series):
@@ -161,6 +177,19 @@ class VectorBTClient:
                     else float(annualized_volatility)
                 ),
                 leverage_adjusted_direction=leverage_adjusted_direction,
+                alpha=None if alpha is None or pd.isna(alpha) else float(alpha),
+                beta=None if beta is None or pd.isna(beta) else float(beta),
+                sharpe_ratio=(
+                    None if pd.isna(sharpe_ratio) else float(sharpe_ratio)
+                ),
+                maximum_drawdown=(
+                    None if pd.isna(maximum_drawdown) else float(maximum_drawdown)
+                ),
+                maximum_drawdown_duration=(
+                    None
+                    if pd.isna(maximum_drawdown_duration)
+                    else float(maximum_drawdown_duration / pd.Timedelta(days=1))
+                ),
             )
         except VectorBTClientError:
             raise

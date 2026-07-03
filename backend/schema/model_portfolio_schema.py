@@ -33,6 +33,7 @@ class ModelPortfolioPositionResponse(BaseModel):
 
 
 class ModelPortfolioSnapshotResponse(BaseModel):
+    snapshot_id: str
     positions: List[ModelPortfolioPositionResponse]
     timestamp: str
 
@@ -56,6 +57,11 @@ class ModelPortfolioAnalyticsPeriodResponse(BaseModel):
     cagr: Optional[float] = None
     annualized_volatility: Optional[float] = None
     leverage_adjusted_direction: Optional[float] = None
+    alpha: Optional[float] = None
+    beta: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    maximum_drawdown: Optional[float] = None
+    maximum_drawdown_duration: Optional[float] = None
 
 
 class ModelPortfolioAnalyticsResponse(RootModel[Dict[str, ModelPortfolioAnalyticsPeriodResponse]]):
