@@ -286,6 +286,7 @@ class BacktestService:
         return {
             "start_date": start_date,
             "end_date": end_date,
+            "timestamps": simulation_result.timestamps,
             "cumulative_returns": simulation_result.cumulative_returns,
             "final_cumulative_return": simulation_result.final_cumulative_return,
             "cagr": simulation_result.cagr,
