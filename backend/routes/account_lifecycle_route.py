@@ -6,7 +6,13 @@ from typing import Any, Dict
 
 # Fast api Imports
 from fastapi import APIRouter, Depends, HTTPException, Query
-from starlette.status import HTTP_200_OK, HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_422_UNPROCESSABLE_CONTENT, HTTP_500_INTERNAL_SERVER_ERROR
+from starlette.status import (
+	HTTP_200_OK,
+	HTTP_201_CREATED,
+	HTTP_403_FORBIDDEN,
+	HTTP_422_UNPROCESSABLE_CONTENT,
+	HTTP_500_INTERNAL_SERVER_ERROR
+)
 
 # Baskt Imports
 from core.deps import get_account_lifecycle_service, get_current_active_alpaca_account, get_current_user
@@ -24,7 +30,11 @@ from schema.account_lifecycle_schema import (
 	BasktTransferResponse,
 	BasktTransfersResponse,
 )
-from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceBasktAccountDisabled, AccountLifecycleServiceError
+from services.account_lifecycle_service import (
+	AccountLifecycleInternalServerError,
+	AccountLifecycleService,
+	AccountLifecycleServiceBasktAccountDisabled,
+)
 
 # Alpaca imports
 from alpaca.broker.models import ACHRelationship, Bank, Transfer, TradeAccount
@@ -37,7 +47,9 @@ def _raise_account_lifecycle_http_exception(err: Exception) -> None:
 	"""
 	Convert account lifecycle exceptions into FastAPI HTTP exceptions.
 	"""
-	if isinstance(err, AccountLifecycleServiceError):
+	if isinstance(err, HTTPException):
+		raise err
+	if isinstance(err, AccountLifecycleInternalServerError):
 		if isinstance(err, AccountLifecycleServiceBasktAccountDisabled):
 			status_code = HTTP_403_FORBIDDEN
 		elif "UNSUPPORTED" in err.code:
@@ -452,7 +464,7 @@ def create_transfer(
 			)
 			return
 
-		raise AccountLifecycleServiceError(
+		raise AccountLifecycleInternalServerError(
 			message=f"Unsupported funding source type '{request.funding_source_type}'",
 			code="ACCOUNT_LIFECYCLE_UNSUPPORTED_TRANSFER_SOURCE",
 		)

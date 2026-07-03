@@ -8,14 +8,14 @@ from domain.backtest_domain import BacktestPosition
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from services.asset_analytics_service import (
     AssetAnalyticsService,
-    AssetAnalyticsServiceError,
+    AssetAnalyticsInternalServerError,
 )
 from domain.stock_domain import Stock
 
 BacktestRunResult: TypeAlias = Dict[str, str | List[float] | Optional[float]]
 BacktestPositionConfig: TypeAlias = Dict[str, Any]
 
-class BacktestServiceError(Exception):
+class BacktestInternalServerError(Exception):
     """Base error for backtest service failures."""
 
     def __init__(self, message: str, code: str = "BACKTEST_SERVICE_ERROR") -> None:
@@ -33,7 +33,7 @@ class BacktestServiceError(Exception):
         self.code = code
 
 
-class BacktestServiceValidationError(BacktestServiceError):
+class BacktestServiceValidationError(BacktestInternalServerError):
     def __init__(self, message: str) -> None:
         """
         Initialize a backtest validation exception.
@@ -47,7 +47,7 @@ class BacktestServiceValidationError(BacktestServiceError):
         super().__init__(message=message, code="BACKTEST_SERVICE_VALIDATION_ERROR")
 
 
-class BacktestServiceDataError(BacktestServiceError):
+class BacktestServiceDataError(BacktestInternalServerError):
     def __init__(self, message: str) -> None:
         """
         Initialize a backtest market-data exception.
@@ -61,7 +61,7 @@ class BacktestServiceDataError(BacktestServiceError):
         super().__init__(message=message, code="BACKTEST_SERVICE_DATA_ERROR")
 
 
-class BacktestServiceCalculationError(BacktestServiceError):
+class BacktestServiceCalculationError(BacktestInternalServerError):
     def __init__(self, message: str) -> None:
         """
         Initialize a backtest calculation exception.
@@ -113,7 +113,7 @@ class BacktestService:
             List[Stock]: Tradable, fractionable US equity assets.
 
         Raises:
-            BacktestServiceError: If Alpaca fails while fetching assets.
+            BacktestInternalServerError: If Alpaca fails while fetching assets.
         """
         try:
             assets = self.alpaca_broker_client.get_tradeable_fractionable_US_assets()
@@ -131,7 +131,7 @@ class BacktestService:
             ]
             return stocks
         except AlpacaBrokerClientError as err:
-            raise BacktestServiceError(
+            raise BacktestInternalServerError(
                 message=f"Failed to get tradeable, fractionable, US baskt assets: {err}",
                 code="BACKTEST_GET_TRADEABLE_FRACTIONABLE_US_BASKT_ASSETS_FAILED"
             ) from err
@@ -235,7 +235,7 @@ class BacktestService:
                 timeframe="1D",
                 source="yfinance",
             )
-        except AssetAnalyticsServiceError as error:
+        except AssetAnalyticsInternalServerError as error:
             raise BacktestServiceDataError(
                 f"Failed to fetch backtest market data: {error}"
             ) from error
@@ -278,7 +278,7 @@ class BacktestService:
                 slippage=0.0,
                 benchmark_returns=benchmark_returns,
             )
-        except AssetAnalyticsServiceError as error:
+        except AssetAnalyticsInternalServerError as error:
             raise BacktestServiceCalculationError(
                 f"Failed to calculate backtest performance: {error}"
             ) from error

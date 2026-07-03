@@ -41,7 +41,7 @@ def _with_user_trade_lock(method: Any) -> Any:
     return wrapped
 
 
-class TradeExecutionQueuingServiceError(Exception):
+class TradeExecutionQueuingInternalServerError(Exception):
     """Raised when a trade request cannot be validated or queued."""
 
     def __init__(
@@ -67,7 +67,7 @@ class TradeExecutionQueuingService:
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository
     ) -> None:
         if not queue_url:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message="Trade execution queue URL is required.",
                 code="TRADE_EXECUTION_QUEUE_URL_REQUIRED",
             )
@@ -91,12 +91,12 @@ class TradeExecutionQueuingService:
             )
             return str(response["MessageId"])
         except (TypeError, ValueError) as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Failed to serialize trade execution message: {error}",
                 code="TRADE_EXECUTION_QUEUE_MESSAGE_SERIALIZATION_FAILED",
             ) from error
         except (BotoCoreError, ClientError, KeyError) as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Failed to publish trade execution message: {error}",
                 code="TRADE_EXECUTION_QUEUE_SEND_FAILED",
             ) from error
@@ -146,7 +146,7 @@ class TradeExecutionQueuingService:
             lease_seconds=QUEUE_LOCK_LEASE_SECONDS,
         )
         if not acquired:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message="Another queue operation is currently writing trades for this user.",
                 code="TRADE_EXECUTION_QUEUE_LOCKED",
             )
@@ -209,7 +209,7 @@ class TradeExecutionQueuingService:
     @staticmethod
     def _validate_required(field_name: str, value: str) -> None:
         if not isinstance(value, str) or not value.strip():
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Trade execution field '{field_name}' is required.",
                 code="TRADE_EXECUTION_QUEUE_FIELD_REQUIRED",
             )
@@ -241,12 +241,12 @@ class TradeExecutionQueuingService:
     @staticmethod
     def _validate_amount(amount: float) -> None:
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message="Trade amount must be numeric.",
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
         if amount < TRADE_AMOUNT_MIN:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Trade amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
@@ -272,7 +272,7 @@ class TradeExecutionQueuingService:
                 snapshot.snapshot_id == model_portfolio_snapshot_id
                 for snapshot in model_portfolio.position_history
             ):
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=(
                         f"Model portfolio snapshot '{model_portfolio_snapshot_id}' "
                         f"does not exist for portfolio '{portfolio_id}'."
@@ -323,10 +323,10 @@ class TradeExecutionQueuingService:
                         }
                     )
             return message_ids
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue portfolio update for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -379,7 +379,7 @@ class TradeExecutionQueuingService:
 
             projected_equity = self._allocation_equity(allocation) + amount
             if projected_equity < MINIMUM_PORTFOLIO_BALANCE:
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=(
                         f"Deposit would result in ${projected_equity:.2f}; the minimum "
                         f"portfolio balance is ${MINIMUM_PORTFOLIO_BALANCE:.2f}."
@@ -403,10 +403,10 @@ class TradeExecutionQueuingService:
                     "alpaca_account_id": alpaca_account_id,
                 },
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue portfolio deposit for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -441,13 +441,13 @@ class TradeExecutionQueuingService:
             )
             equity = self._allocation_equity(allocation)
             if amount > equity:
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=f"Withdrawal ${amount:.2f} exceeds allocation equity ${equity:.2f}.",
                     code="TRADE_EXECUTION_QUEUE_AMOUNT_EXCEEDS_EQUITY",
                 )
             remaining_equity = equity - amount
             if remaining_equity < MINIMUM_PORTFOLIO_BALANCE:
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=(
                         f"Withdrawal would leave ${remaining_equity:.2f}; use withdraw-all "
                         f"or retain at least ${MINIMUM_PORTFOLIO_BALANCE:.2f}."
@@ -471,10 +471,10 @@ class TradeExecutionQueuingService:
                     "alpaca_account_id": alpaca_account_id,
                 },
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue portfolio withdrawal for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -506,7 +506,7 @@ class TradeExecutionQueuingService:
                 portfolio_id=portfolio_id,
             )
             if not allocation.position_history or not allocation.position_history[-1].positions:
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=f"Portfolio '{portfolio_id}' has no positions to withdraw.",
                     code="TRADE_EXECUTION_QUEUE_NO_POSITIONS",
                 )
@@ -526,10 +526,10 @@ class TradeExecutionQueuingService:
                     "alpaca_account_id": alpaca_account_id,
                 },
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue withdraw-all for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -585,7 +585,7 @@ class TradeExecutionQueuingService:
         self._validate_amount(amount)
         stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
         if stock.symbol.upper() != symbol.upper():
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Stock ID '{asset_id}' belongs to '{stock.symbol}', not "
                     f"'{symbol.upper()}'."
@@ -593,7 +593,7 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_STOCK_MISMATCH",
             )
         if not stock.tradable or not stock.fractionable:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Stock '{stock.symbol}' must be tradable and fractionable.",
                 code="TRADE_EXECUTION_QUEUE_STOCK_NOT_TRADABLE",
             )
@@ -608,7 +608,7 @@ class TradeExecutionQueuingService:
             current_direction in {None, -1} or amount > current_equity
         )
         if opens_or_increases_short and not stock.shortable:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=f"Stock '{stock.symbol}' is not shortable.",
                 code="TRADE_EXECUTION_QUEUE_STOCK_NOT_SHORTABLE",
             )
@@ -620,7 +620,7 @@ class TradeExecutionQueuingService:
             trade_direction=trade_direction,
         )
         if projected_equity < MINIMUM_STOCK_BALANCE:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"{transaction_type.title()} would leave ${projected_equity:.2f}; close "
                     f"the position or retain at least ${MINIMUM_STOCK_BALANCE:.2f}."
@@ -666,10 +666,10 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
                 trade_direction=1,
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue stock buy for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -697,10 +697,10 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
                 trade_direction=-1,
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue stock sell for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -730,7 +730,7 @@ class TradeExecutionQueuingService:
                 portfolio_id=asset_id,
             )
             if not allocation.position_history or not allocation.position_history[-1].positions:
-                raise TradeExecutionQueuingServiceError(
+                raise TradeExecutionQueuingInternalServerError(
                     message=f"Stock allocation '{asset_id}' has no position to close.",
                     code="TRADE_EXECUTION_QUEUE_NO_POSITIONS",
                 )
@@ -750,10 +750,10 @@ class TradeExecutionQueuingService:
                     "alpaca_account_id": alpaca_account_id,
                 },
             )
-        except TradeExecutionQueuingServiceError:
+        except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:
-            raise TradeExecutionQueuingServiceError(
+            raise TradeExecutionQueuingInternalServerError(
                 message=(
                     f"Failed to queue stock close for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {error}"

@@ -2,9 +2,9 @@
 
 # Python imports
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from decimal import Decimal
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 
 # Baskt imports
 from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
@@ -337,5 +337,141 @@ class OrderRepository:
             order for order in orders if str(order.get("status", "")).upper() != "FILLED"
         ]
     
+    def get_portfolio_ids_of_unfilled_orders(
+        self,
+        cognito_user_id: str,
+    ) -> List[Dict[str, str | None]]:
+        """Get portfolio identifiers with unfilled orders for a Cognito user.
 
-    
+        The DynamoDB query projects only ``portfolio_id``,
+        ``portfolio_owner_cognito_user_id``, and ``status`` from the
+        user/portfolio global secondary index. Duplicate portfolio IDs are
+        removed while preserving their query order.
+
+        Args:
+            cognito_user_id: Cognito user ID whose pending portfolios should
+                be identified.
+
+        Returns:
+            List[Dict[str, str | None]]: Unique portfolio and owner identifiers
+                having at least one order whose status is not FILLED. Returns
+                an empty list when none exist.
+
+        Raises:
+            OrderBadGatewayError: If DynamoDB fails while querying the user.
+        """
+        try:
+            orders = self.order_table_client.query(
+                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)),
+                IndexName="cognito_user_id_portfolio_id_index",
+                ProjectionExpression=(
+                    "portfolio_id, portfolio_owner_cognito_user_id, #order_status"
+                ),
+                ExpressionAttributeNames={"#order_status": "status"},
+            )
+        except DynamoDBClientError as error:
+            raise OrderBadGatewayError(
+                operation=f"loading unfilled orders for Cognito user '{cognito_user_id}'",
+                cause=error,
+            ) from error
+
+        portfolios: List[Tuple[str,str]] = []
+        portfolio_index: Dict[str, int] = {}
+        for order in orders:
+            if str(order.get("status", "")).upper() == "FILLED":
+                continue
+            portfolio_id = order.get("portfolio_id")
+            if portfolio_id is None:
+                continue
+            normalized_portfolio_id = str(portfolio_id)
+            owner_id = order.get("portfolio_owner_cognito_user_id")
+            normalized_owner_id = str(owner_id) if owner_id is not None else None
+            if normalized_portfolio_id in portfolio_index:
+                existing = portfolios[portfolio_index[normalized_portfolio_id]]
+                if existing["portfolio_owner_cognito_user_id"] is None:
+                    existing["portfolio_owner_cognito_user_id"] = normalized_owner_id
+                continue
+            portfolio_index[normalized_portfolio_id] = len(portfolios)
+            portfolios.append(
+                (normalized_portfolio_id, normalized_owner_id)
+            )
+
+        return portfolios
+
+
+    def get_unfilled_orders_by_cognito_user_id(
+        self,
+        cognito_user_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Load all unfilled orders belonging to a Cognito user.
+
+        The lookup queries the ``cognito_user_id_portfolio_id_index`` global
+        secondary index and filters the normalized results by order status.
+
+        Args:
+            cognito_user_id: Cognito user ID whose orders should be loaded.
+
+        Returns:
+            List[Dict[str, Any]]: Normalized orders whose status is not FILLED.
+                Returns an empty list when the user has no orders.
+
+        Raises:
+            OrderBadGatewayError: If DynamoDB fails while querying the user.
+            OrderUnprocessableEntityError: If an order record cannot be parsed.
+        """
+        try:
+            orders = self.order_table_client.query(
+                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)),
+                IndexName="cognito_user_id_portfolio_id_index",
+            )
+        except DynamoDBClientError as error:
+            raise OrderBadGatewayError(
+                operation=f"loading unfilled orders for Cognito user '{cognito_user_id}'",
+                cause=error,
+            ) from error
+
+        normalized_orders = self._norm_data_types(orders=orders)
+        return [
+            order
+            for order in normalized_orders
+            if str(order.get("status", "")).upper() != "FILLED"
+        ]
+
+    def get_unfilled_orders_by_portfolio_id(
+        self,
+        portfolio_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Load all unfilled orders associated with a portfolio ID.
+
+        The current order table has no index partitioned by ``portfolio_id``,
+        so this lookup uses a DynamoDB scan filtered by portfolio ID.
+
+        Args:
+            portfolio_id: Portfolio ID whose orders should be loaded.
+
+        Returns:
+            List[Dict[str, Any]]: Normalized orders whose status is not FILLED.
+                Returns an empty list when the portfolio has no orders.
+
+        Raises:
+            OrderBadGatewayError: If DynamoDB fails while scanning orders.
+            OrderUnprocessableEntityError: If an order record cannot be parsed.
+        """
+        try:
+            orders = self.order_table_client.scan(
+                filter_expression=Attr("portfolio_id").eq(str(portfolio_id)),
+            )
+        except DynamoDBClientError as error:
+            raise OrderBadGatewayError(
+                operation="loading unfilled orders",
+                portfolio_id=portfolio_id,
+                cause=error,
+            ) from error
+
+        normalized_orders = self._norm_data_types(orders=orders)
+        return [
+            order
+            for order in normalized_orders
+            if str(order.get("status", "")).upper() != "FILLED"
+        ]
+

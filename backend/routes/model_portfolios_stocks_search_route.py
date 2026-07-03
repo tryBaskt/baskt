@@ -17,8 +17,8 @@ from schema.model_portfolios_stocks_search_schema import (
 )
 
 from services.model_portfolios_stocks_search_service import (
+    ModelPortfoliosStocksSearchInternalServerError,
     ModelPortfoliosStocksSearchService,
-    ModelPortfoliosStocksSearchServiceError,
 )
 
 
@@ -41,21 +41,27 @@ def _raise_search_http_exception(error: Exception) -> None:
     if isinstance(error, HTTPException):
         raise error
 
-    if isinstance(error, ModelPortfoliosStocksSearchServiceError):
+    if isinstance(error, ModelPortfoliosStocksSearchInternalServerError):
         invalid_request_codes = {
             "MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT",
             "MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
         }
         status_code = (
-            status.HTTP_422_UNPROCESSABLE_ENTITY
+            status.HTTP_422_UNPROCESSABLE_CONTENT
             if error.code in invalid_request_codes
             else status.HTTP_502_BAD_GATEWAY
         )
-        raise HTTPException(status_code=status_code, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status_code,
+            detail={"message": str(error), "code": error.code},
+        ) from error
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected model portfolio search error: {error}",
+        detail={
+            "message": f"Unexpected model portfolio search error: {error}",
+            "code": "MODEL_PORTFOLIOS_STOCKS_SEARCH_UNEXPECTED_ERROR",
+        },
     ) from error
 
 

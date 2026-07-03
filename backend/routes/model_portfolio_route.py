@@ -17,7 +17,6 @@ from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
 from repository.model_portfolio_repository import (
     ModelPortfolioRepository,
     ModelPortfolioNotFoundError, 
-    ModelPortfolioPositionHistoryNotFoundError,
     ModelPortfolioInternalServerError,
     ModelPortfolioUnprocessableEntityError,
     ModelPortfolioTooManyRequestsError,
@@ -35,12 +34,12 @@ from schema.model_portfolio_schema import (
     ModelPortfoliosMetadataResponse,
 )
 from services.model_portfolio_analytics_service import (
+    ModelPortfolioAnalyticsInternalServerError,
     ModelPortfolioAnalyticsService,
-    ModelPortfolioAnalyticsServiceError,
 )
 from services.trade_execution_queuing_service import (
+    TradeExecutionQueuingInternalServerError,
     TradeExecutionQueuingService,
-    TradeExecutionQueuingServiceError,
 )
 
 
@@ -49,13 +48,12 @@ router = APIRouter(prefix="/model-portfolios", tags=["model-portfolios"])
 
 MODEL_PORTFOLIO_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
     (ModelPortfolioNotFoundError, status.HTTP_404_NOT_FOUND),
-    (ModelPortfolioPositionHistoryNotFoundError, status.HTTP_404_NOT_FOUND),
     (ModelPortfolioLockedError, status.HTTP_423_LOCKED),
     (ModelPortfolioTooManyRequestsError, status.HTTP_429_TOO_MANY_REQUESTS),
     (ModelPortfolioUnprocessableEntityError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (ModelPortfolioBadGatewayError, status.HTTP_502_BAD_GATEWAY),
     (ModelPortfolioInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
-    (ModelPortfolioAnalyticsServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    (ModelPortfolioAnalyticsInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 )
 
 
@@ -63,7 +61,7 @@ def _raise_model_portfolio_http_exception(err: Exception) -> None:
     if isinstance(err, HTTPException):
         raise err
 
-    if isinstance(err, TradeExecutionQueuingServiceError):
+    if isinstance(err, TradeExecutionQueuingInternalServerError):
         if err.code == "TRADE_EXECUTION_QUEUE_LOCKED":
             status_code = status.HTTP_409_CONFLICT
         elif err.code == "TRADE_EXECUTION_QUEUE_MODEL_PORTFOLIO_SNAPSHOT_NOT_FOUND":
@@ -72,15 +70,27 @@ def _raise_model_portfolio_http_exception(err: Exception) -> None:
             status_code = status.HTTP_502_BAD_GATEWAY
         else:
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        raise HTTPException(status_code=status_code, detail=str(err)) from err
+        raise HTTPException(
+            status_code=status_code,
+            detail={"message": str(err), "code": err.code},
+        ) from err
 
     for exception_type, status_code in MODEL_PORTFOLIO_ERROR_STATUS_MAP:
         if isinstance(err, exception_type):
-            raise HTTPException(status_code=status_code, detail=str(err)) from err
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "message": str(err),
+                    "code": getattr(err, "code", "MODEL_PORTFOLIO_ERROR"),
+                },
+            ) from err
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected model portfolio error: {err}",
+        detail={
+            "message": f"Unexpected model portfolio error: {err}",
+            "code": "MODEL_PORTFOLIO_UNEXPECTED_ERROR",
+        },
     ) from err
 
 

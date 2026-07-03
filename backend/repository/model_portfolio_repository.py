@@ -166,26 +166,6 @@ class ModelPortfolioTooManyRequestsError(ModelPortfolioInternalServerError):
             code="MODEL_PORTFOLIO_TOO_MANY_UPDATES_ERROR",
         )
 
-class ModelPortfolioPositionHistoryNotFoundError(ModelPortfolioInternalServerError):
-    def __init__(self, portfolio_id: str) -> None:
-        """
-        Initialize a missing position history exception.
-
-        Args:
-            portfolio_id: Model portfolio ID whose position history was not
-                found.
-
-        Returns:
-            None.
-
-        Raises:
-            No exceptions are intentionally raised by this method.
-        """
-        super().__init__(
-            message=f"Position history not found for model portfolio '{portfolio_id}'.",
-            code="MODEL_PORTFOLIO_POSITION_HISTORY_NOT_FOUND",
-        )
-
 class ModelPortfolioLockedError(ModelPortfolioInternalServerError):
     def __init__(
         self,
@@ -314,10 +294,8 @@ class ModelPortfolioRepository:
             ModelPortfolioBadGatewayError: If DynamoDB fails while loading
             position history.
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
-            ModelPortfolioPositionHistoryNotFoundError: If the stored item does
-            not include position_history.
-            ModelPortfolioUnprocessableEntityError: If stored position history
-            cannot be parsed.
+            ModelPortfolioUnprocessableEntityError: If position_history is
+            missing or its stored contents cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)
@@ -343,8 +321,10 @@ class ModelPortfolioRepository:
                 portfolio_id=portfolio_id
             )
         if "position_history" not in item:
-            raise ModelPortfolioPositionHistoryNotFoundError(
-                portfolio_id=portfolio_id
+            raise ModelPortfolioUnprocessableEntityError(
+                operation="get_position_history",
+                portfolio_id=portfolio_id,
+                cause=Exception(f"Position history not in model portfolio '{portfolio_id}'")
             )
 
         # Create position history
@@ -404,10 +384,8 @@ class ModelPortfolioRepository:
             ModelPortfolioBadGatewayError: If DynamoDB fails while loading
             position history.
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
-            ModelPortfolioPositionHistoryNotFoundError: If position history is
-            missing.
-            ModelPortfolioUnprocessableEntityError: If stored position history
-            cannot be parsed.
+            ModelPortfolioUnprocessableEntityError: If position history is
+            missing or its stored contents cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)

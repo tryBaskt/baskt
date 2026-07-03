@@ -11,7 +11,7 @@ from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSna
 from domain.stock_domain import Stock
 
 
-class InvestmentAnalyticsServiceError(Exception):
+class InvestmentAnalyticsInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "INVESTMENT_ANALYTICS_SERVICE_ERROR") -> None:
 		"""
 		Initialize an investment analytics service exception.
@@ -31,7 +31,7 @@ class InvestmentAnalyticsService:
         self,
         *,
         alpaca_broker_client: AlpacaBrokerClient,
-        portfolio_allocation_repository: PortfolioAllocationRepository
+        portfolio_allocation_repository: PortfolioAllocationRepository,
     ):
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_repository = portfolio_allocation_repository
@@ -41,6 +41,7 @@ class InvestmentAnalyticsService:
         try:
             if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return {}
+
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
             position_history = portfolio_allocation.position_history
             if (not position_history) or (not position_history[-1].positions):
@@ -59,7 +60,7 @@ class InvestmentAnalyticsService:
                 "profit_loss_percent": (equity - total_cost_basis) / total_cost_basis
             }
         except Exception as e:
-            raise InvestmentAnalyticsServiceError(
+            raise InvestmentAnalyticsInternalServerError(
                 message=f"Failed to get investment analytics for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
                 code="INVESTMENT_ANALYTICS_GET_PORTFOLIO_ALLOCATION_ANALYTICS_FAILED"
             ) from e
@@ -68,7 +69,7 @@ class InvestmentAnalyticsService:
         try:
             return self.alpaca_broker_client.get_stock_by_asset_id(asset_id=stock_id)
         except Exception as e:
-            raise InvestmentAnalyticsServiceError(
+            raise InvestmentAnalyticsInternalServerError(
                 message=f"Failed to get investment analytics stock for stock id '{stock_id}': {e}",
                 code="INVESTMENT_ANALYTICS_GET_STOCK__FAILED"
             )
@@ -83,7 +84,7 @@ class InvestmentAnalyticsService:
             return self.portfolio_allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
         
         except Exception as e:
-            raise InvestmentAnalyticsServiceError(
+            raise InvestmentAnalyticsInternalServerError(
                 message=f"Failed to get investment analytics portfolio allocation transactions for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
                 code="ACCOUNT_ANALYTICS_GET_TRANSACTIONS_FAILED"
             )
@@ -133,7 +134,7 @@ class InvestmentAnalyticsService:
             return account_analytics
         
         except Exception as err:
-            raise InvestmentAnalyticsServiceError(
+            raise InvestmentAnalyticsInternalServerError(
                 message=f"Failed to get investment analytics for alpaca account id '{alpaca_account_id}': {err}"
             ) from err
 

@@ -154,7 +154,7 @@ export default function StockPage({ stockId, onBack }) {
       setTradeError("Enter an amount greater than zero.");
       return;
     }
-    if (action === "sell" && numericAmount > sellLimit) {
+    if (action === "sell" && !stock.shortable && numericAmount > sellLimit) {
       setTradeError(`Sell amount cannot exceed ${currency(sellLimit)}.`);
       return;
     }
@@ -367,7 +367,11 @@ export default function StockPage({ stockId, onBack }) {
           <div>
             <p className="eyebrow">Your allocation</p>
             <h2>You do not own {stock.symbol} yet</h2>
-            <p>Enter an amount below to place your first buy.</p>
+            <p>
+              {stock.shortable
+                ? "Enter an amount below to buy or open a short position."
+                : "Enter an amount below to place your first buy."}
+            </p>
           </div>
         </section>
       )}
@@ -385,7 +389,7 @@ export default function StockPage({ stockId, onBack }) {
             <input
               type="number"
               min="0"
-              max={hasAllocation ? sellLimit : undefined}
+              max={!stock.shortable && hasAllocation ? sellLimit : undefined}
               step="0.01"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
@@ -395,7 +399,14 @@ export default function StockPage({ stockId, onBack }) {
           {hasAllocation ? <p className="field-help">Available position value: {currency(sellLimit)}</p> : null}
           <div className="button-row">
             <button className="primary-button" type="button" disabled={isSubmitting || !stock.tradable} onClick={() => executeTrade("buy")}>Buy</button>
-            <button className="ghost-button" type="button" disabled={isSubmitting || !hasAllocation} onClick={() => executeTrade("sell")}>Sell</button>
+            <button
+              className="ghost-button"
+              type="button"
+              disabled={isSubmitting || !stock.tradable || (!hasAllocation && !stock.shortable)}
+              onClick={() => executeTrade("sell")}
+            >
+              Sell
+            </button>
             <button className="danger-button" type="button" disabled={isSubmitting || !hasAllocation} onClick={() => executeTrade("close")}>Close position</button>
           </div>
         </div>

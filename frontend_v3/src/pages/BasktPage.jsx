@@ -434,9 +434,11 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
                     <td>{formatDateTime(transaction.filled_at)}</td>
                     <td>{transaction.transaction_type}</td>
                     <td>
-                      {transaction.requested_amount === null || transaction.requested_amount === undefined
+                      {String(transaction.transaction_type).toUpperCase() === "WITHDRAW_ALL"
                         ? "Withdraw all"
-                        : currency(transaction.requested_amount)}
+                        : transaction.requested_amount === null || transaction.requested_amount === undefined
+                          ? "—"
+                          : currency(transaction.requested_amount)}
                     </td>
                     <td>{currency(transaction.cost_basis)}</td>
                     <td>{percent(transaction.order_fill_percent)}</td>

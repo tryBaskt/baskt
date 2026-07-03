@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
 from domain.model_portfolio_domain import ModelPortfolioSnapshot, ModelPortfolioPosition
@@ -26,7 +26,7 @@ MINIMUM_STOCK_BALANCE = 1.0
 
 TRADE_AMOUNT_MIN = 10.0
 
-class TradeExecutionServiceError(Exception):
+class TradeExecutionInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "TRADE_EXECUTION_SERVICE_ERROR") -> None:
 		"""
 		Initialize an Trade Execution service exception.
@@ -64,12 +64,12 @@ class TradeExecutionService:
     def _validate_amount(self, amount: float) -> None:
         """Validate the minimum numeric amount accepted for trade execution."""
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message="Trade execution amount must be numeric.",
                 code="TRADE_EXECUTION_AMOUNT_INVALID",
             )
         if amount < TRADE_AMOUNT_MIN:
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=f"Trade execution amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_AMOUNT_INVALID",
             )
@@ -83,7 +83,7 @@ class TradeExecutionService:
         for transaction in portfolio_allocation.transaction_history:
             if transaction.transaction_id == transaction_id:
                 return transaction
-        raise TradeExecutionServiceError(
+        raise TradeExecutionInternalServerError(
             message=f"Queued transaction '{transaction_id}' was not found.",
             code="TRADE_EXECUTION_TRANSACTION_NOT_FOUND",
         )
@@ -189,6 +189,62 @@ class TradeExecutionService:
         return curr_allocation_amount + order_filled_avg_price * flipped_qty
 
 
+    def _calculate_transaction_filled_amount(
+        self,
+        transaction_orders: List[Dict[str, Any]],
+    ) -> float:
+        """Calculate net executed notional for a transaction by symbol.
+
+        Offsetting broker orders are netted before taking absolute values. This
+        keeps multi-order fractional sells from reporting gross turnover as the
+        amount filled.
+
+        Args:
+            transaction_orders: Cached order rows for one transaction, updated
+                in memory with any fills discovered during reconciliation.
+
+        Returns:
+            float: Absolute net filled notional summed across symbols.
+
+        Raises:
+            TradeExecutionInternalServerError: If a filled order has an
+                unsupported side or lacks its filled price or quantity.
+        """
+        net_notional_by_symbol: Dict[str, float] = {}
+        for transaction_order in transaction_orders:
+            if str(transaction_order.get("status", "")).upper() != "FILLED":
+                continue
+            symbol = str(transaction_order["symbol"])
+            side = str(transaction_order["side"]).upper()
+            if side == "BUY":
+                side_multiplier = 1.0
+            elif side == "SELL":
+                side_multiplier = -1.0
+            else:
+                raise TradeExecutionInternalServerError(
+                    message=(
+                        f"Filled order '{transaction_order['order_id']}' has "
+                        f"unsupported side '{side}'."
+                    ),
+                    code="TRADE_EXECUTION_ORDER_SIDE_INVALID",
+                )
+            filled_avg_price = transaction_order.get("filled_avg_price")
+            filled_qty = transaction_order.get("filled_qty")
+            if filled_avg_price is None or filled_qty is None:
+                raise TradeExecutionInternalServerError(
+                    message=(
+                        f"Filled order '{transaction_order['order_id']}' is "
+                        "missing filled price or quantity."
+                    ),
+                    code="TRADE_EXECUTION_ORDER_FILL_DATA_MISSING",
+                )
+            net_notional_by_symbol[symbol] = (
+                net_notional_by_symbol.get(symbol, 0.0)
+                + side_multiplier
+                * float(filled_avg_price)
+                * float(filled_qty)
+            )
+        return sum(abs(net_notional) for net_notional in net_notional_by_symbol.values())
 
     def realize_filled_orders(
         self,
@@ -259,18 +315,26 @@ class TradeExecutionService:
                 # Each individual transaction
                 curr_transaction_id = transaction_snapshot.transaction_id
                 curr_number_orders = transaction_snapshot.number_orders or 0
-                curr_filled_amount = transaction_snapshot.cost_basis or 0.0
                 curr_order_fill_percent = transaction_snapshot.order_fill_percent or 0.0
 
-                # unfilled orders from dynamodb
-                unfilled_orders = self.order_repository.get_unfilled_orders_by_transaction(
+                # Load this transaction's orders once and reuse the rows while
+                # reconciling broker status and calculating filled amount.
+                transaction_orders = self.order_repository.get_orders_by_transaction(
                     transaction_id=curr_transaction_id
                 )
+                unfilled_orders = [
+                    order
+                    for order in transaction_orders
+                    if str(order.get("status", "")).upper() != "FILLED"
+                ]
 
                 # Continue out of transaction if no unfilled orders (everything is filled)
                 if len(unfilled_orders)==0:
                     transaction_snapshot.filled_at = datetime.now(timezone.utc)
                     transaction_snapshot.updated_at = transaction_snapshot.filled_at
+                    transaction_snapshot.cost_basis = self._calculate_transaction_filled_amount(
+                        transaction_orders=transaction_orders
+                    )
                     transaction_snapshot.order_fill_percent = 100.0
                     transaction_snapshot.status = "FULLY_FILLED"
                     has_transaction_updates = True
@@ -282,6 +346,15 @@ class TradeExecutionService:
                     order = self.alpaca_broker_client.get_order_by_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, order_id=unfilled_order["order_id"])
                     if order.status.name.upper() != "FILLED":
                         continue
+                    unfilled_order.update(
+                        {
+                            "status": "FILLED",
+                            "symbol": str(order.symbol),
+                            "side": str(order.side.name),
+                            "filled_avg_price": order.filled_avg_price,
+                            "filled_qty": order.filled_qty,
+                        }
+                    )
                     newly_filled_orders.append(order)
 
                 if newly_filled_orders:
@@ -295,14 +368,21 @@ class TradeExecutionService:
                     )
 
                     # Calculate new transaction attributes
-                    newly_filled_amount = 0.0
                     latest_filled_at = datetime(year=1960, month=1,day=1, tzinfo=timezone.utc)
                     for order in newly_filled_orders:
-                        newly_filled_amount += float(order.filled_avg_price) * float(order.filled_qty)
                         latest_filled_at = max(latest_filled_at, order.filled_at)
 
+                    # Recompute from every filled order in the transaction so
+                    # offsetting legs remain correct across separate polls.
+                    # Fractional shorts, for example, sell a whole share and
+                    # buy back the excess; grossing both legs inflates the
+                    # amount even though only their net changes the position.
+                    transaction_filled_amount = self._calculate_transaction_filled_amount(
+                        transaction_orders=transaction_orders
+                    )
+
                     if curr_number_orders <= 0:
-                        raise TradeExecutionServiceError(
+                        raise TradeExecutionInternalServerError(
                             message=(
                                 f"Transaction '{curr_transaction_id}' has orders but its "
                                 "number_orders value is not positive."
@@ -319,7 +399,7 @@ class TradeExecutionService:
                     # Update transaction with new attributes
                     transaction_snapshot.filled_at = latest_filled_at
                     transaction_snapshot.updated_at = datetime.now(timezone.utc)
-                    transaction_snapshot.cost_basis = curr_filled_amount + newly_filled_amount
+                    transaction_snapshot.cost_basis = transaction_filled_amount
                     transaction_snapshot.order_fill_percent = newly_order_filled_percent
                     transaction_snapshot.status = newly_status
                     has_transaction_updates = True
@@ -376,10 +456,6 @@ class TradeExecutionService:
                     cognito_user_id=cognito_user_id,
                     owner_token=owner_token,
                 )
-
-
-
-
 
 
     def _sort_delta_positions(self, delta_positions: List[DeltaPosition], baskt_positions_dict: Dict[str, BasktPosition]) -> List[DeltaPosition]:
@@ -666,7 +742,7 @@ class TradeExecutionService:
                 transaction_id=transaction_id,
                 error=error,
             )
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute withdraw-all for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -784,7 +860,7 @@ class TradeExecutionService:
                 error=e,
             )
 
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute portfolio withdrawal for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {e}"
@@ -836,12 +912,12 @@ class TradeExecutionService:
             )
             update_transaction = self._find_transaction(allocation, transaction_id)
             if update_transaction.transaction_type.upper() != "UPDATE":
-                raise TradeExecutionServiceError(
+                raise TradeExecutionInternalServerError(
                     message=f"Transaction '{transaction_id}' is not an UPDATE transaction.",
                     code="TRADE_EXECUTION_UPDATE_TRANSACTION_TYPE_INVALID",
                 )
             if update_transaction.model_portfolio_snapshot_id != model_portfolio_snapshot_id:
-                raise TradeExecutionServiceError(
+                raise TradeExecutionInternalServerError(
                     message=(
                         f"Transaction '{transaction_id}' targets model snapshot "
                         f"'{update_transaction.model_portfolio_snapshot_id}', not "
@@ -860,7 +936,7 @@ class TradeExecutionService:
                     new_model_portfolio_snapshot = deepcopy(snap)
                     break
             if not new_model_portfolio_snapshot:
-                raise TradeExecutionServiceError(
+                raise TradeExecutionInternalServerError(
                     message=f"Model portfolio snapshot id {model_portfolio_snapshot_id} not found in model portfolio {portfolio_id}",
                     code="TRADE_EXECUTION_UPDATE_FAILED"
                 )
@@ -987,7 +1063,7 @@ class TradeExecutionService:
                 transaction_id=transaction_id,
                 error=error,
             )
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute portfolio update for portfolio '{portfolio_id}', "
                     f"snapshot '{model_portfolio_snapshot_id}', user '{cognito_user_id}', "
@@ -1154,7 +1230,7 @@ class TradeExecutionService:
                 error=e,
             )
 
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute portfolio deposit for portfolio '{portfolio_id}', "
                     f"user '{cognito_user_id}', and account '{alpaca_account_id}': {e}"
@@ -1241,7 +1317,7 @@ class TradeExecutionService:
                 transaction_id=transaction_id,
                 error=error,
             )
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute stock close for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {error}"
@@ -1324,7 +1400,7 @@ class TradeExecutionService:
                 trade_direction=-1,
             )
             if projected_equity < MINIMUM_STOCK_BALANCE:
-                raise TradeExecutionServiceError(
+                raise TradeExecutionInternalServerError(
                     message=(
                         f"Sell would leave ${projected_equity:.2f}; close the position or "
                         f"retain at least ${MINIMUM_STOCK_BALANCE:.2f}."
@@ -1356,7 +1432,7 @@ class TradeExecutionService:
                 error=e,
             )
 
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute stock sell for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {e}"
@@ -1441,7 +1517,7 @@ class TradeExecutionService:
                 trade_direction=1,
             )
             if projected_equity < MINIMUM_STOCK_BALANCE:
-                raise TradeExecutionServiceError(
+                raise TradeExecutionInternalServerError(
                     message=(
                         f"Buy would leave ${projected_equity:.2f}; close the position or "
                         f"retain at least ${MINIMUM_STOCK_BALANCE:.2f}."
@@ -1472,7 +1548,7 @@ class TradeExecutionService:
                 error=e,
             )
 
-            raise TradeExecutionServiceError(
+            raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute stock buy for asset '{asset_id}', user "
                     f"'{cognito_user_id}', and account '{alpaca_account_id}': {e}"

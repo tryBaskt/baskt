@@ -23,7 +23,7 @@ export function ErrorBanner({ message }) {
     return null;
   }
 
-  return <div className="alert alert-error">{message}</div>;
+  return <div className="alert alert-error">Error</div>;
 }
 
 export function SuccessBanner({ message }) {

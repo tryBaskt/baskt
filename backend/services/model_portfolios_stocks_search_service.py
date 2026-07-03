@@ -11,7 +11,7 @@ from domain.stock_domain import Stock
 from domain.stock_domain import StockSearchResult, StocksSearchResult
 
 
-class ModelPortfoliosStocksSearchServiceError(Exception):
+class ModelPortfoliosStocksSearchInternalServerError(Exception):
     """Raised when model portfolio or stock search operations fail."""
 
     def __init__(self, message: str, code: str) -> None:
@@ -69,7 +69,7 @@ class ModelPortfoliosStocksSearchService:
             results and any exact stock-symbol match.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If either underlying
+            ModelPortfoliosStocksSearchInternalServerError: If either underlying
                 search operation fails.
         """
         return {
@@ -97,7 +97,7 @@ class ModelPortfoliosStocksSearchService:
             otherwise an empty list.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If Alpaca fails while
+            ModelPortfoliosStocksSearchInternalServerError: If Alpaca fails while
                 looking up the symbol or the returned asset cannot be parsed.
         """
         normalized_query = query.strip().upper()
@@ -123,12 +123,12 @@ class ModelPortfoliosStocksSearchService:
                 )
             ]
         except AlpacaBrokerClientError as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to search stocks for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_ALPACA_FAILED",
             ) from error
         except (AttributeError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to parse stock search result for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_RESPONSE_INVALID",
             ) from error
@@ -156,17 +156,17 @@ class ModelPortfoliosStocksSearchService:
             information. A blank query returns an empty result set.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If pagination arguments are invalid,
+            ModelPortfoliosStocksSearchInternalServerError: If pagination arguments are invalid,
                 OpenSearch fails, or its response cannot be parsed.
         """
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message="Model portfolio search limit must be between 1 and 50",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT",
             )
         if offset < 0:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message="Model portfolio search offset cannot be negative",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
             )
@@ -263,12 +263,12 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset
             )
         except OpenSearchClientError as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to search model portfolios for query '{normalized_query}': {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_OPENSEARCH_FAILED",
             ) from error
         except (KeyError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to parse model portfolio search results: {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_RESPONSE_INVALID",
             ) from error

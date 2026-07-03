@@ -86,11 +86,10 @@ def create_app() -> FastAPI:
         request: Request,
         error: RequestValidationError,
     ):
-        error_logger.error(
-            "Request validation failed: %s %s -> 422\n%s",
-            request.method,
-            request.url.path,
-            error.errors(),
+        _log_request_exception(
+            request,
+            error,
+            status_code=422,
         )
         return await request_validation_exception_handler(request, error)
 
