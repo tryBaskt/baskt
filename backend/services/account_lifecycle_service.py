@@ -10,7 +10,15 @@ from alpaca.broker.models import ACHRelationship, Transfer, Bank, TradeAccount
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient, CognitoClientError
-from domain.baskt_domain import BasktAccount
+from repository.baskt_account_repository import BasktAccountRepository
+from domain.baskt_account_domain import (
+	BasktAccount,
+	DisclosureData,
+	ContactData,
+	IdentityData,
+	AgreementData
+)
+# from domain.baskt_domain import BasktAccount
 
 class AccountLifecycleInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_ERROR") -> None:
@@ -46,6 +54,7 @@ class AccountLifecycleService:
 		self,
 		alpaca_broker_client: AlpacaBrokerClient,
 		cognito_client: CognitoClient,
+		baskt_account_repository: BasktAccountRepository
 	) -> None:
 		"""
 		Initialize account lifecycle service dependencies.
@@ -53,16 +62,18 @@ class AccountLifecycleService:
 		Args:
 			alpaca_broker_client: Client used for Alpaca broker operations.
 			cognito_client: Client used for Cognito user operations.
+			baskt_account_repository: Repository used to persist Baskt account data.
 
 		Returns:
 			None.
 		"""
 		self.alpaca_broker_client = alpaca_broker_client
 		self.cognito_client = cognito_client
+		self.baskt_account_repository = baskt_account_repository
 
 	def create_baskt_account(self, account_data: Dict[str, Any], password: Optional[str] = None) -> Dict[str, str]:
 		"""
-		Create an Alpaca broker account and matching Cognito user.
+		Create matching Alpaca, Cognito, and persisted Baskt accounts.
 
 		Args:
 			account_data: Account creation payload containing contact, identity,
@@ -96,6 +107,32 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_COGNITO_CREATE_FAILED",
 			) from err
 
+		try:
+			baskt_account = BasktAccount(
+				cognito_user_id=cognito_user_id,
+				display_name=account_data["display_name"],
+				alpaca_account_id=alpaca_account_id,
+				alpaca_account_number=alpaca_account_number,
+				agreements_data=[
+					AgreementData(**agreement_data)
+					for agreement_data in account_data["agreements"]
+				],
+				disclosure_data=DisclosureData(**account_data["disclosures"]),
+				identity_data=IdentityData(**account_data["identity"]),
+				contact_data=ContactData(**account_data["contact"]),
+			)
+
+			self.baskt_account_repository.write_baskt_account(
+				baskt_account=baskt_account
+			)
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Cognito user and alpaca account created, but failed to persist baskt account details: {err}",
+				code="ACCOUNT_LIFECYCLE_BASKT_ACCOUNT_PERSIST_FAILED",
+			) from err
+
+
+
 		return {
 			"alpaca_account_id": alpaca_account_id,
 			"alpaca_account_number": alpaca_account_number,
@@ -103,117 +140,117 @@ class AccountLifecycleService:
 			"email_address": account_data["contact"]["email_address"],
 		}
 
-	def _get_baskt_account_helper(self, cognito_role_dict: Dict[str, Any], active_only: bool = True) -> BasktAccount:
-		"""
-		Build a Baskt account aggregate from Cognito attributes and Alpaca data.
+	# def _get_baskt_account_helper(self, cognito_role_dict: Dict[str, Any], active_only: bool = True) -> BasktAccount:
+	# 	"""
+	# 	Build a Baskt account aggregate from Cognito attributes and Alpaca data.
 
-		Args:
-			cognito_role_dict: Cognito user attributes containing Alpaca account
-				IDs and Cognito status fields.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
+	# 	Args:
+	# 		cognito_role_dict: Cognito user attributes containing Alpaca account
+	# 			IDs and Cognito status fields.
+	# 		active_only: When True, reject disabled Cognito users or inactive
+	# 			Alpaca accounts.
 
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
+	# 	Returns:
+	# 		BasktAccount: Combined Baskt account domain object.
 
-		Raises:
-			AccountLifecycleInternalServerError: If Alpaca account lookup fails.
-			AccountLifecycleServiceBasktAccountDisabled: If active_only is True
-			and the account is not enabled/submitted/active.
-		"""
-		alpaca_account_id=cognito_role_dict["alpaca_account_id"]
-		cognito_user_id=cognito_role_dict["cognito_user_id"]
-		try:
-			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(
-				account_id=alpaca_account_id,
-				cognito_user_id=cognito_user_id,
-			)
-		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleInternalServerError(
-				message=f"Failed to get Alpaca account for account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT_HELPER"
-			) from err
+	# 	Raises:
+	# 		AccountLifecycleInternalServerError: If Alpaca account lookup fails.
+	# 		AccountLifecycleServiceBasktAccountDisabled: If active_only is True
+	# 		and the account is not enabled/submitted/active.
+	# 	"""
+	# 	alpaca_account_id=cognito_role_dict["alpaca_account_id"]
+	# 	cognito_user_id=cognito_role_dict["cognito_user_id"]
+	# 	try:
+	# 		alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(
+	# 			account_id=alpaca_account_id,
+	# 			cognito_user_id=cognito_user_id,
+	# 		)
+	# 	except AlpacaBrokerClientError as err:
+	# 		raise AccountLifecycleInternalServerError(
+	# 			message=f"Failed to get Alpaca account for account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
+	# 			code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT_HELPER"
+	# 		) from err
 		
-		baskt_account = BasktAccount(
-			cognito_user_id=cognito_role_dict["cognito_user_id"],
-			alpaca_account_id=str(alpaca_account.id),
-			alpaca_account_number=alpaca_account.account_number,
-			email_address=str(alpaca_account.contact.email_address),
-			cognito_confirmation_status=cognito_role_dict["cognito_confirmation_status"],
-			cognito_enabled_status=cognito_role_dict["cognito_enabled_status"],
-			alpaca_account_status=alpaca_account.status
-		)
+	# 	baskt_account = BasktAccount(
+	# 		cognito_user_id=cognito_role_dict["cognito_user_id"],
+	# 		alpaca_account_id=str(alpaca_account.id),
+	# 		alpaca_account_number=alpaca_account.account_number,
+	# 		email_address=str(alpaca_account.contact.email_address),
+	# 		cognito_confirmation_status=cognito_role_dict["cognito_confirmation_status"],
+	# 		cognito_enabled_status=cognito_role_dict["cognito_enabled_status"],
+	# 		alpaca_account_status=alpaca_account.status
+	# 	)
 
-		if active_only and (not (baskt_account.cognito_enabled_status and baskt_account.alpaca_account_status.name in ["ACTIVE", "SUBMITTED"])):
-			# We do actually want an account disabled exception
-			raise AccountLifecycleServiceBasktAccountDisabled(
-				message=f"Baskt account is disabled. Cognito user: {baskt_account.cognito_enabled_status}, Alpaca account: {baskt_account.alpaca_account_status.name}"
-			)
+	# 	if active_only and (not (baskt_account.cognito_enabled_status and baskt_account.alpaca_account_status.name in ["ACTIVE", "SUBMITTED"])):
+	# 		# We do actually want an account disabled exception
+	# 		raise AccountLifecycleServiceBasktAccountDisabled(
+	# 			message=f"Baskt account is disabled. Cognito user: {baskt_account.cognito_enabled_status}, Alpaca account: {baskt_account.alpaca_account_status.name}"
+	# 		)
 		
-		return baskt_account
+	# 	return baskt_account
 
 	
-	def get_baskt_account_by_email_address(self, email_address: str, active_only: bool = True) -> BasktAccount:
-		"""
-		Get a Baskt account by Cognito email address.
+	# def get_baskt_account_by_email_address(self, email_address: str, active_only: bool = True) -> BasktAccount:
+	# 	"""
+	# 	Get a Baskt account by Cognito email address.
 
-		Args:
-			email_address: Email address used to find the Cognito user.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
+	# 	Args:
+	# 		email_address: Email address used to find the Cognito user.
+	# 		active_only: When True, reject disabled Cognito users or inactive
+	# 			Alpaca accounts.
 
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
+	# 	Returns:
+	# 		BasktAccount: Combined Baskt account domain object.
 
-		Raises:
-			AccountLifecycleInternalServerError: If Cognito or Alpaca lookup fails.
-		"""
-		try:
-			cognito_role_dict = self.cognito_client.get_cognito_user_by_email_address(email_address=email_address)
-			return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
-		# Propagate disabled account errors so the route can map them correctly.
-		except AccountLifecycleServiceBasktAccountDisabled:
-			raise
-		# Other service-layer errors should remain AccountLifecycleInternalServerError.
-		except AccountLifecycleInternalServerError:
-			raise
-		except CognitoClientError as err:
-			raise AccountLifecycleInternalServerError(
-				message=f"Failed to get Baskt account for email address '{email_address}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
-			) from err
+	# 	Raises:
+	# 		AccountLifecycleInternalServerError: If Cognito or Alpaca lookup fails.
+	# 	"""
+	# 	try:
+	# 		cognito_role_dict = self.cognito_client.get_cognito_user_by_email_address(email_address=email_address)
+	# 		return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
+	# 	# Propagate disabled account errors so the route can map them correctly.
+	# 	except AccountLifecycleServiceBasktAccountDisabled:
+	# 		raise
+	# 	# Other service-layer errors should remain AccountLifecycleInternalServerError.
+	# 	except AccountLifecycleInternalServerError:
+	# 		raise
+	# 	except CognitoClientError as err:
+	# 		raise AccountLifecycleInternalServerError(
+	# 			message=f"Failed to get Baskt account for email address '{email_address}': {err}",
+	# 			code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
+	# 		) from err
 	
 
-	def get_baskt_account_by_cognito_user_id(self, cognito_user_id: str, active_only: bool = True) -> BasktAccount:
-		"""
-		Get a Baskt account by Cognito user ID.
+	# def get_baskt_account_by_cognito_user_id(self, cognito_user_id: str, active_only: bool = True) -> BasktAccount:
+	# 	"""
+	# 	Get a Baskt account by Cognito user ID.
 
-		Args:
-			cognito_user_id: Cognito user ID used to find account metadata.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
+	# 	Args:
+	# 		cognito_user_id: Cognito user ID used to find account metadata.
+	# 		active_only: When True, reject disabled Cognito users or inactive
+	# 			Alpaca accounts.
 
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
+	# 	Returns:
+	# 		BasktAccount: Combined Baskt account domain object.
 
-		Raises:
-			AccountLifecycleInternalServerError: If Cognito or Alpaca lookup fails.
-		"""
-		try:
-			cognito_role_dict = self.cognito_client.get_cognito_user_by_cognito_user_id(cognito_user_id=cognito_user_id)
-			return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
+	# 	Raises:
+	# 		AccountLifecycleInternalServerError: If Cognito or Alpaca lookup fails.
+	# 	"""
+	# 	try:
+	# 		cognito_role_dict = self.cognito_client.get_cognito_user_by_cognito_user_id(cognito_user_id=cognito_user_id)
+	# 		return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
 		
-		# Propagate disabled account errors so the route can map them correctly.
-		except AccountLifecycleServiceBasktAccountDisabled:
-			raise
-		# Other service-layer errors should remain AccountLifecycleInternalServerError.
-		except AccountLifecycleInternalServerError:
-			raise
-		except CognitoClientError as err:
-			raise AccountLifecycleInternalServerError(
-				message=f"Failed to get Baskt account for cognito user id '{cognito_user_id}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
-			) from err
+	# 	# Propagate disabled account errors so the route can map them correctly.
+	# 	except AccountLifecycleServiceBasktAccountDisabled:
+	# 		raise
+	# 	# Other service-layer errors should remain AccountLifecycleInternalServerError.
+	# 	except AccountLifecycleInternalServerError:
+	# 		raise
+	# 	except CognitoClientError as err:
+	# 		raise AccountLifecycleInternalServerError(
+	# 			message=f"Failed to get Baskt account for cognito user id '{cognito_user_id}': {err}",
+	# 			code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
+	# 		) from err
 
 	def create_direct_ach_relationship(
 		self,

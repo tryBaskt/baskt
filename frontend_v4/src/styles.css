@@ -1919,14 +1919,12 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible { outline: 2
   box-shadow: 0 20px 60px rgba(0,0,0,.5);
 }
 .search-results-label { padding: 12px 14px 8px; color: #77717e; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.global-search-results button { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; border: 0; border-top: 1px solid #242129; padding: 11px 14px; background: transparent; text-align: left; }
+.global-search-results button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; border: 0; border-top: 1px solid #242129; padding: 11px 14px; background: transparent; text-align: left; }
 .global-search-results button:hover { background: #19161f; }
-.global-search-results button > span:nth-child(2) { min-width: 0; }
+.global-search-results button > span:first-child { min-width: 0; }
 .global-search-results strong, .global-search-results small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .global-search-results strong { font-size: 13px; }
 .global-search-results small { margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
-.search-result-symbol { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #44404b; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 800; }
-.search-result-symbol.baskt { border-color: #634da2; background: #20192f; color: #bda8ff; }
 .search-result-kind { color: #756f7b; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
 .search-empty { padding: 22px 14px; border-top: 1px solid #242129; color: var(--muted); font-size: 13px; }
 
@@ -1960,10 +1958,8 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible { outline: 2
 .holdings-heading h2 { margin: 0; font-size: 18px; }
 .holdings-heading > span { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #3a3542; border-radius: 50%; color: #a79fac; font: 600 11px/1 ui-monospace, monospace; }
 .holdings-list { max-height: calc(100vh - 190px); overflow-y: auto; }
-.holding-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; border: 0; border-bottom: 1px solid #1f1d22; padding: 14px 16px; background: transparent; text-align: left; }
+.holding-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; border: 0; border-bottom: 1px solid #1f1d22; padding: 14px 16px; background: transparent; text-align: left; }
 .holding-row:hover { background: #151319; }
-.holding-mark { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #5d477f; border-radius: 50%; background: #1a1423; color: #b89bff; font: 800 11px/1 ui-monospace, monospace; }
-.holding-mark.stock { border-color: #3b3940; background: #111114; color: #d2cdd6; }
 .holding-name, .holding-value { min-width: 0; }
 .holding-name strong, .holding-name small, .holding-value strong, .holding-value small { display: block; }
 .holding-name strong { overflow: hidden; color: #f0edf2; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -2015,6 +2011,10 @@ th, td { border-color: #26232a !important; }
 .alert-success { border-color: #28543f; background: #0e1b15; color: var(--success); }
 
 .explore-search-form { border: 1px solid var(--line); border-radius: 5px; background: #0d0d10; }
+.explore-search-control { border-color: #34313a; background: #0a0a0d; color-scheme: dark; }
+.explore-search-control:focus-within { border-color: var(--purple-600); box-shadow: 0 0 0 1px var(--purple-600); }
+.explore-search-control input { background: transparent; color: #f2eef5; }
+.explore-search-control input::placeholder { color: #69636e; }
 .explore-result { border-color: var(--line); border-radius: 5px; background: #0d0d10; }
 .explore-result:hover, .baskt-card:hover { border-color: #5e4a7d; background: #121016; }
 .stock-search-panel, .stock-trade-panel, .positions-editor, .inset, .backtest-blank { border-color: var(--line); background: #0b0b0e; }

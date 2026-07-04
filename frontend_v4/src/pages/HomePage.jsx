@@ -143,7 +143,6 @@ export default function HomePage({ onOpenInvestment }) {
           <div className="holdings-list">
             {allocationEntries.map((allocation) => (
               <button className="holding-row" key={allocation.portfolioId} type="button" onClick={() => onOpenInvestment?.(allocation)}>
-                <span className={`holding-mark ${allocation.type === "Stock" ? "stock" : ""}`}>{allocation.type === "Stock" ? allocation.name.slice(0, 2).toUpperCase() : "B"}</span>
                 <span className="holding-name"><strong>{allocation.name}</strong><small>{allocation.type}</small></span>
                 <span className="holding-value"><strong>{currency(allocation.equity)}</strong><small>{percent(allocation.percentOfAccount * 100)}</small></span>
               </button>

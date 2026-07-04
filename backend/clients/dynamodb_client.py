@@ -2,7 +2,41 @@
 
 # Python imports
 from __future__ import annotations
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+def to_dynamodb_value(value: Any) -> Any:
+    """Recursively convert Python domain values into boto3-compatible values."""
+    if isinstance(value, Enum):
+        enum_value = value.value
+        if isinstance(enum_value, str):
+            return enum_value.upper()
+        return to_dynamodb_value(enum_value)
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if is_dataclass(value) and not isinstance(value, type):
+        return to_dynamodb_value(asdict(value))
+    if isinstance(value, dict):
+        return {
+            str(key): to_dynamodb_value(nested_value)
+            for key, nested_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [to_dynamodb_value(item) for item in value]
+    return value
+
+
+def dataclass_to_dynamodb_item(value: Any) -> Dict[str, Any]:
+    """Convert a dataclass instance into a DynamoDB-ready item dictionary."""
+    if not is_dataclass(value) or isinstance(value, type):
+        raise TypeError("value must be a dataclass instance")
+    return to_dynamodb_value(asdict(value))
 
 
 class DynamoDBClientError(Exception):

@@ -7,7 +7,11 @@ from boto3.dynamodb.conditions import Key
 from datetime import datetime, timezone
 
 # Baskt imports
-from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+from clients.dynamodb_client import (
+    DynamoDBClient,
+    DynamoDBClientError,
+    to_dynamodb_value,
+)
 from clients.alpaca_broker_client import AlpacaBrokerClient
 
 class ModelPortfolioFollowerInternalServerError(Exception):
@@ -201,13 +205,13 @@ class ModelPortfolioFollowerRepository:
         try:
             if self.is_model_portfolio_follower(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
                 return
-            item = {
+            item = to_dynamodb_value({
                 "cognito_user_id": cognito_user_id,
                 "portfolio_id": portfolio_id,
                 "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
                 "alpaca_account_id": alpaca_account_id,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+                "created_at": datetime.now(timezone.utc)
+            })
             self.dynamodb.put_item(item=item)
         except DynamoDBClientError as e:
             raise ModelPortfolioFollowerBadGatewayError(

@@ -3,11 +3,14 @@
 # Python imports
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
-from decimal import Decimal
 from boto3.dynamodb.conditions import Attr, Key
 
 # Baskt imports
-from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+from clients.dynamodb_client import (
+    DynamoDBClient,
+    DynamoDBClientError,
+    to_dynamodb_value,
+)
 from alpaca.trading.models import Order
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from core.timeutils import to_utc_from_iso
@@ -213,22 +216,22 @@ class OrderRepository:
         """
         try:
             items = [
-                {"transaction_id": transaction_id,
+                to_dynamodb_value({"transaction_id": transaction_id,
                  "order_id": str(order.id),
                  "cognito_user_id": cognito_user_id,
                  "portfolio_id": portfolio_id,
                  "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
-                 "created_at": str(order.created_at.isoformat()),
-                 "updated_at": str(order.updated_at.isoformat()) if order.updated_at else None,
-                 "filled_at": str(order.filled_at.isoformat()) if order.filled_at else None,
+                 "created_at": order.created_at,
+                 "updated_at": order.updated_at,
+                 "filled_at": order.filled_at,
                  "symbol": str(order.symbol),
                  "notional": str(order.notional) if order.notional else None,
-                 "qty": Decimal(str(order.qty)),
-                 "filled_qty": Decimal(str(order.filled_qty)) if order.filled_qty else None,
-                 "filled_avg_price": Decimal(str(order.filled_avg_price)) if order.filled_avg_price else None,
+                 "qty": float(order.qty),
+                 "filled_qty": float(order.filled_qty) if order.filled_qty else None,
+                 "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
                  "side": str(order.side.name),
                  "status": str(order.status.name)
-                }
+                })
                 for order in orders
             ]
         except Exception as e:
@@ -474,4 +477,3 @@ class OrderRepository:
             for order in normalized_orders
             if str(order.get("status", "")).upper() != "FILLED"
         ]
-

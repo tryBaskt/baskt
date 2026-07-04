@@ -82,7 +82,6 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
                   role="option"
                   onClick={() => selectResult(onOpenStock, stock.stock_id)}
                 >
-                  <span className="search-result-symbol">{stock.symbol}</span>
                   <span><strong>{stock.symbol}</strong><small>Stock · {String(stock.stock_class || "US equity").replaceAll("_", " ")}</small></span>
                   <span className="search-result-kind">STOCK</span>
                 </button>
@@ -94,7 +93,6 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
                   role="option"
                   onClick={() => selectResult(onOpenBaskt, baskt.portfolio_id)}
                 >
-                  <span className="search-result-symbol baskt">B</span>
                   <span><strong>{baskt.portfolio_name}</strong><small>{baskt.description || "Model portfolio"}</small></span>
                   <span className="search-result-kind">BASKT</span>
                 </button>

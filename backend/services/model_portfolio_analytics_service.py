@@ -519,7 +519,15 @@ class ModelPortfolioAnalyticsService:
     def get_model_portfolio_bars(
         self,
         portfolio_id: str,
-        current_datetime: Optional[datetime] = None
+        current_datetime: Optional[datetime] = None,
+        period_timedelta_timeframe: List[Tuple[str,timedelta, str]] = [
+                ("1D", timedelta(days=1),"5Min"),
+                ("1W", timedelta(weeks=1), "1H"),
+                ("1M", timedelta(days=30), "1D"),
+                ("3M", timedelta(days=90), "1D"),
+                ("1A", timedelta(days=365), "1D"),
+                ("all", timedelta(days=1), "1D")
+            ]
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get model portfolio cumulative return series for standard periods.
@@ -541,15 +549,6 @@ class ModelPortfolioAnalyticsService:
         try:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
-
-            period_timdelta_timeframe = [
-                ("1D", timedelta(days=1),"5Min"),
-                ("1W", timedelta(weeks=1), "1H"),
-                ("1M", timedelta(days=30), "1D"),
-                ("3M", timedelta(days=90), "1D"),
-                ("1A", timedelta(days=365), "1D"),
-                ("all", timedelta(days=1), "1D")
-            ]
 
             model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
             if not model_portfolio_snapshots: 
@@ -575,12 +574,12 @@ class ModelPortfolioAnalyticsService:
                 )
 
             with ThreadPoolExecutor(
-                max_workers=len(period_timdelta_timeframe),
+                max_workers=len(period_timedelta_timeframe),
                 thread_name_prefix="model-portfolio-period",
             ) as executor:
                 period_results = executor.map(
                     calculate_period,
-                    period_timdelta_timeframe,
+                    period_timedelta_timeframe,
                 )
                 for period, period_response in period_results:
                     if period_response is not None:
@@ -600,3 +599,5 @@ class ModelPortfolioAnalyticsService:
                 message=f"Failed to calculate model portfolio bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
+        
+

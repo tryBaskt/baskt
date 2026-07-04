@@ -117,8 +117,11 @@ export default function StockPage({ stockId, onBack }) {
     void loadStockDetails(controller.signal).then((loadedStock) => {
       if (!loadedStock || controller.signal.aborted) {
         setIsAnalyticsLoading(false);
+        setIsAllocationLoading(false);
         return;
       }
+
+      void loadAllocationAnalytics(controller.signal);
 
       void apiRequest(`/stock-analytics/${encodeURIComponent(loadedStock.symbol)}`, {
         signal: controller.signal,
@@ -143,8 +146,6 @@ export default function StockPage({ stockId, onBack }) {
           }
         });
     });
-
-    void loadAllocationAnalytics(controller.signal);
 
     return () => controller.abort();
   }, [stockId]);
