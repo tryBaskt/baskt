@@ -26,7 +26,46 @@ CONFIGURATIONS = {
     "partition_key": "cognito_user_id",
     "partition_key_attribute_type": "S",
     "partition_key_key_type": "HASH",
+    "display_name_index": "display_name_index",
+    "display_name_attribute": "display_name",
 }
+
+
+def ensure_display_name_index(dynamodb, table):
+    """Create the display-name GSI when it is not already present."""
+    index_name = CONFIGURATIONS["display_name_index"]
+    existing_indexes = table.get("GlobalSecondaryIndexes", [])
+    if any(index["IndexName"] == index_name for index in existing_indexes):
+        print(f"Index {index_name} already exists")
+        return table
+
+    table_name = CONFIGURATIONS["table_name"]
+    display_name_attribute = CONFIGURATIONS["display_name_attribute"]
+    print(f"Creating global secondary index: {index_name}")
+    dynamodb.update_table(
+        TableName=table_name,
+        AttributeDefinitions=[
+            {
+                "AttributeName": display_name_attribute,
+                "AttributeType": "S",
+            }
+        ],
+        GlobalSecondaryIndexUpdates=[
+            {
+                "Create": {
+                    "IndexName": index_name,
+                    "KeySchema": [
+                        {
+                            "AttributeName": display_name_attribute,
+                            "KeyType": "HASH",
+                        }
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                }
+            }
+        ],
+    )
+    return dynamodb.describe_table(TableName=table_name)["Table"]
 
 
 def create_dev_baskt_account_dynamodb():
@@ -41,12 +80,28 @@ def create_dev_baskt_account_dynamodb():
             {
                 "AttributeName": CONFIGURATIONS["partition_key"],
                 "AttributeType": CONFIGURATIONS["partition_key_attribute_type"],
-            }
+            },
+            {
+                "AttributeName": CONFIGURATIONS["display_name_attribute"],
+                "AttributeType": "S",
+            },
         ],
         "KeySchema": [
             {
                 "AttributeName": CONFIGURATIONS["partition_key"],
                 "KeyType": CONFIGURATIONS["partition_key_key_type"],
+            }
+        ],
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": CONFIGURATIONS["display_name_index"],
+                "KeySchema": [
+                    {
+                        "AttributeName": CONFIGURATIONS["display_name_attribute"],
+                        "KeyType": "HASH",
+                    }
+                ],
+                "Projection": {"ProjectionType": "ALL"},
             }
         ],
         "BillingMode": "PAY_PER_REQUEST",
@@ -59,7 +114,7 @@ def create_dev_baskt_account_dynamodb():
             print(f"Table {table_name} already exists")
             print(f"ARN: {existing_table['TableArn']}")
             print(f"Status: {existing_table['TableStatus']}")
-            return existing_table
+            return ensure_display_name_index(dynamodb, existing_table)
         except ClientError as error:
             if error.response["Error"]["Code"] != "ResourceNotFoundException":
                 raise

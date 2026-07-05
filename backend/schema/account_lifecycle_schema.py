@@ -14,7 +14,7 @@ class AlpacaTradingConfigurations(BaseModel):
 
 
 class CreateBasktAccountLifecycleRequest(BaseModel):
-    display_name: str
+    display_name: str = Field(min_length=1, max_length=50)
     contact: Dict[str, Any]
     identity: Dict[str, Any]
     disclosures: Dict[str, Any]
@@ -25,6 +25,9 @@ class CreateBasktAccountLifecycleRequest(BaseModel):
 
 class BasktDisplayName(BaseModel):
     display_name: str = Field(min_length=1, max_length=50)
+
+class GetIsExistsDisplayNameResponse(BaseModel):
+    is_exists: bool
 
 class BasktContactData(BaseModel):
     email_address: str

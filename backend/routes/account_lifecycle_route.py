@@ -1,4 +1,4 @@
-# backend/routes/
+# backend/routes/account_lifecycle_route.py
 
 # Python imports
 from __future__ import annotations
@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.status import (
 	HTTP_200_OK,
 	HTTP_201_CREATED,
+	HTTP_409_CONFLICT,
 	HTTP_403_FORBIDDEN,
 	HTTP_422_UNPROCESSABLE_CONTENT,
 	HTTP_500_INTERNAL_SERVER_ERROR
@@ -35,9 +36,11 @@ from schema.account_lifecycle_schema import (
 	UpdateBasktIdentityRequest,
 	UpdateBasktDisclosuresRequest,
 	BasktDisplayName,
+	GetIsExistsDisplayNameResponse
 )
 from services.account_lifecycle_service import (
 	AccountLifecycleInternalServerError,
+	AccountLifecycleDisplayNameTakenError,
 	AccountLifecycleService,
 	AccountLifecycleServiceBasktAccountDisabled,
 )
@@ -64,7 +67,9 @@ def _raise_account_lifecycle_http_exception(err: Exception) -> None:
 	if isinstance(err, AccountLifecycleInternalServerError):
 		if isinstance(err, AccountLifecycleServiceBasktAccountDisabled):
 			status_code = HTTP_403_FORBIDDEN
-		elif "UNSUPPORTED" in err.code:
+		elif isinstance(err, AccountLifecycleDisplayNameTakenError):
+			status_code = HTTP_409_CONFLICT
+		elif "UNSUPPORTED" in err.code or "INVALID" in err.code:
 			status_code = HTTP_422_UNPROCESSABLE_CONTENT
 		else:
 			status_code = HTTP_500_INTERNAL_SERVER_ERROR
@@ -189,6 +194,29 @@ def _to_transfer_response(alpaca_account_id: str, transfer: Transfer) -> BasktTr
 		fee_payment_method=_to_enum_name(transfer.fee_payment_method) if transfer.fee_payment_method else None,
 		additional_information=_to_optional_str(getattr(transfer, "additional_information", None)),
 	)
+
+
+@router.get(
+	"/is-exists-display-name",
+	response_model=GetIsExistsDisplayNameResponse,
+	status_code=HTTP_200_OK,
+)
+def is_exists_display_name(
+	display_name: str = Query(min_length=1, max_length=50),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service)
+) -> GetIsExistsDisplayNameResponse:
+	display_name = str(display_name).strip()
+	if not display_name:
+		raise HTTPException(
+			status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+			detail="display_name is required to check whether it exists",
+		)
+	try:
+		return GetIsExistsDisplayNameResponse(
+			is_exists=service.is_exists_display_name(display_name=display_name)
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
 
 
 @router.post("/create-baskt-account", response_model=None, status_code=HTTP_201_CREATED)

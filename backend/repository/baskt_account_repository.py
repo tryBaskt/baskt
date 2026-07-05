@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 from dataclasses import is_dataclass
 
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from clients.dynamodb_client import (
@@ -115,6 +116,40 @@ class BasktAccountRepository:
                 cause=error,
             ) from error
 
+    def is_exists_display_name(self, display_name: str) -> bool:
+        """Return whether an account already uses the given display name.
+
+        The lookup uses the ``display_name_index`` global secondary index and
+        stops after the first matching account.
+
+        Args:
+            display_name: Display name to look up.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If display_name is empty.
+            BasktAccountBadGatewayError: If DynamoDB rejects the query.
+        """
+        display_name = str(display_name).strip()
+        if not display_name:
+            raise BasktAccountUnprocessableEntityError(
+                "display_name is required to check whether it exists"
+            )
+
+        try:
+            items = self.dynamodb.query(
+                key_condition=Key("display_name").eq(display_name),
+                IndexName="display_name_index",
+                ProjectionExpression="display_name",
+                Limit=1,
+            )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="checking whether display_name exists",
+                cognito_user_id=display_name,
+                cause=error,
+            ) from error
+
+        return bool(items)
 
     def get_baskt_account(self, cognito_user_id: str) -> BasktAccount:
         """Get a Baskt account by Cognito user ID.

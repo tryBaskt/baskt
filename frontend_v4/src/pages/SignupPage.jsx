@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../lib/api";
 import {
   countryOptions,
@@ -106,6 +106,11 @@ export default function SignupPage({ onBackToLogin }) {
   const [identity, setIdentity] = useState(initialIdentity);
   const [disclosures, setDisclosures] = useState(initialDisclosures);
   const [accepted, setAccepted] = useState({});
+  const [displayName, setDisplayName] = useState("");
+  const [displayNameAvailability, setDisplayNameAvailability] = useState({
+    status: "idle",
+    checkedName: "",
+  });
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -120,6 +125,38 @@ export default function SignupPage({ onBackToLogin }) {
     const isCryptoEligible = contact.country === "USA" && cryptoEligibleStateCodes.has(contact.state);
     return isCryptoEligible ? [...agreementOptions, cryptoAgreement] : agreementOptions;
   }, [contact.country, contact.state]);
+
+  useEffect(() => {
+    const normalizedName = displayName.trim();
+    if (!normalizedName) {
+      setDisplayNameAvailability({ status: "idle", checkedName: "" });
+      return undefined;
+    }
+
+    setDisplayNameAvailability({ status: "checking", checkedName: "" });
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiRequest(
+          `/accounts/is-exists-display-name?display_name=${encodeURIComponent(normalizedName)}`,
+          { signal: controller.signal },
+        );
+        setDisplayNameAvailability({
+          status: result.is_exists ? "taken" : "available",
+          checkedName: normalizedName,
+        });
+      } catch (availabilityError) {
+        if (availabilityError?.name !== "AbortError") {
+          setDisplayNameAvailability({ status: "error", checkedName: normalizedName });
+        }
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [displayName]);
 
   function updateContact(field, value) {
     setContact((current) => ({ ...current, [field]: value }));
@@ -153,6 +190,29 @@ export default function SignupPage({ onBackToLogin }) {
       return;
     }
 
+    const normalizedDisplayName = displayName.trim();
+    if (!normalizedDisplayName) {
+      setError("Please choose a display name.");
+      return;
+    }
+
+    try {
+      setDisplayNameAvailability({ status: "checking", checkedName: "" });
+      const availability = await apiRequest(
+        `/accounts/is-exists-display-name?display_name=${encodeURIComponent(normalizedDisplayName)}`,
+      );
+      if (availability.is_exists) {
+        setDisplayNameAvailability({ status: "taken", checkedName: normalizedDisplayName });
+        setError("That display name is already taken.");
+        return;
+      }
+      setDisplayNameAvailability({ status: "available", checkedName: normalizedDisplayName });
+    } catch (availabilityError) {
+      setDisplayNameAvailability({ status: "error", checkedName: normalizedDisplayName });
+      setError("Could not verify the display name. Please try again.");
+      return;
+    }
+
     if (!visibleAgreementOptions.every((agreement) => accepted[agreement.value])) {
       setError("Please accept every required agreement.");
       return;
@@ -176,6 +236,7 @@ export default function SignupPage({ onBackToLogin }) {
       await apiRequest("/accounts/create-baskt-account", {
         method: "POST",
         body: JSON.stringify({
+          display_name: normalizedDisplayName,
           contact: {
             ...contact,
             street_address: [contact.street_address],
@@ -365,6 +426,27 @@ export default function SignupPage({ onBackToLogin }) {
                 ))}
               </div>
               <div className="form-grid">
+                <Field label="Display name">
+                  <input
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    minLength={1}
+                    maxLength={50}
+                    autoComplete="nickname"
+                    aria-describedby="display-name-status"
+                    required
+                  />
+                  <span
+                    id="display-name-status"
+                    className={`display-name-status ${displayNameAvailability.status}`}
+                    aria-live="polite"
+                  >
+                    {displayNameAvailability.status === "checking" ? "Checking availability…" : null}
+                    {displayNameAvailability.status === "available" ? "Display name is available." : null}
+                    {displayNameAvailability.status === "taken" ? "Display name is already taken." : null}
+                    {displayNameAvailability.status === "error" ? "Availability could not be checked." : null}
+                  </span>
+                </Field>
                 <Field label="Password"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
                 <Field label="Confirm password"><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></Field>
               </div>
@@ -376,7 +458,15 @@ export default function SignupPage({ onBackToLogin }) {
             {step < steps.length - 1 ? (
               <button className="primary-button" type="button" onClick={next}>Continue</button>
             ) : (
-              <button className="primary-button" type="submit" disabled={isSubmitting}>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={
+                  isSubmitting
+                  || displayNameAvailability.status !== "available"
+                  || displayNameAvailability.checkedName !== displayName.trim()
+                }
+              >
                 {isSubmitting ? "Submitting..." : "Create account"}
               </button>
             )}

@@ -179,6 +179,22 @@ a {
   grid-template-columns: 1fr;
 }
 
+.display-name-status {
+  min-height: 18px;
+  color: #746b7e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.display-name-status.available {
+  color: #18794e;
+}
+
+.display-name-status.taken,
+.display-name-status.error {
+  color: #b42318;
+}
+
 label,
 .field {
   display: grid;

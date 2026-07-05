@@ -49,6 +49,16 @@ class AccountLifecycleServiceBasktAccountDisabled(AccountLifecycleInternalServer
 		"""
 		super().__init__(message=message, code=code)
 
+
+class AccountLifecycleDisplayNameTakenError(AccountLifecycleInternalServerError):
+	"""Raised when a requested display name is already in use."""
+
+	def __init__(self, display_name: str) -> None:
+		super().__init__(
+			message=f"Display name '{display_name}' is already taken",
+			code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_TAKEN",
+		)
+
 class AccountLifecycleService:
 	def __init__(
 		self,
@@ -88,6 +98,16 @@ class AccountLifecycleService:
 			AccountLifecycleInternalServerError: If Alpaca account creation or Cognito
 			user creation fails.
 		"""
+
+		display_name = str(account_data.get("display_name", "")).strip()
+		if not display_name:
+			raise AccountLifecycleInternalServerError(
+				message="display_name is required to create a Baskt account",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_INVALID",
+			)
+		if self.is_exists_display_name(display_name):
+			raise AccountLifecycleDisplayNameTakenError(display_name)
+		account_data["display_name"] = display_name
 
 		try:
 			alpaca_account_data = self.alpaca_broker_client.create_alpaca_account(account_data=account_data)
@@ -145,6 +165,24 @@ class AccountLifecycleService:
 			"cognito_user_id": cognito_user_id,
 			"email_address": account_data["contact"]["email_address"],
 		}
+
+	def is_exists_display_name(self, display_name: str) -> bool:
+		"""Return whether a normalized display name is already in use."""
+		display_name = str(display_name).strip()
+		if not display_name:
+			raise AccountLifecycleInternalServerError(
+				message="display_name is required to check availability",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_INVALID",
+			)
+		try:
+			return self.baskt_account_repository.is_exists_display_name(display_name)
+		except AccountLifecycleInternalServerError:
+			raise
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Failed to check display name availability: {err}",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_CHECK_FAILED",
+			) from err
 
 	def update_display_name(
 		self,
