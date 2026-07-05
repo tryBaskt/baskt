@@ -207,7 +207,14 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
       <section className="hero-band">
         <div>
           <p className="eyebrow">Baskt detail</p>
-          <h2>{baskt.portfolio_name}</h2>
+          <div className="baskt-title-row">
+            <h2>{baskt.portfolio_name}</h2>
+            {baskt.portfolio_owner_display_name ? (
+              <span className="baskt-owner-name">
+                By {baskt.portfolio_owner_display_name}
+              </span>
+            ) : null}
+          </div>
           <p>{baskt.description || "No description yet."}</p>
         </div>
         <div className="meta-grid">

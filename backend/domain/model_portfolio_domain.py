@@ -71,6 +71,7 @@ class ModelPortfolioOpenSearchResult:
     portfolio_name: str
     description: str | None
     portfolio_owner_cognito_user_id: str
+    portfolio_owner_display_name: str | None
     created_at: str
     updated_at: str
     visibility: str
@@ -84,4 +85,3 @@ class ModelPortfoliosOpenSearchResult:
     total: int
     limit: int
     offset: int
-

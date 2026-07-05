@@ -13,6 +13,7 @@ class ModelPortfolioOpenSearchResultResponse(BaseModel):
     portfolio_name: str
     description: Optional[str] = None
     portfolio_owner_cognito_user_id: str
+    portfolio_owner_display_name: Optional[str] = None
     created_at: str
     updated_at: str
     visibility: Optional[str] = None

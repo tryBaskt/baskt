@@ -8,12 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
 from core.deps import (
+    get_baskt_account_repository,
     get_current_user,
     get_model_portfolio_analytics_service,
     get_model_portfolio_repository,
     get_trade_execution_queuing_service,
 )
 from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
+from repository.baskt_account_repository import (
+    BasktAccountRepository,
+    BasktAccountRepositoryError,
+)
 from repository.model_portfolio_repository import (
     ModelPortfolioRepository,
     ModelPortfolioNotFoundError, 
@@ -99,6 +104,9 @@ def get_model_portfolio(
     portfolio_id: str,
     user: Dict[str, Any] = Depends(get_current_user),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    baskt_account_repository: BasktAccountRepository = Depends(
+        get_baskt_account_repository
+    ),
 ) -> ModelPortfolioResponse:
     """
     Retrieve a single model portfolio and its latest computed current weights.
@@ -119,9 +127,17 @@ def get_model_portfolio(
     except Exception as e:
         _raise_model_portfolio_http_exception(e)
     
+    try:
+        portfolio_owner_display_name = baskt_account_repository.get_display_name(
+            cognito_user_id=model_portfolio.portfolio_owner_cognito_user_id
+        )
+    except BasktAccountRepositoryError:
+        portfolio_owner_display_name = None
+
     return ModelPortfolioResponse(
         portfolio_id=model_portfolio.portfolio_id,
         portfolio_owner_cognito_user_id=model_portfolio.portfolio_owner_cognito_user_id,
+        portfolio_owner_display_name=portfolio_owner_display_name,
         portfolio_name=model_portfolio.portfolio_name,
         description=model_portfolio.description,
         position_history=[

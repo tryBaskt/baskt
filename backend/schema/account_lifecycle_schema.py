@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class AlpacaTradingConfigurations(BaseModel):
@@ -14,6 +14,7 @@ class AlpacaTradingConfigurations(BaseModel):
 
 
 class CreateBasktAccountLifecycleRequest(BaseModel):
+    display_name: str
     contact: Dict[str, Any]
     identity: Dict[str, Any]
     disclosures: Dict[str, Any]
@@ -21,6 +22,98 @@ class CreateBasktAccountLifecycleRequest(BaseModel):
     trading_configurations: Optional[AlpacaTradingConfigurations] = None
     account_type: Optional[str] = None
     password: Optional[str] = None
+
+class BasktDisplayName(BaseModel):
+    display_name: str = Field(min_length=1, max_length=50)
+
+class BasktContactData(BaseModel):
+    email_address: str
+    phone_number: Optional[str] = None
+    street_address: str | List[str]
+    unit: Optional[str] = None
+    city: str
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+
+
+class BasktIdentityData(BaseModel):
+    given_name: str
+    family_name: str
+    country_of_tax_residence: str
+    middle_name: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    tax_id_type: Optional[str] = None
+    country_of_citizenship: Optional[str] = None
+    country_of_birth: Optional[str] = None
+    visa_type: Optional[str] = None
+    visa_expiration_date: Optional[str] = None
+    date_of_departure_from_usa: Optional[str] = None
+    permanent_resident: Optional[bool] = None
+    funding_source: Optional[str | List[str]] = None
+    annual_income_min: Optional[int | float | str] = None
+    annual_income_max: Optional[int | float | str] = None
+    liquid_net_worth_min: Optional[int | float | str] = None
+    liquid_net_worth_max: Optional[int | float | str] = None
+    total_net_worth_min: Optional[int | float | str] = None
+    total_net_worth_max: Optional[int | float | str] = None
+
+
+class BasktDisclosuresData(BaseModel):
+    immediate_family_exposed: bool
+    is_control_person: Optional[bool] = None
+    is_affiliated_exchange_or_finra: Optional[bool] = None
+    is_politically_exposed: Optional[bool] = None
+    employment_status: Optional[str] = None
+    employer_name: Optional[str] = None
+    employer_address: Optional[str] = None
+    employment_position: Optional[str] = None
+
+
+class BasktAgreementData(BaseModel):
+    agreement: str
+    signed_at: str
+    ip_address: str
+    revision: Optional[str] = None
+
+
+class BasktAccountDetailsResponse(BaseModel):
+    display_name: str
+    contact: BasktContactData
+    identity: BasktIdentityData
+    disclosures: BasktDisclosuresData
+    agreements: List[BasktAgreementData]
+
+
+class UpdateBasktContactRequest(BasktContactData):
+    pass
+
+
+class UpdateBasktIdentityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
+    country_of_tax_residence: Optional[str] = None
+    middle_name: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    country_of_citizenship: Optional[str] = None
+    country_of_birth: Optional[str] = None
+    visa_type: Optional[str] = None
+    visa_expiration_date: Optional[str] = None
+    date_of_departure_from_usa: Optional[str] = None
+    permanent_resident: Optional[bool] = None
+    funding_source: Optional[str | List[str]] = None
+    annual_income_min: Optional[int | float | str] = None
+    annual_income_max: Optional[int | float | str] = None
+    liquid_net_worth_min: Optional[int | float | str] = None
+    liquid_net_worth_max: Optional[int | float | str] = None
+    total_net_worth_min: Optional[int | float | str] = None
+    total_net_worth_max: Optional[int | float | str] = None
+
+
+class UpdateBasktDisclosuresRequest(BasktDisclosuresData):
+    pass
 
 
 class CreateBasktACHRelationshipRequest(BaseModel):

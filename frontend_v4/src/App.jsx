@@ -7,12 +7,20 @@ import LoginPage from "./pages/LoginPage";
 import MakeABaskt from "./pages/MakeABaskt";
 import MyBaskts from "./pages/MyBaskts";
 import SignupPage from "./pages/SignupPage";
+import SettingsPage from "./pages/SettingsPage";
 import StockPage from "./pages/StockPage";
 import Transfer from "./pages/Transfer";
 import { cognitoConfig } from "./authConfig";
 import { clearSession, getIdToken } from "./lib/session";
 
-const STATIC_PAGES = new Set(["home", "make", "my-baskts", "explore", "transfer"]);
+const STATIC_PAGES = new Set([
+  "home",
+  "make",
+  "my-baskts",
+  "explore",
+  "transfer",
+  "settings",
+]);
 
 function decodeRouteId(value) {
   try {
@@ -194,6 +202,8 @@ export default function App() {
         }}
       />
     );
+  } else if (currentPage === "settings") {
+    page = <SettingsPage />;
   }
 
   return (

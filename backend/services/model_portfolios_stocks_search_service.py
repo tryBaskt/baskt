@@ -9,6 +9,10 @@ from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
 from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
 from domain.stock_domain import Stock
 from domain.stock_domain import StockSearchResult, StocksSearchResult
+from repository.baskt_account_repository import (
+    BasktAccountRepository,
+    BasktAccountRepositoryError,
+)
 
 
 class ModelPortfoliosStocksSearchInternalServerError(Exception):
@@ -36,6 +40,7 @@ class ModelPortfoliosStocksSearchService:
         *,
         opensearch_client: OpenSearchClient,
         alpaca_broker_client: AlpacaBrokerClient,
+        baskt_account_repository: BasktAccountRepository,
     ) -> None:
         """Initialize the search service.
 
@@ -48,6 +53,7 @@ class ModelPortfoliosStocksSearchService:
         """
         self.opensearch_client = opensearch_client
         self.alpaca_broker_client = alpaca_broker_client
+        self.baskt_account_repository = baskt_account_repository
 
 
     def search_model_portfolios_and_stocks(
@@ -236,16 +242,30 @@ class ModelPortfoliosStocksSearchService:
                 total_data["value"] if isinstance(total_data, dict) else total_data
             )
             model_portfolios: List[ModelPortfolioOpenSearchResult] = []
+            owner_display_names: Dict[str, str | None] = {}
             for hit in hits_data["hits"]:
                 source: Dict[str, Any] = hit["_source"]
+                owner_cognito_user_id = str(
+                    source["portfolio_owner_cognito_user_id"]
+                )
+                if owner_cognito_user_id not in owner_display_names:
+                    try:
+                        owner_display_names[owner_cognito_user_id] = (
+                            self.baskt_account_repository.get_display_name(
+                                cognito_user_id=owner_cognito_user_id
+                            )
+                        )
+                    except BasktAccountRepositoryError:
+                        owner_display_names[owner_cognito_user_id] = None
                 model_portfolios.append(
                     ModelPortfolioOpenSearchResult(
                         portfolio_id=str(source["portfolio_id"]),
                         portfolio_name=str(source["portfolio_name"]),
                         description=source.get("description"),
-                        portfolio_owner_cognito_user_id=str(
-                            source["portfolio_owner_cognito_user_id"]
-                        ),
+                        portfolio_owner_cognito_user_id=owner_cognito_user_id,
+                        portfolio_owner_display_name=owner_display_names[
+                            owner_cognito_user_id
+                        ],
                         created_at=str(source["created_at"]),
                         updated_at=str(source["updated_at"]),
                         visibility=source.get("visibility"),

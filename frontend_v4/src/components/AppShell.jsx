@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import GlobalSearch from "./GlobalSearch";
 
 const navItems = [
@@ -9,6 +10,33 @@ const navItems = [
 ];
 
 export default function AppShell({ currentPage, onNavigate, onLogout, onOpenBaskt, onOpenStock, children }) {
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return undefined;
+
+    function closeAccountMenu(event) {
+      if (event.key === "Escape") {
+        setIsAccountMenuOpen(false);
+        return;
+      }
+      if (
+        event.type === "pointerdown"
+        && !accountMenuRef.current?.contains(event.target)
+      ) {
+        setIsAccountMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeAccountMenu);
+    document.addEventListener("keydown", closeAccountMenu);
+    return () => {
+      document.removeEventListener("pointerdown", closeAccountMenu);
+      document.removeEventListener("keydown", closeAccountMenu);
+    };
+  }, [isAccountMenuOpen]);
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -30,7 +58,43 @@ export default function AppShell({ currentPage, onNavigate, onLogout, onOpenBask
               {item.label}
             </button>
           ))}
-          <button className="account-button" type="button" onClick={onLogout}>Sign out</button>
+          <div className="account-menu" ref={accountMenuRef}>
+            <button
+              className={currentPage === "settings" ? "account-button active" : "account-button"}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={isAccountMenuOpen}
+              onClick={() => setIsAccountMenuOpen((isOpen) => !isOpen)}
+            >
+              Account
+              <span className="account-menu-chevron" aria-hidden="true">⌄</span>
+            </button>
+            {isAccountMenuOpen && (
+              <div className="account-menu-dropdown" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsAccountMenuOpen(false);
+                    onNavigate("settings");
+                  }}
+                >
+                  Settings
+                </button>
+                <button
+                  className="account-menu-signout"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsAccountMenuOpen(false);
+                    onLogout();
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
       </header>
       <main className="content-area">{children}</main>

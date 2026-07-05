@@ -157,6 +157,9 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
                         <p>{modelPortfolio.description || "No description yet."}</p>
                       </div>
                       <div className="explore-result-meta">
+                        <span className="portfolio-owner-name">
+                          By {modelPortfolio.portfolio_owner_display_name || "Baskt member"}
+                        </span>
                         <span>Created <strong>{formatDate(modelPortfolio.created_at)}</strong></span>
                         <span>Updated <strong>{formatDate(modelPortfolio.updated_at)}</strong></span>
                       </div>

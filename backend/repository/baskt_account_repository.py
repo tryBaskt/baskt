@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
+from dataclasses import is_dataclass
 
 from botocore.exceptions import ClientError
 
@@ -14,7 +15,7 @@ from clients.dynamodb_client import (
 )
 from domain.baskt_account_domain import (
     BasktAccount,
-    DisclosureData,
+    DisclosuresData,
     ContactData,
     IdentityData,
     AgreementData
@@ -132,7 +133,7 @@ class BasktAccountRepository:
 
         try:
             item = self.dynamodb.get_item(
-                key={"cognito_user_id": cognito_user_id}
+                key={"cognito_user_id": cognito_user_id},
             )
         except DynamoDBClientError as error:
             raise BasktAccountBadGatewayError(
@@ -142,11 +143,14 @@ class BasktAccountRepository:
             ) from error
 
         if not item:
+
             raise BasktAccountNotFoundError(
-                f"Baskt account '{cognito_user_id}' was not found"
+                f"Baskt account '{cognito_user_id}' was not found in table "
             )
 
         try:
+            identity_data = dict(item["identity_data"])
+
             return BasktAccount(
                 cognito_user_id=item["cognito_user_id"],
                 display_name=item["display_name"],
@@ -156,8 +160,8 @@ class BasktAccountRepository:
                     AgreementData(**agreement)
                     for agreement in item.get("agreements_data", [])
                 ],
-                disclosure_data=DisclosureData(**item["disclosure_data"]),
-                identity_data=IdentityData(**item["identity_data"]),
+                disclosures_data=DisclosuresData(**item["disclosures_data"]),
+                identity_data=IdentityData(**identity_data),
                 contact_data=ContactData(**item["contact_data"]),
             )
         except (KeyError, TypeError, ValueError) as error:
@@ -166,29 +170,136 @@ class BasktAccountRepository:
                 f"'{cognito_user_id}': {error}"
             ) from error
         
-
-    def _update_account_attribute(
+    def get_display_name(
         self,
         cognito_user_id: str,
-        attribute_name: str,
-        attribute_value: Any,
-    ) -> None:
-        """Update a single top-level account attribute in DynamoDB."""
-        if not cognito_user_id:
-            raise BasktAccountUnprocessableEntityError(
-                "cognito_user_id is required to update a Baskt account"
+    ) -> str:
+        """Return only the display name for an existing Baskt account.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+
+        Returns:
+            The account's display name.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If the user ID is empty or
+                the stored display name is missing or invalid.
+            BasktAccountNotFoundError: If the account does not exist.
+            BasktAccountBadGatewayError: If DynamoDB rejects the read.
+        """
+
+        try:
+            item = self.dynamodb.get_item(
+                key={"cognito_user_id": cognito_user_id},
+                projection_expression="display_name",
             )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="getting display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+        if not item:
+            raise BasktAccountNotFoundError(
+                f"Baskt account '{cognito_user_id}' was not found"
+            )
+
+        display_name = item.get("display_name")
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise BasktAccountUnprocessableEntityError(
+                f"Baskt account '{cognito_user_id}' has no valid display_name"
+            )
+
+        return display_name
+
+    def update_display_name(
+        self,
+        cognito_user_id: str,
+        display_name: str,
+    ) -> None:
+        """Update only the display name for an existing Baskt account.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+            display_name: New user-facing name for the account.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If either value is empty.
+            BasktAccountBadGatewayError: If DynamoDB rejects the update.
+        """
+
         try:
             self.dynamodb.table.update_item(
                 Key={"cognito_user_id": cognito_user_id},
-                UpdateExpression=f"SET {attribute_name} = :attribute_value",
+                UpdateExpression="SET #display_name = :display_name",
                 ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={
+                    "#display_name": "display_name",
+                },
                 ExpressionAttributeValues={
-                    ":attribute_value": to_dynamodb_value(attribute_value)
+                    ":display_name": display_name,
                 },
             )
+        except ClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+        except Exception as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
 
+    def update_baskt_account(
+        self,
+        cognito_user_id: str,
+        updated_data: ContactData | IdentityData | DisclosuresData,
+    ) -> None:
+        """Replace one account-data section without rewriting the account.
 
+        The type of ``updated_data`` determines which top-level DynamoDB
+        attribute is replaced: ``contact_data``, ``identity_data``, or
+        ``disclosures_data``. All other account attributes remain unchanged.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+            updated_data: Complete replacement value for one account section.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If the user ID is empty or
+                updated_data is not a supported domain dataclass.
+            BasktAccountBadGatewayError: If DynamoDB rejects the update.
+        """
+
+        attribute_names = {
+            "ContactData": "contact_data",
+            "IdentityData": "identity_data",
+            "DisclosuresData": "disclosures_data",
+        }
+        attribute_name = attribute_names.get(type(updated_data).__name__)
+        if not is_dataclass(updated_data) or attribute_name is None:
+            raise BasktAccountUnprocessableEntityError(
+                "updated_data must be ContactData, IdentityData, or "
+                "DisclosuresData"
+            )
+
+        try:
+            self.dynamodb.table.update_item(
+                Key={"cognito_user_id": cognito_user_id},
+                UpdateExpression="SET #attribute_name = :attribute_value",
+                ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={
+                    "#attribute_name": attribute_name,
+                },
+                ExpressionAttributeValues={
+                    ":attribute_value": to_dynamodb_value(updated_data),
+                },
+            )
         except ClientError as error:
             raise BasktAccountBadGatewayError(
                 operation=f"updating {attribute_name}",
@@ -201,85 +312,3 @@ class BasktAccountRepository:
                 cognito_user_id=cognito_user_id,
                 cause=error,
             ) from error
-
-    def update_contact_data(
-        self,
-        cognito_user_id: str,
-        contact_data: ContactData,
-    ) -> None:
-        """Update only the ``contact_data`` field for one account.
-
-        This performs a partial DynamoDB update against the existing item
-        identified by ``cognito_user_id``. The rest of the account record is
-        left unchanged.
-
-        Args:
-            cognito_user_id: Cognito user ID used as the DynamoDB partition
-                key.
-            contact_data: New contact data to store for the account.
-
-        Raises:
-            BasktAccountUnprocessableEntityError: If the user ID is empty or
-                the contact data is not a dataclass instance.
-            BasktAccountBadGatewayError: If DynamoDB rejects the update.
-        """
-        self._update_account_attribute(
-            cognito_user_id=cognito_user_id,
-            attribute_name="contact_data",
-            attribute_value=contact_data,
-        )
-
-
-    def update_disclosure_data(
-        self,
-        cognito_user_id: str,
-        disclosure_data: DisclosureData,
-    ) -> None:
-        """Update only the ``disclosure_data`` field for one account.
-
-        This performs a partial DynamoDB update against the existing item
-        identified by ``cognito_user_id``. The rest of the account record is
-        left unchanged.
-
-        Args:
-            cognito_user_id: Cognito user ID used as the DynamoDB partition
-                key.
-            disclosure_data: New disclosure data to store for the account.
-
-        Raises:
-            BasktAccountUnprocessableEntityError: If the user ID is empty or
-                the disclosure data is not a dataclass instance.
-            BasktAccountBadGatewayError: If DynamoDB rejects the update.
-        """
-        self._update_account_attribute(
-            cognito_user_id=cognito_user_id,
-            attribute_name="disclosure_data",
-            attribute_value=disclosure_data,
-        )
-
-    def update_identity_data(
-        self,
-        cognito_user_id: str,
-        identity_data: IdentityData,
-    ) -> None:
-        """Update only the ``identity_data`` field for one account.
-
-        This performs a partial DynamoDB update against the existing item
-        identified by ``cognito_user_id``. The rest of the account record is
-        left unchanged.
-
-        Args:
-            cognito_user_id: Cognito user ID used as the DynamoDB partition
-                key.
-            identity_data: New identity data to store for the account.
-
-        Raises:
-            BasktAccountUnprocessableEntityError: If the user ID is empty or
-                the identity data is not a dataclass instance.
-            BasktAccountBadGatewayError: If DynamoDB rejects the update.
-        """
-        self._update_account_attribute(
-            cognito_user_id=cognito_user_id,
-            attribute_name="identity_data",
-            attribute_value=identity_data,
-        )

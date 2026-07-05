@@ -342,10 +342,14 @@ def get_stock_analytics_service(
 def get_model_portfolios_stocks_search_service(
     opensearch_client: OpenSearchClient = Depends(get_opensearch_client),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    baskt_account_repository: BasktAccountRepository = Depends(
+        get_baskt_account_repository
+    ),
 ) -> ModelPortfoliosStocksSearchService:
     return ModelPortfoliosStocksSearchService(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
+        baskt_account_repository=baskt_account_repository,
     )
 
 

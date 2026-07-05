@@ -93,7 +93,13 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
                   role="option"
                   onClick={() => selectResult(onOpenBaskt, baskt.portfolio_id)}
                 >
-                  <span><strong>{baskt.portfolio_name}</strong><small>{baskt.description || "Model portfolio"}</small></span>
+                  <span>
+                    <strong>{baskt.portfolio_name}</strong>
+                    <small>
+                      By {baskt.portfolio_owner_display_name || "Baskt member"}
+                      {baskt.description ? ` · ${baskt.description}` : ""}
+                    </small>
+                  </span>
                   <span className="search-result-kind">BASKT</span>
                 </button>
               ))}

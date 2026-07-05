@@ -20,6 +20,7 @@ from backend.core.config import get_settings
 from backend.clients.opensearch_client import OpenSearchClient
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
+from backend.repository.baskt_account_repository import BasktAccountRepository
 
 
 
@@ -41,6 +42,15 @@ def alpaca_broker_client() -> AlpacaBrokerClient:
     return app_deps.get_alpaca_broker_client()
 
 
+@pytest.fixture(scope="session")
+def baskt_account_repository() -> BasktAccountRepository:
+    return app_deps.get_baskt_account_repository(
+        baskt_account_dynamodb_client=(
+            app_deps.get_baskt_account_dynamodb_client()
+        )
+    )
+
+
 #######################################
 ############## SERVICES ###############
 #######################################
@@ -49,10 +59,12 @@ def alpaca_broker_client() -> AlpacaBrokerClient:
 def model_portfolios_stocks_search_service(
     opensearch_client: OpenSearchClient,
     alpaca_broker_client: AlpacaBrokerClient,
+    baskt_account_repository: BasktAccountRepository,
 ) -> ModelPortfoliosStocksSearchService:
     return app_deps.get_model_portfolios_stocks_search_service(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
+        baskt_account_repository=baskt_account_repository,
     )
 
 

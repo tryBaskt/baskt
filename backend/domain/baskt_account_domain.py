@@ -24,7 +24,6 @@ class IdentityData:
     country_of_tax_residence: str
     middle_name: Optional[str] = None
     date_of_birth: Optional[str] = None
-    tax_id: Optional[str] = None
     tax_id_type: Optional[str] = None
     country_of_citizenship: Optional[str] = None
     country_of_birth: Optional[str] = None
@@ -42,7 +41,7 @@ class IdentityData:
 
 
 @dataclass
-class DisclosureData:
+class DisclosuresData:
     immediate_family_exposed: bool
     is_control_person: Optional[bool] = None
     is_affiliated_exchange_or_finra: Optional[bool] = None
@@ -72,7 +71,14 @@ class BasktAccount:
     alpaca_account_id: str
     alpaca_account_number: str
     agreements_data: List[AgreementData]
-    disclosure_data: DisclosureData
+    disclosures_data: DisclosuresData
     identity_data: IdentityData
     contact_data: ContactData
+
+
+@dataclass
+class UpdateBasktAccount:
+    cognito_user_id: str
+    alpaca_account_id: str
+    updated_data: DisclosuresData | IdentityData | ContactData
     

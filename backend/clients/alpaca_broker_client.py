@@ -5,13 +5,27 @@ from __future__ import annotations
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
+from dataclasses import asdict, is_dataclass
 
 # Pandas imports
 import pandas as pd
 
 # Alpaca imports
 from alpaca.broker.client import BrokerClient
-from alpaca.broker.requests import CreateAccountRequest, CreateACHRelationshipRequest, CreateACHTransferRequest, CreateBankRequest, CreateBankTransferRequest, CreatePlaidRelationshipRequest, GetTransfersRequest
+from alpaca.broker.requests import (
+    CreateAccountRequest,
+    CreateACHRelationshipRequest,
+    CreateACHTransferRequest,
+    CreateBankRequest,
+    CreateBankTransferRequest,
+    CreatePlaidRelationshipRequest,
+    GetTransfersRequest,
+    UpdatableContact,
+    UpdatableDisclosures,
+    UpdatableIdentity,
+    UpdatableTrustedContact,
+    UpdateAccountRequest
+)
 from alpaca.broker.enums import AccountType, BankAccountType, TransferDirection, TransferTiming, FeePaymentMethod, IdentifierType
 from alpaca.broker.models import (
     Contact, Identity, Disclosures, Agreement, Account, ACHRelationship, Bank, Transfer, TradeAccount, 
@@ -29,6 +43,7 @@ from alpaca.common.exceptions import APIError
 # Baskt imports
 from domain.baskt_domain import BasktPosition
 from domain.stock_domain import Stock
+from domain.baskt_account_domain import ContactData, IdentityData, DisclosuresData
 
 
 CRYPTO_ELIGIBLE_US_STATES = frozenset(
@@ -291,6 +306,52 @@ class AlpacaBrokerClient:
                 code="ALPACA_BROKER_CREATE_ALPACA_ACCOUNT_FAILED"
             )
         
+    def update_alpaca_account(self, alpaca_account_id: str, cognito_user_id: str, updated_data: ContactData|IdentityData|DisclosuresData):
+
+        try:
+            update_account_request = None
+            updated_data_type = type(updated_data).__name__
+
+            if is_dataclass(updated_data) and updated_data_type == "ContactData":
+                update_account_request = UpdateAccountRequest(
+                    contact=asdict(updated_data)
+                )
+            elif is_dataclass(updated_data) and updated_data_type == "IdentityData":
+                identity_update_data = asdict(updated_data)
+                identity_update_data.pop("tax_id_type", None)
+                if str(
+                    identity_update_data.get("country_of_citizenship", "")
+                ).upper() == "USA":
+                    identity_update_data.pop("permanent_resident", None)
+                update_account_request = UpdateAccountRequest(
+                    identity=identity_update_data
+                )
+            elif (
+                is_dataclass(updated_data)
+                and updated_data_type == "DisclosuresData"
+            ):
+                update_account_request = UpdateAccountRequest(
+                    disclosures=asdict(updated_data)
+                )
+            else:
+                raise AlpacaBrokerClientError(
+                    message=(
+                        "Updated data not one of "
+                        "(contact, identity, disclosures); received "
+                        f"{type(updated_data).__module__}."
+                        f"{updated_data_type}"
+                    ),
+                    code="ALPACA_BROKER_UPDATE_ALPACA_ACCOUNT_FAILED",
+                )
+
+            self.client.update_account(account_id=alpaca_account_id, update_data=update_account_request)
+
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to update alpaca account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_UPDATE_ALPACA_ACCOUNT_FAILED"
+            )
+
     def get_alpaca_account_by_id(self, account_id: str, cognito_user_id: str) -> Account:
         """
         Fetch an Alpaca broker account by account ID.

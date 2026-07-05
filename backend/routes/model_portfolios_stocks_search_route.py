@@ -117,6 +117,9 @@ def search_model_portfolios_and_stocks(
                         portfolio_owner_cognito_user_id=(
                             model_portfolio.portfolio_owner_cognito_user_id
                         ),
+                        portfolio_owner_display_name=(
+                            model_portfolio.portfolio_owner_display_name
+                        ),
                         created_at=model_portfolio.created_at,
                         updated_at=model_portfolio.updated_at,
                         visibility=model_portfolio.visibility,
@@ -193,6 +196,9 @@ def search_model_portfolios(
                     description=model_portfolio.description,
                     portfolio_owner_cognito_user_id=(
                         model_portfolio.portfolio_owner_cognito_user_id
+                    ),
+                    portfolio_owner_display_name=(
+                        model_portfolio.portfolio_owner_display_name
                     ),
                     created_at=model_portfolio.created_at,
                     updated_at=model_portfolio.updated_at,

@@ -41,6 +41,7 @@ class ModelPortfolioSnapshotResponse(BaseModel):
 class ModelPortfolioResponse(BaseModel):
     portfolio_id: str
     portfolio_owner_cognito_user_id: str
+    portfolio_owner_display_name: Optional[str] = None
     portfolio_name: str
     description: Optional[str] = None
     position_history: List[ModelPortfolioSnapshotResponse]
