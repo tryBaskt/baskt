@@ -187,7 +187,7 @@ class AccountLifecycleService:
 	def update_display_name(
 		self,
 		cognito_user_id: str,
-		display_name: str
+		display_name: str,
 	) -> None:
 		"""Update the user-facing display name stored by Baskt."""
 		display_name = str(display_name).strip()
@@ -199,7 +199,7 @@ class AccountLifecycleService:
 		try:
 			self.baskt_account_repository.update_display_name(
 				cognito_user_id=cognito_user_id,
-				display_name=display_name
+				display_name=display_name,
 			)
 		except Exception as err:
 			raise AccountLifecycleInternalServerError(
@@ -208,6 +208,22 @@ class AccountLifecycleService:
 					f"'{cognito_user_id}': {err}"
 				),
 				code="ACCOUNT_LIFECYCLE_UPDATE_DISPLAY_NAME_FAILED"
+			) from err
+
+	def update_description(self, cognito_user_id: str, description: str) -> None:
+		"""Update the user-facing profile description stored by Baskt."""
+		try:
+			self.baskt_account_repository.update_description(
+				cognito_user_id=cognito_user_id,
+				description=str(description).strip(),
+			)
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=(
+					"Failed to update description for Cognito user "
+					f"'{cognito_user_id}': {err}"
+				),
+				code="ACCOUNT_LIFECYCLE_UPDATE_DESCRIPTION_FAILED",
 			) from err
 
 	def update_baskt_account(

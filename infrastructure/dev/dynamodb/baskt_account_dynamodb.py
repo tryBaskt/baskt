@@ -28,7 +28,49 @@ CONFIGURATIONS = {
     "partition_key_key_type": "HASH",
     "display_name_index": "display_name_index",
     "display_name_attribute": "display_name",
+    "stream_view_type": "NEW_AND_OLD_IMAGES",
 }
+
+
+def wait_until_table_active(dynamodb):
+    """Wait for the account table to finish its current update."""
+    table_name = CONFIGURATIONS["table_name"]
+    dynamodb.get_waiter("table_exists").wait(
+        TableName=table_name,
+        WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+    )
+    return dynamodb.describe_table(TableName=table_name)["Table"]
+
+
+def ensure_baskt_account_stream(dynamodb, table):
+    """Enable the account stream with new and old item images."""
+    table_name = CONFIGURATIONS["table_name"]
+    stream_view_type = CONFIGURATIONS["stream_view_type"]
+    stream = table.get("StreamSpecification", {})
+
+    if stream.get("StreamEnabled") and stream.get("StreamViewType") == stream_view_type:
+        print(f"Stream is already enabled: {table['LatestStreamArn']}")
+        return table
+
+    if stream.get("StreamEnabled"):
+        print("Disabling existing stream configuration")
+        dynamodb.update_table(
+            TableName=table_name,
+            StreamSpecification={"StreamEnabled": False},
+        )
+        wait_until_table_active(dynamodb)
+
+    print(f"Enabling {stream_view_type} stream")
+    dynamodb.update_table(
+        TableName=table_name,
+        StreamSpecification={
+            "StreamEnabled": True,
+            "StreamViewType": stream_view_type,
+        },
+    )
+    table = wait_until_table_active(dynamodb)
+    print(f"Stream enabled: {table['LatestStreamArn']}")
+    return table
 
 
 def ensure_display_name_index(dynamodb, table):
@@ -104,6 +146,10 @@ def create_dev_baskt_account_dynamodb():
                 "Projection": {"ProjectionType": "ALL"},
             }
         ],
+        "StreamSpecification": {
+            "StreamEnabled": True,
+            "StreamViewType": CONFIGURATIONS["stream_view_type"],
+        },
         "BillingMode": "PAY_PER_REQUEST",
         "DeletionProtectionEnabled": False,
     }
@@ -114,7 +160,8 @@ def create_dev_baskt_account_dynamodb():
             print(f"Table {table_name} already exists")
             print(f"ARN: {existing_table['TableArn']}")
             print(f"Status: {existing_table['TableStatus']}")
-            return ensure_display_name_index(dynamodb, existing_table)
+            table = ensure_baskt_account_stream(dynamodb, existing_table)
+            return ensure_display_name_index(dynamodb, table)
         except ClientError as error:
             if error.response["Error"]["Code"] != "ResourceNotFoundException":
                 raise

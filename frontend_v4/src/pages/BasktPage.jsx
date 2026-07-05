@@ -15,7 +15,7 @@ function getReturnTone(value) {
   return Number(value) >= 0 ? "metric-positive" : "metric-negative";
 }
 
-export default function BasktPage({ portfolioId, onBack, onUpdate }) {
+export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser }) {
   const [baskt, setBaskt] = useState(null);
   const [allocationAnalytics, setAllocationAnalytics] = useState(null);
   const [modelAnalytics, setModelAnalytics] = useState(null);
@@ -210,9 +210,13 @@ export default function BasktPage({ portfolioId, onBack, onUpdate }) {
           <div className="baskt-title-row">
             <h2>{baskt.portfolio_name}</h2>
             {baskt.portfolio_owner_display_name ? (
-              <span className="baskt-owner-name">
+              <button
+                className="baskt-owner-name"
+                type="button"
+                onClick={() => onOpenUser(baskt.portfolio_owner_cognito_user_id)}
+              >
                 By {baskt.portfolio_owner_display_name}
-              </span>
+              </button>
             ) : null}
           </div>
           <p>{baskt.description || "No description yet."}</p>

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { apiRequest, toQuery } from "../lib/api";
 
-export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
+export default function GlobalSearch({ onOpenBaskt, onOpenStock, onOpenUser }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState({ stocks: [], baskts: [] });
+  const [results, setResults] = useState({ users: [], stocks: [], baskts: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -14,7 +14,7 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
     requestId.current += 1;
     const currentRequest = requestId.current;
     if (!normalizedQuery) {
-      setResults({ stocks: [], baskts: [] });
+      setResults({ users: [], stocks: [], baskts: [] });
       setIsOpen(false);
       setHasError(false);
       return undefined;
@@ -27,13 +27,14 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
         const payload = await apiRequest(`/search${toQuery({ query: normalizedQuery, limit: 6, offset: 0 })}`);
         if (requestId.current !== currentRequest) return;
         setResults({
+          users: payload?.baskt_accounts?.baskt_accounts || [],
           stocks: payload?.stocks || [],
           baskts: payload?.model_portfolios?.model_portfolios || [],
         });
         setIsOpen(true);
       } catch {
         if (requestId.current !== currentRequest) return;
-        setResults({ stocks: [], baskts: [] });
+        setResults({ users: [], stocks: [], baskts: [] });
         setHasError(true);
         setIsOpen(true);
       } finally {
@@ -44,7 +45,7 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const hasResults = results.stocks.length > 0 || results.baskts.length > 0;
+  const hasResults = results.users.length > 0 || results.stocks.length > 0 || results.baskts.length > 0;
 
   function selectResult(callback, value) {
     setIsOpen(false);
@@ -62,8 +63,8 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => query.trim() && setIsOpen(true)}
-        placeholder="Search Baskts and stocks"
-        aria-label="Search Baskts and stocks"
+        placeholder="Search people, Baskts, and stocks"
+        aria-label="Search people, Baskts, and stocks"
         aria-expanded={isOpen}
         autoComplete="off"
       />
@@ -75,6 +76,20 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
             <div className="search-empty">Error</div>
           ) : hasResults ? (
             <>
+              {results.users.map((user) => (
+                <button
+                  type="button"
+                  role="option"
+                  onClick={() => selectResult(onOpenUser, user.cognito_user_id)}
+                  key={user.cognito_user_id}
+                >
+                  <span>
+                    <strong>{user.display_name}</strong>
+                    <small>{user.description || "Baskt member"}</small>
+                  </span>
+                  <span className="search-result-kind">PERSON</span>
+                </button>
+              ))}
               {results.stocks.map((stock) => (
                 <button
                   key={stock.stock_id}
@@ -105,7 +120,7 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock }) {
               ))}
             </>
           ) : (
-            <div className="search-empty">No Baskts or stocks found</div>
+            <div className="search-empty">No people, Baskts, or stocks found</div>
           )}
         </div>
       )}

@@ -85,6 +85,9 @@ class TestEngine:
 
     def test_search_stocks(self, *, query: str):
         return self.model_portfolios_stocks_search_service.search_stocks(query=query)
+    
+    def test_search_baskt_accounts(self, *, query: str):
+        return self.model_portfolios_stocks_search_service.search_baskt_accounts(query=query)
 
     def test_search_model_portfolios_and_stocks(
         self,

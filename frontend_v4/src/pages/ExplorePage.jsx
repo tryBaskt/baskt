@@ -5,10 +5,12 @@ import { formatDate } from "../lib/format";
 
 const PAGE_SIZE = 12;
 
-export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
+export default function ExplorePage({ onOpenBaskt, onOpenStock, onOpenUser }) {
   const [query, setQuery] = useState("");
   const [modelPortfolios, setModelPortfolios] = useState([]);
   const [stocks, setStocks] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [userTotal, setUserTotal] = useState(0);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchedQuery, setSearchedQuery] = useState("");
@@ -20,6 +22,8 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
     if (!normalizedQuery) {
       setModelPortfolios([]);
       setStocks([]);
+      setUsers([]);
+      setUserTotal(0);
       setTotal(0);
       setOffset(0);
       setSearchedQuery("");
@@ -40,12 +44,16 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
       const modelPortfolioPayload = payload?.model_portfolios || {};
       setModelPortfolios(modelPortfolioPayload.model_portfolios || []);
       setStocks(payload?.stocks || []);
+      setUsers(payload?.baskt_accounts?.baskt_accounts || []);
+      setUserTotal(Number(payload?.baskt_accounts?.total) || 0);
       setTotal(Number(modelPortfolioPayload.total) || 0);
       setOffset(Number(modelPortfolioPayload.offset) || 0);
     } catch (searchError) {
       setError(searchError?.message || "Could not search Baskts and stocks.");
       setModelPortfolios([]);
       setStocks([]);
+      setUsers([]);
+      setUserTotal(0);
       setTotal(0);
     } finally {
       setIsLoading(false);
@@ -61,26 +69,26 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
   const lastResult = Math.min(offset + modelPortfolios.length, total);
   const hasPreviousPage = offset > 0;
   const hasNextPage = offset + modelPortfolios.length < total;
-  const hasResults = modelPortfolios.length > 0 || stocks.length > 0;
+  const hasResults = users.length > 0 || modelPortfolios.length > 0 || stocks.length > 0;
 
   return (
     <div className="page-stack explore-page">
       <section className="section-heading explore-heading">
         <div>
           <p className="eyebrow">Explore</p>
-          <h2>Find Baskts and stocks</h2>
+          <h2>Find people, Baskts, and stocks</h2>
         </div>
       </section>
 
       <form className="explore-search-form" onSubmit={handleSubmit}>
-        <label htmlFor="model-portfolio-search">Search Baskts &amp; stocks</label>
+        <label htmlFor="model-portfolio-search">Search people, Baskts &amp; stocks</label>
         <div className="explore-search-control">
           <input
             id="model-portfolio-search"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by Baskt name, description, or stock symbol"
+            placeholder="Search by display name, Baskt, description, or stock symbol"
             autoComplete="off"
           />
           <button className="primary-button" type="submit" disabled={isLoading || !query.trim()}>
@@ -105,9 +113,31 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
                 <h3>Results for &ldquo;{searchedQuery}&rdquo;</h3>
               </div>
               <span>
-                {stocks.length} {stocks.length === 1 ? "stock" : "stocks"} &middot; {total} {total === 1 ? "Baskt" : "Baskts"}
+                {userTotal} {userTotal === 1 ? "person" : "people"} &middot; {stocks.length} {stocks.length === 1 ? "stock" : "stocks"} &middot; {total} {total === 1 ? "Baskt" : "Baskts"}
               </span>
             </div>
+
+            {users.length > 0 && (
+              <div className="explore-result-group">
+                <h4>People</h4>
+                <div className="explore-results-list">
+                  {users.map((user) => (
+                    <button
+                      className="explore-result explore-user-result"
+                      type="button"
+                      onClick={() => onOpenUser(user.cognito_user_id)}
+                      key={user.cognito_user_id}
+                    >
+                      <div className="explore-result-copy">
+                        <span className="baskt-badge">Member</span>
+                        <h3>{user.display_name}</h3>
+                        <p>{user.description || "Baskt member"}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {stocks.length > 0 && (
               <div className="explore-result-group">
@@ -121,7 +151,7 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
                       onClick={() => onOpenStock(stock)}
                     >
                       <div className="explore-result-copy">
-                        <span className="stock-symbol-badge">{stock.symbol}</span>
+                        <span className="baskt-badge">Stock</span>
                         <h3>{stock.symbol}</h3>
                         <p>{String(stock.stock_class || "US equity").replaceAll("_", " ")}</p>
                       </div>
@@ -193,12 +223,12 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock }) {
         ) : searchedQuery ? (
           <div className="explore-message">
             <h3>No matches found</h3>
-            <p>Try a different Baskt name, description, or stock symbol.</p>
+            <p>Try a different display name, Baskt, description, or stock symbol.</p>
           </div>
         ) : (
           <div className="explore-message explore-message--initial">
             <h3>Explore the market</h3>
-            <p>Enter a Baskt name, description, or stock symbol.</p>
+            <p>Enter a display name, Baskt, description, or stock symbol.</p>
           </div>
         )}
       </section>

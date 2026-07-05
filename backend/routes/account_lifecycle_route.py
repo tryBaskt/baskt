@@ -36,6 +36,7 @@ from schema.account_lifecycle_schema import (
 	UpdateBasktIdentityRequest,
 	UpdateBasktDisclosuresRequest,
 	BasktDisplayName,
+	BasktDescription,
 	GetIsExistsDisplayNameResponse
 )
 from services.account_lifecycle_service import (
@@ -125,6 +126,7 @@ def _to_account_details_response(
 	"""Convert a persisted Baskt account into its public settings response."""
 	return BasktAccountDetailsResponse(
 		display_name=baskt_account.display_name,
+		description=baskt_account.description,
 		contact=asdict(baskt_account.contact_data),
 		identity=asdict(baskt_account.identity_data),
 		disclosures=asdict(baskt_account.disclosures_data),
@@ -270,6 +272,29 @@ def update_display_name(
 		service.update_display_name(
 			cognito_user_id=user["sub"],
 			display_name=request.display_name,
+		)
+		return _to_account_details_response(
+			service.get_baskt_account(cognito_user_id=user["sub"])
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.put(
+	"/profile/description",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_description(
+	request: BasktDescription,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Update the authenticated user's profile description."""
+	try:
+		service.update_description(
+			cognito_user_id=user["sub"],
+			description=request.description,
 		)
 		return _to_account_details_response(
 			service.get_baskt_account(cognito_user_id=user["sub"])

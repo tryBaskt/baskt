@@ -237,7 +237,9 @@ export default function SettingsPage() {
   const [settingsSection, setSettingsSection] = useState("profile");
   const [editingSection, setEditingSection] = useState(null);
   const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const [description, setDescription] = useState("");
   const [form, setForm] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -321,6 +323,27 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveDescription(event) {
+    event.preventDefault();
+    setIsSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const updatedAccount = await apiRequest("/accounts/profile/description", {
+        method: "PUT",
+        body: JSON.stringify({ description: description.trim() }),
+      });
+      setAccount(updatedAccount);
+      setDescription(updatedAccount.description || "");
+      setIsEditingDescription(false);
+      setSuccess("Description updated.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   if (isLoading) {
     return <LoadingState title="Loading account details" message="Fetching your account information." />;
   }
@@ -352,6 +375,7 @@ export default function SettingsPage() {
             onClick={() => {
               setSettingsSection("account-details");
               setIsEditingDisplayName(false);
+              setIsEditingDescription(false);
             }}
           >
             Account Details
@@ -387,7 +411,7 @@ export default function SettingsPage() {
                     )}
                   </div>
                   {isEditingDisplayName ? (
-                    <form className="display-name-form" onSubmit={saveDisplayName}>
+                    <form className="profile-field-form" onSubmit={saveDisplayName}>
                       <label>
                         <span>Display name</span>
                         <input
@@ -404,6 +428,44 @@ export default function SettingsPage() {
                     </form>
                   ) : (
                     <dl className="account-details-list"><div><dt>Display name</dt><dd>{account.display_name}</dd></div></dl>
+                  )}
+                </section>
+                <section className="account-details-section profile-settings-section">
+                  <div className="account-details-section-heading">
+                    <h2>Description</h2>
+                    {!isEditingDescription && (
+                      <button
+                        className="settings-edit-button"
+                        type="button"
+                        onClick={() => {
+                          setDescription(account.description || "");
+                          setError("");
+                          setSuccess("");
+                          setIsEditingDescription(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  {isEditingDescription ? (
+                    <form className="profile-field-form" onSubmit={saveDescription}>
+                      <label>
+                        <span>Description</span>
+                        <textarea
+                          value={description}
+                          maxLength={500}
+                          rows={4}
+                          onChange={(event) => setDescription(event.target.value)}
+                        />
+                      </label>
+                      <div className="settings-form-actions">
+                        <button className="settings-secondary-button" type="button" onClick={() => setIsEditingDescription(false)}>Cancel</button>
+                        <button className="settings-save-button" type="submit" disabled={isSaving}>{isSaving ? "Saving…" : "Save changes"}</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <dl className="account-details-list"><div><dt>Description</dt><dd>{account.description}</dd></div></dl>
                   )}
                 </section>
               </>

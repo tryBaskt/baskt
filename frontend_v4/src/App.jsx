@@ -10,6 +10,7 @@ import SignupPage from "./pages/SignupPage";
 import SettingsPage from "./pages/SettingsPage";
 import StockPage from "./pages/StockPage";
 import Transfer from "./pages/Transfer";
+import BasktAccountPage from "./pages/BasktAccountPage";
 import { cognitoConfig } from "./authConfig";
 import { clearSession, getIdToken } from "./lib/session";
 
@@ -41,6 +42,9 @@ function readLocation() {
   if (section === "stocks" && id) {
     return { route: { page: "stock-detail", id }, authView: "login" };
   }
+  if (section === "users" && id) {
+    return { route: { page: "baskt-account", id }, authView: "login" };
+  }
   if (section === "make" && id) {
     return { route: { page: "make", id }, authView: "login" };
   }
@@ -62,6 +66,9 @@ function routeHash(route) {
   }
   if (route.page === "stock-detail") {
     return `#/stocks/${encodeURIComponent(route.id)}`;
+  }
+  if (route.page === "baskt-account") {
+    return `#/users/${encodeURIComponent(route.id)}`;
   }
   if (route.page === "make" && route.id) {
     return `#/make/${encodeURIComponent(route.id)}`;
@@ -176,8 +183,13 @@ export default function App() {
     page = (
       <BasktPage
         portfolioId={route.id}
-        onBack={() => navigate({ page: basktDetailBackPage })}
+        onBack={() => navigate(
+          typeof basktDetailBackPage === "string"
+            ? { page: basktDetailBackPage }
+            : basktDetailBackPage
+        )}
         onUpdate={() => navigate({ page: "make", id: route.id })}
+        onOpenUser={(cognitoUserId) => navigate({ page: "baskt-account", id: cognitoUserId })}
       />
     );
   } else if (currentPage === "transfer") {
@@ -200,6 +212,18 @@ export default function App() {
           setStockDetailBackPage("explore");
           navigate({ page: "stock-detail", id: stock.stock_id });
         }}
+        onOpenUser={(cognitoUserId) => navigate({ page: "baskt-account", id: cognitoUserId })}
+      />
+    );
+  } else if (currentPage === "baskt-account" && route.id) {
+    page = (
+      <BasktAccountPage
+        cognitoUserId={route.id}
+        onBack={() => window.history.back()}
+        onOpenBaskt={(portfolioId) => {
+          setBasktDetailBackPage({ page: "baskt-account", id: route.id });
+          navigate({ page: "baskt-detail", id: portfolioId });
+        }}
       />
     );
   } else if (currentPage === "settings") {
@@ -212,9 +236,13 @@ export default function App() {
       onNavigate={(pageName) => navigate({ page: pageName })}
       onLogout={logout}
       onOpenBaskt={(portfolioId) => {
-        setBasktDetailBackPage(
-          currentPage === "baskt-detail" || currentPage === "stock-detail" ? "explore" : currentPage
-        );
+        if (currentPage === "baskt-account") {
+          setBasktDetailBackPage({ page: "baskt-account", id: route.id });
+        } else {
+          setBasktDetailBackPage(
+            currentPage === "baskt-detail" || currentPage === "stock-detail" ? "explore" : currentPage
+          );
+        }
         navigate({ page: "baskt-detail", id: portfolioId });
       }}
       onOpenStock={(stockId) => {
@@ -223,6 +251,7 @@ export default function App() {
         );
         navigate({ page: "stock-detail", id: stockId });
       }}
+      onOpenUser={(cognitoUserId) => navigate({ page: "baskt-account", id: cognitoUserId })}
     >
       {page}
     </AppShell>

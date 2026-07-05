@@ -189,6 +189,7 @@ class BasktAccountRepository:
             return BasktAccount(
                 cognito_user_id=item["cognito_user_id"],
                 display_name=item["display_name"],
+                description=item["description"],
                 alpaca_account_id=item["alpaca_account_id"],
                 alpaca_account_number=item["alpaca_account_number"],
                 agreements_data=[
@@ -254,7 +255,7 @@ class BasktAccountRepository:
         cognito_user_id: str,
         display_name: str,
     ) -> None:
-        """Update only the display name for an existing Baskt account.
+        """Update the display name for an existing Baskt account.
 
         Args:
             cognito_user_id: Cognito user ID used as the partition key.
@@ -270,12 +271,8 @@ class BasktAccountRepository:
                 Key={"cognito_user_id": cognito_user_id},
                 UpdateExpression="SET #display_name = :display_name",
                 ConditionExpression="attribute_exists(cognito_user_id)",
-                ExpressionAttributeNames={
-                    "#display_name": "display_name",
-                },
-                ExpressionAttributeValues={
-                    ":display_name": display_name,
-                },
+                ExpressionAttributeNames={"#display_name": "display_name"},
+                ExpressionAttributeValues={":display_name": display_name},
             )
         except ClientError as error:
             raise BasktAccountBadGatewayError(
@@ -286,6 +283,27 @@ class BasktAccountRepository:
         except Exception as error:
             raise BasktAccountBadGatewayError(
                 operation="updating display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+    def update_description(
+        self,
+        cognito_user_id: str,
+        description: str,
+    ) -> None:
+        """Update the profile description for an existing Baskt account."""
+        try:
+            self.dynamodb.table.update_item(
+                Key={"cognito_user_id": cognito_user_id},
+                UpdateExpression="SET #description = :description",
+                ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={"#description": "description"},
+                ExpressionAttributeValues={":description": description},
+            )
+        except Exception as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating description",
                 cognito_user_id=cognito_user_id,
                 cause=error,
             ) from error

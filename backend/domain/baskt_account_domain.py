@@ -74,6 +74,7 @@ class BasktAccount:
     disclosures_data: DisclosuresData
     identity_data: IdentityData
     contact_data: ContactData
+    description: Optional[str] = None
 
 
 @dataclass
@@ -81,4 +82,21 @@ class UpdateBasktAccount:
     cognito_user_id: str
     alpaca_account_id: str
     updated_data: DisclosuresData | IdentityData | ContactData
+
+
+@dataclass(frozen=True)
+class BasktAccountOpenSearch:
+    cognito_user_id: str
+    display_name: str
+    description: Optional[str] = None
+    profile_image: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class BasktAccountsOpenSearch:
+    baskt_accounts: List[BasktAccountOpenSearch]
+    total: int
+    limit: int
+    offset: int
+    
     

@@ -7,8 +7,8 @@ from typing import Any, Dict, List, TypedDict
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
 from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
-from domain.stock_domain import Stock
-from domain.stock_domain import StockSearchResult, StocksSearchResult
+from domain.stock_domain import Stock, StockSearchResult, StocksSearchResult
+from domain.baskt_account_domain import BasktAccountOpenSearch, BasktAccountsOpenSearch
 from repository.baskt_account_repository import (
     BasktAccountRepository,
     BasktAccountRepositoryError,
@@ -85,7 +85,120 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset,
             ),
             "stocks_search_result": self.search_stocks(query=query),
+            "baskt_accounts_opensearch_result": self.search_baskt_accounts(
+                query=query,
+                limit=limit,
+                offset=offset,
+            ),
         }
+
+    def search_baskt_accounts(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Any:
+        """Search public Baskt accounts by display name or description."""
+        from domain.baskt_account_domain import BasktAccountOpenSearch
+
+        normalized_query = query.strip()
+        if not 1 <= limit <= 50:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message="Baskt account search limit must be between 1 and 50",
+                code="BASKT_ACCOUNT_SEARCH_INVALID_LIMIT",
+            )
+        if offset < 0:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message="Baskt account search offset cannot be negative",
+                code="BASKT_ACCOUNT_SEARCH_INVALID_OFFSET",
+            )
+        if not normalized_query:
+            return BasktAccountsOpenSearch(
+                baskt_accounts=[],
+                total=0,
+                limit=limit,
+                offset=offset
+            )
+
+        try:
+            search_body = {
+                "from": offset,
+                "size": limit,
+                "track_total_hits": True,
+                "_source": [
+                    "cognito_user_id",
+                    "display_name",
+                    "description",
+                    "profile_image",
+                ],
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "match_phrase_prefix": {
+                                    "display_name": {
+                                        "query": normalized_query,
+                                        "boost": 5,
+                                    }
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": normalized_query,
+                                    "fields": [
+                                        "display_name^4",
+                                        "description",
+                                    ],
+                                    "fuzziness": "AUTO",
+                                }
+                            },
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                "sort": [
+                    "_score",
+                    {"display_name.keyword": {"order": "asc"}},
+                ],
+            }
+            response = self.opensearch_client._request(
+                method="POST",
+                path="dev-baskt-accounts/_search",
+                body=search_body,
+            )
+            hits_data = response["hits"]
+            total_data = hits_data["total"]
+            total = int(
+                total_data["value"] if isinstance(total_data, dict) else total_data
+            )
+            baskt_accounts: List[BasktAccountOpenSearch] = []
+            for hit in hits_data["hits"]:
+                source: Dict[str, Any] = hit["_source"]
+                baskt_accounts.append(
+                    BasktAccountOpenSearch(
+                        cognito_user_id=str(source["cognito_user_id"]),
+                        display_name=str(source["display_name"]),
+                        description=source.get("description"),
+                        profile_image=source.get("profile_image"),
+                    )
+                )
+            return BasktAccountsOpenSearch(
+                baskt_accounts=baskt_accounts,
+                total=total,
+                limit=limit,
+                offset=offset
+            )
+        except OpenSearchClientError as error:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message=f"Failed to search Baskt accounts for query '{normalized_query}': {error}",
+                code="BASKT_ACCOUNT_SEARCH_OPENSEARCH_FAILED",
+            ) from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message=f"Failed to parse Baskt account search results: {error}",
+                code="BASKT_ACCOUNT_SEARCH_RESPONSE_INVALID",
+            ) from error
 
 
     def search_stocks(

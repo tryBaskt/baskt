@@ -26,6 +26,9 @@ class CreateBasktAccountLifecycleRequest(BaseModel):
 class BasktDisplayName(BaseModel):
     display_name: str = Field(min_length=1, max_length=50)
 
+class BasktDescription(BaseModel):
+    description: str = Field(max_length=500)
+
 class GetIsExistsDisplayNameResponse(BaseModel):
     is_exists: bool
 
@@ -82,6 +85,7 @@ class BasktAgreementData(BaseModel):
 
 class BasktAccountDetailsResponse(BaseModel):
     display_name: str
+    description: Optional[str] = None
     contact: BasktContactData
     identity: BasktIdentityData
     disclosures: BasktDisclosuresData

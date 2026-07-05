@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import GlobalSearch from "./GlobalSearch";
 
 const navItems = [
-  { id: "home", label: "Portfolio" },
   { id: "make", label: "Create" },
   { id: "my-baskts", label: "My Baskts" },
   { id: "explore", label: "Explore" },
   { id: "transfer", label: "Transfers" },
 ];
 
-export default function AppShell({ currentPage, onNavigate, onLogout, onOpenBaskt, onOpenStock, children }) {
+export default function AppShell({ currentPage, onNavigate, onLogout, onOpenBaskt, onOpenStock, onOpenUser, children }) {
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
 
@@ -45,7 +44,7 @@ export default function AppShell({ currentPage, onNavigate, onLogout, onOpenBask
           <strong>BASKT</strong>
         </button>
 
-        <GlobalSearch onOpenBaskt={onOpenBaskt} onOpenStock={onOpenStock} />
+        <GlobalSearch onOpenBaskt={onOpenBaskt} onOpenStock={onOpenStock} onOpenUser={onOpenUser} />
 
         <nav className="top-nav" aria-label="Primary navigation">
           {navItems.map((item) => (

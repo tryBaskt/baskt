@@ -31,6 +31,7 @@ from routes.investment_analytics_route import router as investment_analytics_rou
 from routes.trade_execution_route import router as trade_execution_router
 from routes.model_portfolios_stocks_search_route import router as model_portfolios_stocks_search_router
 from routes.stock_analytics_route import router as stock_analytics_router
+from routes.baskt_account_route import router as baskt_account_router
 
 
 error_logger = logging.getLogger("uvicorn.error")
@@ -125,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(trade_execution_router)
     app.include_router(model_portfolios_stocks_search_router)
     app.include_router(stock_analytics_router)
+    app.include_router(baskt_account_router)
 
     # Health check
     @app.get("/health")
