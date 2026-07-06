@@ -14,7 +14,7 @@ from clients.yfinance_client import YFinanceClient, YFinanceClientError
 from domain.vectorbt_domain import VectorBTPortfolioAnalytics
 
 
-class AssetAnalyticsServiceError(Exception):
+class AssetAnalyticsInternalServerError(Exception):
     """Raised when shared asset performance simulation fails."""
 
     def __init__(
@@ -76,7 +76,7 @@ class AssetAnalyticsService:
             List[Calendar]: Alpaca market-calendar sessions.
 
         Raises:
-            AssetAnalyticsServiceError: If Alpaca cannot return the calendar.
+            AssetAnalyticsInternalServerError: If Alpaca cannot return the calendar.
         """
         try:
             return self.alpaca_broker_client.get_stock_market_calendar(
@@ -84,7 +84,7 @@ class AssetAnalyticsService:
                 end_date=end_date,
             )
         except AlpacaBrokerClientError as error:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message=f"Failed to get stock market calendar: {error}",
                 code="ASSET_ANALYTICS_MARKET_CALENDAR_FAILED",
             ) from error
@@ -105,7 +105,7 @@ class AssetAnalyticsService:
             Dict[str, float]: Price keyed by symbol.
 
         Raises:
-            AssetAnalyticsServiceError: If Alpaca cannot return prices.
+            AssetAnalyticsInternalServerError: If Alpaca cannot return prices.
         """
         try:
             return self.alpaca_broker_client.get_stock_prices_at_time(
@@ -113,7 +113,7 @@ class AssetAnalyticsService:
                 timestamp=timestamp,
             )
         except AlpacaBrokerClientError as error:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message=f"Failed to get prices at '{timestamp}': {error}",
                 code="ASSET_ANALYTICS_POINT_IN_TIME_PRICES_FAILED",
             ) from error
@@ -140,7 +140,7 @@ class AssetAnalyticsService:
             pd.DataFrame: UTC timestamps as rows and symbols as columns.
 
         Raises:
-            AssetAnalyticsServiceError: If the source is unsupported or its
+            AssetAnalyticsInternalServerError: If the source is unsupported or its
                 client cannot return prices.
         """
         try:
@@ -158,14 +158,14 @@ class AssetAnalyticsService:
                     end_datetime=end_datetime,
                     timeframe=timeframe,
                 )
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message=f"Unsupported asset price source '{source}'",
                 code="ASSET_ANALYTICS_PRICE_SOURCE_UNSUPPORTED",
             )
-        except AssetAnalyticsServiceError:
+        except AssetAnalyticsInternalServerError:
             raise
         except (AlpacaBrokerClientError, YFinanceClientError) as error:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message=(
                     f"Failed to get prices from '{source}' for symbols "
                     f"{symbols}: {error}"
@@ -210,21 +210,21 @@ class AssetAnalyticsService:
             VectorBTPortfolioSimulation: Normalized simulation performance.
 
         Raises:
-            AssetAnalyticsServiceError: If price and exposure shapes differ,
+            AssetAnalyticsInternalServerError: If price and exposure shapes differ,
                 no rebalance target exists, or VectorBT simulation fails.
         """
         if prices.empty or target_exposure.empty:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message="Asset analytics prices and target exposure cannot be empty",
                 code="ASSET_ANALYTICS_INPUT_EMPTY",
             )
         if not prices.index.equals(target_exposure.index):
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message="Asset analytics prices and target exposure indexes must match",
                 code="ASSET_ANALYTICS_INDEX_MISMATCH",
             )
         if list(prices.columns) != list(target_exposure.columns):
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message="Asset analytics prices and target exposure columns must match",
                 code="ASSET_ANALYTICS_COLUMNS_MISMATCH",
             )
@@ -235,7 +235,7 @@ class AssetAnalyticsService:
             simulation_target_exposure.notna().any(axis=1)
         ]
         if rebalance_timestamps.empty:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message="Asset analytics target exposure has no rebalance rows",
                 code="ASSET_ANALYTICS_REBALANCE_TARGET_MISSING",
             )
@@ -246,7 +246,7 @@ class AssetAnalyticsService:
         for timestamp in rebalance_timestamps:
             exposures = target_exposure.loc[timestamp]
             if exposures.isna().any():
-                raise AssetAnalyticsServiceError(
+                raise AssetAnalyticsInternalServerError(
                     message=(
                         "Asset analytics rebalance row must contain every "
                         f"target exposure at '{timestamp}'"
@@ -272,7 +272,7 @@ class AssetAnalyticsService:
                 benchmark_returns=benchmark_returns,
             )
         except VectorBTClientError as error:
-            raise AssetAnalyticsServiceError(
+            raise AssetAnalyticsInternalServerError(
                 message=f"Failed to calculate asset performance: {error}",
                 code="ASSET_ANALYTICS_VECTORBT_FAILED",
             ) from error

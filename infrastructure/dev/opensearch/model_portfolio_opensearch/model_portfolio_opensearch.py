@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or destroy the dev model portfolio OpenSearch domain and index.
+"""Create or destroy the dev OpenSearch domain and search indexes.
 
 Usage:
     python model_portfolio_opensearch.py --create
@@ -31,6 +31,7 @@ load_aws_env()
 REGION = "us-east-1"
 DOMAIN_NAME = "dev-model-portfolio-search"
 INDEX_NAME = "dev-model-portfolios"
+BASKT_ACCOUNT_INDEX_NAME = "dev-baskt-accounts"
 INSTANCE_TYPE = "t3.small.search"
 VOLUME_SIZE_GIB = 10
 
@@ -148,9 +149,29 @@ class OpenSearchRequestError(RuntimeError):
         self.payload = payload
 
 
-def _ensure_index(endpoint: str) -> None:
-    """Create the dev model portfolio search index if it does not exist."""
-    index_configuration = {
+def _ensure_index(
+    endpoint: str,
+    index_name: str,
+    index_configuration: Dict[str, Any],
+) -> None:
+    """Create an OpenSearch index if it does not already exist."""
+    try:
+        _signed_request("PUT", endpoint, index_name, index_configuration)
+        print(f"Created OpenSearch index: {index_name}")
+    except OpenSearchRequestError as error:
+        error_details = error.payload.get("error", {})
+        error_type = (
+            error_details.get("type") if isinstance(error_details, dict) else None
+        )
+        if error.status_code == 400 and error_type == "resource_already_exists_exception":
+            print(f"OpenSearch index already exists: {index_name}")
+            return
+        raise
+
+
+def _model_portfolio_index_configuration() -> Dict[str, Any]:
+    """Return the model portfolio search index mapping."""
+    return {
         "settings": {
             "number_of_shards": 1,
             "number_of_replicas": 0,
@@ -170,18 +191,40 @@ def _ensure_index(endpoint: str) -> None:
             }
         },
     }
-    try:
-        _signed_request("PUT", endpoint, INDEX_NAME, index_configuration)
-        print(f"Created OpenSearch index: {INDEX_NAME}")
-    except OpenSearchRequestError as error:
-        error_details = error.payload.get("error", {})
-        error_type = (
-            error_details.get("type") if isinstance(error_details, dict) else None
-        )
-        if error.status_code == 400 and error_type == "resource_already_exists_exception":
-            print(f"OpenSearch index already exists: {INDEX_NAME}")
-            return
-        raise
+
+
+def _baskt_account_index_configuration() -> Dict[str, Any]:
+    """Return the public Baskt account search index mapping."""
+    return {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "analysis": {
+                "normalizer": {
+                    "lowercase_normalizer": {
+                        "type": "custom",
+                        "filter": ["lowercase"],
+                    }
+                }
+            },
+        },
+        "mappings": {
+            "properties": {
+                "cognito_user_id": {"type": "keyword"},
+                "display_name": {
+                    "type": "text",
+                    "fields": {
+                        "keyword": {
+                            "type": "keyword",
+                            "normalizer": "lowercase_normalizer",
+                        }
+                    },
+                },
+                "description": {"type": "text"},
+                "profile_image": {"type": "keyword", "index": False},
+            }
+        },
+    }
 
 
 def create_opensearch() -> None:
@@ -227,11 +270,21 @@ def create_opensearch() -> None:
     print("Waiting for the OpenSearch domain to become active...")
     domain = _wait_for_domain(opensearch)
     endpoint = _domain_endpoint(domain)
-    _ensure_index(endpoint)
+    _ensure_index(
+        endpoint,
+        INDEX_NAME,
+        _model_portfolio_index_configuration(),
+    )
+    _ensure_index(
+        endpoint,
+        BASKT_ACCOUNT_INDEX_NAME,
+        _baskt_account_index_configuration(),
+    )
 
     print(f"OpenSearch domain: {DOMAIN_NAME}")
     print(f"OpenSearch endpoint: {endpoint}")
-    print(f"OpenSearch index: {INDEX_NAME}")
+    print(f"Model portfolio OpenSearch index: {INDEX_NAME}")
+    print(f"Baskt account OpenSearch index: {BASKT_ACCOUNT_INDEX_NAME}")
 
 
 def destroy_opensearch() -> None:

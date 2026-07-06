@@ -7,11 +7,15 @@ from typing import Any, Dict, List, TypedDict
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
 from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
-from domain.stock_domain import Stock
-from domain.stock_domain import StockSearchResult, StocksSearchResult
+from domain.stock_domain import Stock, StockSearchResult, StocksSearchResult
+from domain.baskt_account_domain import BasktAccountOpenSearch, BasktAccountsOpenSearch
+from repository.baskt_account_repository import (
+    BasktAccountRepository,
+    BasktAccountRepositoryError,
+)
 
 
-class ModelPortfoliosStocksSearchServiceError(Exception):
+class ModelPortfoliosStocksSearchInternalServerError(Exception):
     """Raised when model portfolio or stock search operations fail."""
 
     def __init__(self, message: str, code: str) -> None:
@@ -36,6 +40,7 @@ class ModelPortfoliosStocksSearchService:
         *,
         opensearch_client: OpenSearchClient,
         alpaca_broker_client: AlpacaBrokerClient,
+        baskt_account_repository: BasktAccountRepository,
     ) -> None:
         """Initialize the search service.
 
@@ -48,6 +53,7 @@ class ModelPortfoliosStocksSearchService:
         """
         self.opensearch_client = opensearch_client
         self.alpaca_broker_client = alpaca_broker_client
+        self.baskt_account_repository = baskt_account_repository
 
 
     def search_model_portfolios_and_stocks(
@@ -69,7 +75,7 @@ class ModelPortfoliosStocksSearchService:
             results and any exact stock-symbol match.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If either underlying
+            ModelPortfoliosStocksSearchInternalServerError: If either underlying
                 search operation fails.
         """
         return {
@@ -79,7 +85,120 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset,
             ),
             "stocks_search_result": self.search_stocks(query=query),
+            "baskt_accounts_opensearch_result": self.search_baskt_accounts(
+                query=query,
+                limit=limit,
+                offset=offset,
+            ),
         }
+
+    def search_baskt_accounts(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Any:
+        """Search public Baskt accounts by display name or description."""
+        from domain.baskt_account_domain import BasktAccountOpenSearch
+
+        normalized_query = query.strip()
+        if not 1 <= limit <= 50:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message="Baskt account search limit must be between 1 and 50",
+                code="BASKT_ACCOUNT_SEARCH_INVALID_LIMIT",
+            )
+        if offset < 0:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message="Baskt account search offset cannot be negative",
+                code="BASKT_ACCOUNT_SEARCH_INVALID_OFFSET",
+            )
+        if not normalized_query:
+            return BasktAccountsOpenSearch(
+                baskt_accounts=[],
+                total=0,
+                limit=limit,
+                offset=offset
+            )
+
+        try:
+            search_body = {
+                "from": offset,
+                "size": limit,
+                "track_total_hits": True,
+                "_source": [
+                    "cognito_user_id",
+                    "display_name",
+                    "description",
+                    "profile_image",
+                ],
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "match_phrase_prefix": {
+                                    "display_name": {
+                                        "query": normalized_query,
+                                        "boost": 5,
+                                    }
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": normalized_query,
+                                    "fields": [
+                                        "display_name^4",
+                                        "description",
+                                    ],
+                                    "fuzziness": "AUTO",
+                                }
+                            },
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                "sort": [
+                    "_score",
+                    {"display_name.keyword": {"order": "asc"}},
+                ],
+            }
+            response = self.opensearch_client._request(
+                method="POST",
+                path="dev-baskt-accounts/_search",
+                body=search_body,
+            )
+            hits_data = response["hits"]
+            total_data = hits_data["total"]
+            total = int(
+                total_data["value"] if isinstance(total_data, dict) else total_data
+            )
+            baskt_accounts: List[BasktAccountOpenSearch] = []
+            for hit in hits_data["hits"]:
+                source: Dict[str, Any] = hit["_source"]
+                baskt_accounts.append(
+                    BasktAccountOpenSearch(
+                        cognito_user_id=str(source["cognito_user_id"]),
+                        display_name=str(source["display_name"]),
+                        description=source.get("description"),
+                        profile_image=source.get("profile_image"),
+                    )
+                )
+            return BasktAccountsOpenSearch(
+                baskt_accounts=baskt_accounts,
+                total=total,
+                limit=limit,
+                offset=offset
+            )
+        except OpenSearchClientError as error:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message=f"Failed to search Baskt accounts for query '{normalized_query}': {error}",
+                code="BASKT_ACCOUNT_SEARCH_OPENSEARCH_FAILED",
+            ) from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise ModelPortfoliosStocksSearchInternalServerError(
+                message=f"Failed to parse Baskt account search results: {error}",
+                code="BASKT_ACCOUNT_SEARCH_RESPONSE_INVALID",
+            ) from error
 
 
     def search_stocks(
@@ -97,7 +216,7 @@ class ModelPortfoliosStocksSearchService:
             otherwise an empty list.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If Alpaca fails while
+            ModelPortfoliosStocksSearchInternalServerError: If Alpaca fails while
                 looking up the symbol or the returned asset cannot be parsed.
         """
         normalized_query = query.strip().upper()
@@ -123,12 +242,12 @@ class ModelPortfoliosStocksSearchService:
                 )
             ]
         except AlpacaBrokerClientError as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to search stocks for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_ALPACA_FAILED",
             ) from error
         except (AttributeError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to parse stock search result for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_RESPONSE_INVALID",
             ) from error
@@ -156,17 +275,17 @@ class ModelPortfoliosStocksSearchService:
             information. A blank query returns an empty result set.
 
         Raises:
-            ModelPortfoliosStocksSearchServiceError: If pagination arguments are invalid,
+            ModelPortfoliosStocksSearchInternalServerError: If pagination arguments are invalid,
                 OpenSearch fails, or its response cannot be parsed.
         """
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message="Model portfolio search limit must be between 1 and 50",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT",
             )
         if offset < 0:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message="Model portfolio search offset cannot be negative",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
             )
@@ -236,16 +355,30 @@ class ModelPortfoliosStocksSearchService:
                 total_data["value"] if isinstance(total_data, dict) else total_data
             )
             model_portfolios: List[ModelPortfolioOpenSearchResult] = []
+            owner_display_names: Dict[str, str | None] = {}
             for hit in hits_data["hits"]:
                 source: Dict[str, Any] = hit["_source"]
+                owner_cognito_user_id = str(
+                    source["portfolio_owner_cognito_user_id"]
+                )
+                if owner_cognito_user_id not in owner_display_names:
+                    try:
+                        owner_display_names[owner_cognito_user_id] = (
+                            self.baskt_account_repository.get_display_name(
+                                cognito_user_id=owner_cognito_user_id
+                            )
+                        )
+                    except BasktAccountRepositoryError:
+                        owner_display_names[owner_cognito_user_id] = None
                 model_portfolios.append(
                     ModelPortfolioOpenSearchResult(
                         portfolio_id=str(source["portfolio_id"]),
                         portfolio_name=str(source["portfolio_name"]),
                         description=source.get("description"),
-                        portfolio_owner_cognito_user_id=str(
-                            source["portfolio_owner_cognito_user_id"]
-                        ),
+                        portfolio_owner_cognito_user_id=owner_cognito_user_id,
+                        portfolio_owner_display_name=owner_display_names[
+                            owner_cognito_user_id
+                        ],
                         created_at=str(source["created_at"]),
                         updated_at=str(source["updated_at"]),
                         visibility=source.get("visibility"),
@@ -263,12 +396,12 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset
             )
         except OpenSearchClientError as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to search model portfolios for query '{normalized_query}': {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_OPENSEARCH_FAILED",
             ) from error
         except (KeyError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchServiceError(
+            raise ModelPortfoliosStocksSearchInternalServerError(
                 message=f"Failed to parse model portfolio search results: {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_RESPONSE_INVALID",
             ) from error

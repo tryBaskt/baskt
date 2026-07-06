@@ -10,8 +10,8 @@ from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 from core.deps import get_current_user, get_stock_analytics_service
 from schema.stock_schema import StockAnalyticsResponse
 from services.stock_analytics_service import (
+    StockAnalyticsInternalServerError,
     StockAnalyticsService,
-    StockAnalyticsServiceError,
 )
 
 
@@ -21,14 +21,17 @@ router = APIRouter(prefix="/stock-analytics", tags=["stock-analytics"])
 def _raise_stock_analytics_http_exception(error: Exception) -> None:
     if isinstance(error, HTTPException):
         raise error
-    if isinstance(error, StockAnalyticsServiceError):
+    if isinstance(error, StockAnalyticsInternalServerError):
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(error),
+            detail={"message": str(error), "code": error.code},
         ) from error
     raise HTTPException(
         status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected stock analytics error: {error}",
+        detail={
+            "message": f"Unexpected stock analytics error: {error}",
+            "code": "STOCK_ANALYTICS_UNEXPECTED_ERROR",
+        },
     ) from error
 
 

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 # Baskt imports
 from services.asset_analytics_service import (
     AssetAnalyticsService,
-    AssetAnalyticsServiceError,
+    AssetAnalyticsInternalServerError,
 )
 from domain.model_portfolio_domain import ModelPortfolioSnapshot, ModelPortfolioAnalyticsPosition, ModelPortfolioAnalyticsSnapshot
 from repository.model_portfolio_repository import ModelPortfolioRepository
@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 
-class ModelPortfolioAnalyticsServiceError(Exception):
+class ModelPortfolioAnalyticsInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_ANALYTICS_SERVICE_ERROR") -> None:
 		"""
 		Initialize a model portfolio analytics service exception.
@@ -60,14 +60,14 @@ class ModelPortfolioAnalyticsService:
             cover the most recent completed trading session.
 
         Raises:
-            ModelPortfolioAnalyticsServiceError: If current_datetime is naive
+            ModelPortfolioAnalyticsInternalServerError: If current_datetime is naive
             or Alpaca returns no usable recent market session.
         """
         if (
             current_datetime.tzinfo is None
             or current_datetime.utcoffset() is None
         ):
-            raise ModelPortfolioAnalyticsServiceError(
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message="current_datetime must be timezone-aware",
                 code="MODEL_PORTFOLIO_ANALYTICS_TIMEZONE_REQUIRED",
             )
@@ -102,7 +102,7 @@ class ModelPortfolioAnalyticsService:
             if session_close < current_utc:
                 return session_open, session_close
 
-        raise ModelPortfolioAnalyticsServiceError(
+        raise ModelPortfolioAnalyticsInternalServerError(
             message=(
                 "No completed or active stock market session was found before "
                 f"'{current_utc.isoformat()}'"
@@ -130,7 +130,7 @@ class ModelPortfolioAnalyticsService:
             Dict[str, float]: Updated ending weight by symbol.
 
         Raises:
-            ModelPortfolioAnalyticsServiceError: If Alpaca price lookup fails,
+            ModelPortfolioAnalyticsInternalServerError: If Alpaca price lookup fails,
             a symbol price is missing, or the updated total value is zero.
         """
         try:
@@ -164,7 +164,7 @@ class ModelPortfolioAnalyticsService:
 
             total_end_value = sum(end_position_values.values())
             if total_end_value == 0:
-                raise ModelPortfolioAnalyticsServiceError(
+                raise ModelPortfolioAnalyticsInternalServerError(
                     message="Failed to calculate updated position weights because total ending value is zero",
                     code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_ZERO_VALUE",
                 )
@@ -173,15 +173,15 @@ class ModelPortfolioAnalyticsService:
                 symbol: position_value / total_end_value
                 for symbol, position_value in end_position_values.items()
             }
-        except ModelPortfolioAnalyticsServiceError:
+        except ModelPortfolioAnalyticsInternalServerError:
             raise
-        except AssetAnalyticsServiceError as e:
-            raise ModelPortfolioAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as e:
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=f"Failed to fetch prices for updated model portfolio weights: {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_PRICE_LOOKUP_FAILED",
             ) from e
         except Exception as e:
-            raise ModelPortfolioAnalyticsServiceError(
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=f"Failed to calculate updated model portfolio weights: {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_UPDATED_WEIGHTS_FAILED",
             ) from e
@@ -211,7 +211,7 @@ class ModelPortfolioAnalyticsService:
             including a synthetic snapshot at the period start when needed.
 
         Raises:
-            ModelPortfolioAnalyticsServiceError: If weights at the period
+            ModelPortfolioAnalyticsInternalServerError: If weights at the period
             boundary cannot be calculated.
         """
         current_period_start = (
@@ -294,7 +294,7 @@ class ModelPortfolioAnalyticsService:
             None. The provided segment_prices DataFrame is modified in place.
 
         Raises:
-            AssetAnalyticsServiceError: If a required snapshot price cannot
+            AssetAnalyticsInternalServerError: If a required snapshot price cannot
                 be fetched.
         """
         if not analytics_snapshots:
@@ -357,9 +357,9 @@ class ModelPortfolioAnalyticsService:
             payload, or None when the period has no usable snapshots.
 
         Raises:
-            ModelPortfolioAnalyticsServiceError: If required price data is
+            ModelPortfolioAnalyticsInternalServerError: If required price data is
             missing or the period cannot be simulated.
-            AssetAnalyticsServiceError: If market data cannot be fetched.
+            AssetAnalyticsInternalServerError: If market data cannot be fetched.
         """
         period_start_datetime = None
         period_end_datetime = current_datetime
@@ -412,7 +412,7 @@ class ModelPortfolioAnalyticsService:
             .bfill()
         )
         if simulation_prices.empty or simulation_prices.isna().any().any():
-            raise ModelPortfolioAnalyticsServiceError(
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     "No complete price data available for model "
                     f"portfolio '{portfolio_id}' during period '{period}'"
@@ -421,14 +421,31 @@ class ModelPortfolioAnalyticsService:
             )
 
         benchmark_symbol = "SPY"
+        benchmark_start = simulation_prices.index[0]
         benchmark_prices_df = self.asset_analytics_service.get_prices_over_time(
             symbols=[benchmark_symbol],
-            start_datetime=simulation_prices.index[0],
+            start_datetime=benchmark_start,
             end_datetime=period_end_datetime,
             timeframe=timeframe,
         )
+
+        # A newly created portfolio may have only its synthetic snapshot-boundary
+        # price, particularly outside market hours. Alpaca returns no bars when
+        # the requested interval starts and ends between trading sessions, so
+        # seed the benchmark at the same boundary just as portfolio symbols are.
+        benchmark_start_prices = self.asset_analytics_service.get_prices_at_time(
+            symbols=[benchmark_symbol],
+            timestamp=benchmark_start,
+        )
+        benchmark_start_price = benchmark_start_prices.get(benchmark_symbol)
+        if benchmark_start_price is not None:
+            benchmark_prices_df.loc[
+                benchmark_start,
+                benchmark_symbol,
+            ] = benchmark_start_price
+
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
-            raise ModelPortfolioAnalyticsServiceError(
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     f"Benchmark price data for '{benchmark_symbol}' is missing "
                     f"during period '{period}'"
@@ -486,8 +503,8 @@ class ModelPortfolioAnalyticsService:
                 slippage=0.0,
                 benchmark_returns=benchmark_returns,
             )
-        except AssetAnalyticsServiceError as error:
-            raise ModelPortfolioAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as error:
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     "Failed to calculate model portfolio performance for "
                     f"'{portfolio_id}' during period '{period}': {error}"
@@ -519,7 +536,15 @@ class ModelPortfolioAnalyticsService:
     def get_model_portfolio_bars(
         self,
         portfolio_id: str,
-        current_datetime: Optional[datetime] = None
+        current_datetime: Optional[datetime] = None,
+        period_timedelta_timeframe: List[Tuple[str,timedelta, str]] = [
+                ("1D", timedelta(days=1),"5Min"),
+                ("1W", timedelta(weeks=1), "1H"),
+                ("1M", timedelta(days=30), "1D"),
+                ("3M", timedelta(days=90), "1D"),
+                ("1A", timedelta(days=365), "1D"),
+                ("all", timedelta(days=1), "1D")
+            ]
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get model portfolio cumulative return series for standard periods.
@@ -534,22 +559,13 @@ class ModelPortfolioAnalyticsService:
             and cumulative returns.
 
         Raises:
-            ModelPortfolioAnalyticsServiceError: If portfolio history cannot be
+            ModelPortfolioAnalyticsInternalServerError: If portfolio history cannot be
             loaded, Alpaca price bars cannot be fetched, or any unexpected error
             occurs while calculating returns.
         """
         try:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
-
-            period_timdelta_timeframe = [
-                ("1D", timedelta(days=1),"5Min"),
-                ("1W", timedelta(weeks=1), "1H"),
-                ("1M", timedelta(days=30), "1D"),
-                ("3M", timedelta(days=90), "1D"),
-                ("1A", timedelta(days=365), "1D"),
-                ("all", timedelta(days=1), "1D")
-            ]
 
             model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
             if not model_portfolio_snapshots: 
@@ -575,12 +591,12 @@ class ModelPortfolioAnalyticsService:
                 )
 
             with ThreadPoolExecutor(
-                max_workers=len(period_timdelta_timeframe),
+                max_workers=len(period_timedelta_timeframe),
                 thread_name_prefix="model-portfolio-period",
             ) as executor:
                 period_results = executor.map(
                     calculate_period,
-                    period_timdelta_timeframe,
+                    period_timedelta_timeframe,
                 )
                 for period, period_response in period_results:
                     if period_response is not None:
@@ -588,15 +604,16 @@ class ModelPortfolioAnalyticsService:
 
             return response
 
-        except ModelPortfolioAnalyticsServiceError:
+        except ModelPortfolioAnalyticsInternalServerError:
             raise
-        except AssetAnalyticsServiceError as e:
-            raise ModelPortfolioAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as e:
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=f"Failed to get model portfolio price bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
         except Exception as e:
-            raise ModelPortfolioAnalyticsServiceError(
+            raise ModelPortfolioAnalyticsInternalServerError(
                 message=f"Failed to calculate model portfolio bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
+        

@@ -38,8 +38,8 @@ from schema.trade_execution_schema import (
     WithdrawFromPortfolioResponse,
 )
 from services.trade_execution_queuing_service import (
+    TradeExecutionQueuingInternalServerError,
     TradeExecutionQueuingService,
-    TradeExecutionQueuingServiceError,
 )
 
 router = APIRouter(prefix="/trade-execution", tags=["trade-execution"])
@@ -49,7 +49,7 @@ def _raise_trade_execution_http_exception(err: Exception) -> None:
     if isinstance(err, HTTPException):
         raise err
 
-    if isinstance(err, TradeExecutionQueuingServiceError):
+    if isinstance(err, TradeExecutionQueuingInternalServerError):
         if err.code == "TRADE_EXECUTION_QUEUE_LOCKED":
             status_code = HTTP_409_CONFLICT
         elif err.code in {
@@ -70,11 +70,17 @@ def _raise_trade_execution_http_exception(err: Exception) -> None:
             status_code = HTTP_422_UNPROCESSABLE_CONTENT
         else:
             status_code = HTTP_500_INTERNAL_SERVER_ERROR
-        raise HTTPException(status_code=status_code, detail=str(err)) from err
+        raise HTTPException(
+            status_code=status_code,
+            detail={"message": str(err), "code": err.code},
+        ) from err
 
     raise HTTPException(
         status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected trade queuing error: {err}",
+        detail={
+            "message": f"Unexpected trade queuing error: {err}",
+            "code": "TRADE_EXECUTION_QUEUE_UNEXPECTED_ERROR",
+        },
     ) from err
 
 

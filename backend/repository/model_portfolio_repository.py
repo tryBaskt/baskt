@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from uuid import uuid4
-from decimal import Decimal
 import time
 
 # AWS imports
@@ -21,13 +20,32 @@ from repository.model_portfolio_update_lock_repository import (
 from repository.model_portfolio_follower_repository import (
     ModelPortfolioFollowerRepository,
 )
-from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+from clients.dynamodb_client import (
+    DynamoDBClient,
+    DynamoDBClientError,
+    dataclass_to_dynamodb_item,
+)
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from core.timeutils import to_utc_from_iso
 from schema.model_portfolio_schema import ModelPortfolioPositionRequest
 
 LOCK_LEASE_SECONDS = 30
 READ_LOCK_POLL_SECONDS = 0.25
+
+
+def _parse_model_portfolio_position(item: Dict) -> ModelPortfolioPosition:
+    """Convert a stored position map into its domain model."""
+    return ModelPortfolioPosition(
+        **{
+            **item,
+            "symbol": str(item["symbol"]),
+            "target_weight": float(item["target_weight"]),
+            "direction": int(item["direction"]),
+            "leverage": float(item["leverage"]),
+            "model_filled_quantity": float(item["model_filled_quantity"]),
+            "model_filled_avg_price": float(item["model_filled_avg_price"]),
+        }
+    )
 
 class ModelPortfolioInternalServerError(Exception):
     def __init__(self, message: str, code: str = "MODEL_PORTFOLIO_INTERNAL_SERVER_ERROR") -> None:
@@ -166,26 +184,6 @@ class ModelPortfolioTooManyRequestsError(ModelPortfolioInternalServerError):
             code="MODEL_PORTFOLIO_TOO_MANY_UPDATES_ERROR",
         )
 
-class ModelPortfolioPositionHistoryNotFoundError(ModelPortfolioInternalServerError):
-    def __init__(self, portfolio_id: str) -> None:
-        """
-        Initialize a missing position history exception.
-
-        Args:
-            portfolio_id: Model portfolio ID whose position history was not
-                found.
-
-        Returns:
-            None.
-
-        Raises:
-            No exceptions are intentionally raised by this method.
-        """
-        super().__init__(
-            message=f"Position history not found for model portfolio '{portfolio_id}'.",
-            code="MODEL_PORTFOLIO_POSITION_HISTORY_NOT_FOUND",
-        )
-
 class ModelPortfolioLockedError(ModelPortfolioInternalServerError):
     def __init__(
         self,
@@ -314,10 +312,8 @@ class ModelPortfolioRepository:
             ModelPortfolioBadGatewayError: If DynamoDB fails while loading
             position history.
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
-            ModelPortfolioPositionHistoryNotFoundError: If the stored item does
-            not include position_history.
-            ModelPortfolioUnprocessableEntityError: If stored position history
-            cannot be parsed.
+            ModelPortfolioUnprocessableEntityError: If position_history is
+            missing or its stored contents cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)
@@ -343,8 +339,10 @@ class ModelPortfolioRepository:
                 portfolio_id=portfolio_id
             )
         if "position_history" not in item:
-            raise ModelPortfolioPositionHistoryNotFoundError(
-                portfolio_id=portfolio_id
+            raise ModelPortfolioUnprocessableEntityError(
+                operation="get_position_history",
+                portfolio_id=portfolio_id,
+                cause=Exception(f"Position history not in model portfolio '{portfolio_id}'")
             )
 
         # Create position history
@@ -354,15 +352,8 @@ class ModelPortfolioRepository:
 
             try:
                 positions = [
-                    ModelPortfolioPosition(
-                        symbol=str(pos["symbol"]),
-                        target_weight=float(pos["target_weight"]),
-                        direction=int(pos["direction"]),
-                        leverage=float(pos["leverage"]),
-                        model_filled_quantity=float(pos["model_filled_quantity"]),
-                        model_filled_avg_price=float(pos["model_filled_avg_price"])
-                    )
-                    for pos in snap["positions"]
+                    _parse_model_portfolio_position(position_item)
+                    for position_item in snap["positions"]
                 ]
 
                 timestamp = to_utc_from_iso(snap["timestamp"])
@@ -404,10 +395,8 @@ class ModelPortfolioRepository:
             ModelPortfolioBadGatewayError: If DynamoDB fails while loading
             position history.
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
-            ModelPortfolioPositionHistoryNotFoundError: If position history is
-            missing.
-            ModelPortfolioUnprocessableEntityError: If stored position history
-            cannot be parsed.
+            ModelPortfolioUnprocessableEntityError: If position history is
+            missing or its stored contents cannot be parsed.
         """
 
         # Wait for update lock to release (if applicable)
@@ -563,32 +552,7 @@ class ModelPortfolioRepository:
             )
 
             # Write model portfolio object to dynamodb
-            item = {
-                "portfolio_id": portfolio.portfolio_id,
-                "portfolio_owner_cognito_user_id": portfolio.portfolio_owner_cognito_user_id,
-                "portfolio_name": portfolio.portfolio_name,
-                "description": portfolio.description,
-                "position_history": [
-                    {
-                        "positions": [
-                            {
-                                "symbol": pos.symbol,
-                                "target_weight": Decimal(str(pos.target_weight)),
-                                "direction": pos.direction,
-                                "leverage": Decimal(str(pos.leverage)),
-                                "model_filled_quantity": Decimal(str(pos.model_filled_quantity)),
-                                "model_filled_avg_price": Decimal(str(pos.model_filled_avg_price)),
-                            }
-                            for pos in snap.positions
-                        ],
-                        "timestamp": snap.timestamp.isoformat(),
-                        "snapshot_id": snap.snapshot_id,
-                    }
-                    for snap in portfolio.position_history
-                ],
-                "created_at": portfolio.created_at.isoformat(),
-                "updated_at": portfolio.updated_at.isoformat(),
-            }
+            item = dataclass_to_dynamodb_item(portfolio)
         except Exception as e:
             raise ModelPortfolioUnprocessableEntityError(
                 operation="creating new model portfolio",
@@ -761,32 +725,7 @@ class ModelPortfolioRepository:
                     description=description,
                 )
 
-                item = {
-                    "portfolio_id": portfolio.portfolio_id,
-                    "portfolio_owner_cognito_user_id": portfolio.portfolio_owner_cognito_user_id,
-                    "portfolio_name": portfolio.portfolio_name,
-                    "position_history": [
-                        {
-                            "positions": [
-                                {
-                                    "symbol": pos.symbol,
-                                    "target_weight": Decimal(str(pos.target_weight)),
-                                    "direction": pos.direction,
-                                    "leverage": Decimal(str(pos.leverage)),
-                                    "model_filled_quantity": Decimal(str(pos.model_filled_quantity)),
-                                    "model_filled_avg_price": Decimal(str(pos.model_filled_avg_price)),
-                                }
-                                for pos in snap.positions
-                            ],
-                            "timestamp": snap.timestamp.isoformat(),
-                            "snapshot_id": snap.snapshot_id,
-                        }
-                        for snap in portfolio.position_history
-                    ],
-                    "description": portfolio.description,
-                    "created_at": portfolio.created_at.isoformat(),
-                    "updated_at": portfolio.updated_at.isoformat(),
-                }
+                item = dataclass_to_dynamodb_item(portfolio)
             except Exception as e:
                 raise ModelPortfolioUnprocessableEntityError(
                     operation="creating updated model portfolio",
@@ -866,15 +805,8 @@ class ModelPortfolioRepository:
             position_history = []
             for snap in item["position_history"]:
                 positions = [
-                    ModelPortfolioPosition(
-                        symbol=pos["symbol"],
-                        target_weight=float(pos["target_weight"]),
-                        direction=int(pos["direction"]),
-                        leverage=float(pos["leverage"]),
-                        model_filled_quantity=float(pos["model_filled_quantity"]),
-                        model_filled_avg_price=float(pos["model_filled_avg_price"]),
-                    )
-                    for pos in snap["positions"]
+                    _parse_model_portfolio_position(position_item)
+                    for position_item in snap["positions"]
                 ]
                 timestamp = to_utc_from_iso(snap["timestamp"])
                 position_history.append(

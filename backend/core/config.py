@@ -66,6 +66,10 @@ class Settings(BaseSettings):
         default="_model_portfolio_update_lock_dynamodb",
         alias="MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB"
     )
+    baskt_account_dynamodb_suffix: str = Field(
+        default="_baskt_account_dynamodb",
+        alias="BASKT_ACCOUNT_DYNAMODB",
+    )
     opensearch_domain_suffix: str = Field(
         default="-model-portfolio-search",
         alias="OPENSEARCH_DOMAIN_SUFFIX",
@@ -174,6 +178,11 @@ class Settings(BaseSettings):
     def model_portfolio_update_lock_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
         return f"{self.env}{self.model_portfolio_update_lock_suffix}"
+
+    @property
+    def baskt_account_dynamodb(self) -> str:
+        """Full Baskt account table name with environment prefix."""
+        return f"{self.env}{self.baskt_account_dynamodb_suffix}"
 
     @property
     def opensearch_domain_name(self) -> str:

@@ -13,6 +13,7 @@ class ModelPortfolioOpenSearchResultResponse(BaseModel):
     portfolio_name: str
     description: Optional[str] = None
     portfolio_owner_cognito_user_id: str
+    portfolio_owner_display_name: Optional[str] = None
     created_at: str
     updated_at: str
     visibility: Optional[str] = None
@@ -42,7 +43,25 @@ class StocksSearchResultResponse(RootModel[List[StockSearchResultResponse]]):
     pass
 
 
+class BasktAccountOpenSearchResultResponse(BaseModel):
+    cognito_user_id: str
+    display_name: str
+    description: Optional[str] = None
+    profile_image: Optional[str] = None
+    visibility: Optional[str] = None
+    score: Optional[float] = None
+
+class BasktAccountsOpenSearchResultResponse(BaseModel):
+    baskt_accounts: List[BasktAccountOpenSearchResultResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+
+
 class ModelPortfoliosStocksOpenSearchResponse(BaseModel):
     """Combined model portfolio and stock search response."""
     model_portfolios: ModelPortfoliosOpenSearchResultResponse
     stocks: StocksSearchResultResponse
+    baskt_accounts: BasktAccountsOpenSearchResultResponse

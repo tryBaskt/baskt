@@ -16,7 +16,7 @@ from schema.backtest_schema import BacktestAnalyticsResponse, BacktestPositionRe
 from schema.stock_schema import StockResponse, StocksResponse
 from services.backtest_service import (BacktestService, 
                                        BacktestServiceCalculationError,
-                                       BacktestServiceError,
+                                       BacktestInternalServerError,
                                        BacktestServiceDataError,
                                        BacktestServiceValidationError)
                                         
@@ -31,7 +31,7 @@ BACKTEST_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
     (BacktestServiceValidationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (BacktestServiceDataError, status.HTTP_502_BAD_GATEWAY),
     (BacktestServiceCalculationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
-    (BacktestServiceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    (BacktestInternalServerError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 )
 
 
@@ -53,7 +53,7 @@ def _raise_backtest_http_exception(err: Exception) -> None:
 
     for exception_type, status_code in BACKTEST_ERROR_STATUS_MAP:
         if isinstance(err, exception_type):
-            code = err.code if isinstance(err, BacktestServiceError) else "BACKTEST_INVALID_REQUEST"
+            code = err.code if isinstance(err, BacktestInternalServerError) else "BACKTEST_INVALID_REQUEST"
             raise HTTPException(
                 status_code=status_code,
                 detail={"message": str(err), "code": code},

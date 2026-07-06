@@ -14,7 +14,9 @@ from core.deps import (
 	get_current_user,
 	get_current_active_alpaca_account,
 	get_trade_execution_service,
+	get_order_repository
 )
+from repository.order_repository import OrderRepository
 from schema.investment_analytics_schema import (
 	AccountAnalyticsResponse,
 	EquityGraphResponse
@@ -28,21 +30,39 @@ from schema.portfolio_allocation_schema import (
 	PortfolioAllocationTransactionResponse,
 	PortfolioAllocationResponse
 )
-from services.investment_analytics_service import InvestmentAnalyticsService
-from services.trade_execution_service import TradeExecutionService
+from services.investment_analytics_service import (
+	InvestmentAnalyticsInternalServerError,
+	InvestmentAnalyticsService,
+)
+from services.trade_execution_service import (
+	TradeExecutionInternalServerError,
+	TradeExecutionService,
+)
 
 
 
 router = APIRouter(prefix="/account-analytics", tags=["account-performance"])
 
 
-def _raise_trade_execution_http_exception(err: Exception) -> None:
+def _raise_investment_analytics_http_exception(err: Exception) -> None:
     if isinstance(err, HTTPException):
         raise err
 
+    if isinstance(
+        err,
+        (InvestmentAnalyticsInternalServerError, TradeExecutionInternalServerError),
+    ):
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+
     raise HTTPException(
         status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected account analytics error: {err}",
+        detail={
+            "message": f"Unexpected account analytics error: {err}",
+            "code": "INVESTMENT_ANALYTICS_UNEXPECTED_ERROR",
+        },
     ) from err
 
 
@@ -50,12 +70,25 @@ def _raise_trade_execution_http_exception(err: Exception) -> None:
 def get_account_analytics(
 	user: Dict[str, Any] = Depends(get_current_user),
 	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
-	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service)
+	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
+	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+	order_repository: OrderRepository = Depends(get_order_repository)
 ) -> AccountAnalyticsResponse:
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 
 	try:
+		portfolio_ids_owner_ids = order_repository.get_portfolio_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
+
+		for portfolio_id, portfolio_owner_cognito_user_id in portfolio_ids_owner_ids:
+			trade_execution_service.realize_filled_orders(
+				cognito_user_id=cognito_user_id,
+				alpaca_account_id=alpaca_account_id,
+				portfolio_id=portfolio_id,
+				portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+				lock_already_acquired=False
+			)
+
 		account_analytics_dict = service.get_account_analytics(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 
 		equity_graph_response = {}
@@ -70,7 +103,7 @@ def get_account_analytics(
 			portfolio_allocations=account_analytics_dict.get("portfolio_allocations", {})
 		)
 	except Exception as err:
-		_raise_trade_execution_http_exception(err=err)
+		_raise_investment_analytics_http_exception(err=err)
 
 
 
@@ -129,7 +162,7 @@ def get_portfolio_allocation_analytics(
 		)
 
 	except Exception as e:
-		_raise_trade_execution_http_exception(err=e)
+		_raise_investment_analytics_http_exception(err=e)
 
 
 @router.get("/stocks/{stock_id}/analytics", response_model=StockAllocationResponse, status_code=HTTP_200_OK)
@@ -185,7 +218,7 @@ def get_stock_allocation_analytics(
 		)
 
 	except Exception as e:
-		_raise_trade_execution_http_exception(err=e)
+		_raise_investment_analytics_http_exception(err=e)
 
 
 @router.get("/stocks/{stock_id}", response_model=StockResponse, status_code=HTTP_200_OK)
@@ -207,4 +240,4 @@ def get_stock_metadata(
 			stock_class=stock.stock_class,
 		)
 	except Exception as e:
-		_raise_trade_execution_http_exception(err=e)
+		_raise_investment_analytics_http_exception(err=e)

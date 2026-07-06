@@ -25,6 +25,7 @@ from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
+from repository.baskt_account_repository import BasktAccountRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.investment_analytics_service import InvestmentAnalyticsService
 from services.asset_analytics_service import AssetAnalyticsService
@@ -122,6 +123,12 @@ def get_model_portfolio_update_lock_dynamodb_client() -> DynamoDBClient:
     return DynamoDBClient(table=dynamodb.Table(s.model_portfolio_update_lock_dynamodb))
 
 @lru_cache
+def get_baskt_account_dynamodb_client() -> DynamoDBClient:
+    s = get_settings()
+    dynamodb = get_dynamodb_resource_cached()
+    return DynamoDBClient(table=dynamodb.Table(s.baskt_account_dynamodb))
+
+@lru_cache
 def get_yfinance_client() -> YFinanceClient:
     return YFinanceClient()
 
@@ -164,6 +171,15 @@ def get_opensearch_client() -> OpenSearchClient:
 # -----------------------------
 # Repository
 # -----------------------------
+def get_baskt_account_repository(
+    baskt_account_dynamodb_client: DynamoDBClient = Depends(
+        get_baskt_account_dynamodb_client
+    ),
+) -> BasktAccountRepository:
+    return BasktAccountRepository(
+        dynamodb_client=baskt_account_dynamodb_client
+    )
+
 def get_model_portfolio_update_lock_repository(
     model_portfolio_update_lock_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_update_lock_dynamodb_client)
 ) -> ModelPortfolioUpdateLockRepository:
@@ -235,10 +251,14 @@ def get_backtest_service(
 def get_account_lifecycle_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     cognito_client: CognitoClient = Depends(get_cognito_client),
+    baskt_account_repository: BasktAccountRepository = Depends(
+        get_baskt_account_repository
+    ),
 ) -> AccountLifecycleService:
     return AccountLifecycleService(
         alpaca_broker_client=alpaca_broker_client,
         cognito_client=cognito_client,
+        baskt_account_repository=baskt_account_repository,
     )
 
 def get_trade_execution_service(
@@ -322,10 +342,14 @@ def get_stock_analytics_service(
 def get_model_portfolios_stocks_search_service(
     opensearch_client: OpenSearchClient = Depends(get_opensearch_client),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    baskt_account_repository: BasktAccountRepository = Depends(
+        get_baskt_account_repository
+    ),
 ) -> ModelPortfoliosStocksSearchService:
     return ModelPortfoliosStocksSearchService(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
+        baskt_account_repository=baskt_account_repository,
     )
 
 

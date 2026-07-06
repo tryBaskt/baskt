@@ -18,6 +18,14 @@ function formatAllocationType(value) {
   return "Investment";
 }
 
+function signedCurrency(value) {
+  if (!Number.isFinite(value)) {
+    return "Not available";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${currency(Math.abs(value))}`;
+}
+
 export default function HomePage({ onOpenInvestment }) {
   const [analytics, setAnalytics] = useState(null);
   const [period, setPeriod] = useState("1D");
@@ -70,12 +78,25 @@ export default function HomePage({ onOpenInvestment }) {
     })
   );
   const investedEquity = allocationEntries.reduce((total, allocation) => total + allocation.equity, 0);
+  const oneDayGraph = analytics?.equity_graph?.["1D"] || analytics?.equity_graph?.["1d"];
+  const oneDayEquity = (oneDayGraph?.equity || [])
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .map(Number)
+    .filter(Number.isFinite);
+  const hasOneDayPnl = oneDayEquity.length >= 2 && oneDayEquity[0] !== 0;
+  const oneDayPnl = hasOneDayPnl
+    ? oneDayEquity.at(-1) - oneDayEquity[0]
+    : null;
+  const oneDayPnlPercent = hasOneDayPnl
+    ? (oneDayPnl / Math.abs(oneDayEquity[0])) * 100
+    : null;
+  const oneDayTone = oneDayPnl > 0 ? "positive" : oneDayPnl < 0 ? "negative" : "neutral";
 
   return (
     <div className="page-stack">
       <ErrorBanner message={error} />
       <section className="hero-band purple">
-        <div className="metric-grid compact">
+        <div className="metric-grid compact home-summary-grid">
           <MetricCard
             label="Cash"
             value={isLoading ? "Loading..." : currency(analytics?.cash)}
@@ -85,6 +106,18 @@ export default function HomePage({ onOpenInvestment }) {
             label="Equity value"
             value={isLoading ? "Loading..." : currency(analytics?.equity)}
             detail="Current account value"
+          />
+          <MetricCard
+            label="Today's P&L"
+            value={isLoading ? "Loading..." : signedCurrency(oneDayPnl)}
+            detail={
+              isLoading
+                ? "Today's return"
+                : Number.isFinite(oneDayPnlPercent)
+                  ? `${oneDayPnlPercent > 0 ? "+" : ""}${percent(oneDayPnlPercent)} today`
+                  : "Not available"
+            }
+            tone={oneDayTone}
           />
         </div>
       </section>

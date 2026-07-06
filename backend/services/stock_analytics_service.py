@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 # Baskt imports
 from services.asset_analytics_service import (
     AssetAnalyticsService,
-    AssetAnalyticsServiceError,
+    AssetAnalyticsInternalServerError,
 )
 
 # Third-party imports
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 
-class StockAnalyticsServiceError(Exception):
+class StockAnalyticsInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "STOCK_ANALYTICS_SERVICE_ERROR") -> None:
 		"""
 		Initialize a stock analytics service exception.
@@ -56,14 +56,14 @@ class StockAnalyticsService:
             cover the most recent completed trading session.
 
         Raises:
-            StockAnalyticsServiceError: If current_datetime is naive
+            StockAnalyticsInternalServerError: If current_datetime is naive
             or Alpaca returns no usable recent market session.
         """
         if (
             current_datetime.tzinfo is None
             or current_datetime.utcoffset() is None
         ):
-            raise StockAnalyticsServiceError(
+            raise StockAnalyticsInternalServerError(
                 message="current_datetime must be timezone-aware",
                 code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
             )
@@ -98,7 +98,7 @@ class StockAnalyticsService:
             if session_close < current_utc:
                 return session_open, session_close
 
-        raise StockAnalyticsServiceError(
+        raise StockAnalyticsInternalServerError(
             message=(
                 "No completed or active stock market session was found before "
                 f"'{current_utc.isoformat()}'"
@@ -131,12 +131,12 @@ class StockAnalyticsService:
             payload, or None when the period has no usable snapshots.
 
         Raises:
-            StockAnalyticsServiceError: If required price data is
+            StockAnalyticsInternalServerError: If required price data is
             missing or the period cannot be simulated.
-            AssetAnalyticsServiceError: If market data cannot be fetched.
+            AssetAnalyticsInternalServerError: If market data cannot be fetched.
         """
         if current_datetime.tzinfo is None or current_datetime.utcoffset() is None:
-            raise StockAnalyticsServiceError(
+            raise StockAnalyticsInternalServerError(
                 message="current_datetime must be timezone-aware",
                 code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
             )
@@ -162,8 +162,8 @@ class StockAnalyticsService:
                 timeframe=timeframe,
                 source=("yfinance" if period.upper() == "ALL" else "alpaca"),
             )
-        except AssetAnalyticsServiceError as error:
-            raise StockAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as error:
+            raise StockAnalyticsInternalServerError(
                 message=(
                     f"Failed to fetch prices for stock '{symbol}' during "
                     f"period '{period}': {error}"
@@ -174,7 +174,7 @@ class StockAnalyticsService:
         if segment_prices_df.empty:
             return period, None
         if symbol not in segment_prices_df.columns:
-            raise StockAnalyticsServiceError(
+            raise StockAnalyticsInternalServerError(
                 message=(
                     f"Price data for stock '{symbol}' is missing during "
                     f"period '{period}'"
@@ -182,7 +182,7 @@ class StockAnalyticsService:
                 code="STOCK_ANALYTICS_PRICE_DATA_MISSING",
             )
         if benchmark_symbol not in segment_prices_df.columns:
-            raise StockAnalyticsServiceError(
+            raise StockAnalyticsInternalServerError(
                 message=(
                     f"Benchmark price data for '{benchmark_symbol}' is missing "
                     f"during period '{period}'"
@@ -224,8 +224,8 @@ class StockAnalyticsService:
                 slippage=0.0,
                 benchmark_returns=benchmark_returns,
             )
-        except AssetAnalyticsServiceError as error:
-            raise StockAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as error:
+            raise StockAnalyticsInternalServerError(
                 message=(
                     "Failed to calculate stock performance for "
                     f"'{symbol}' during period '{period}': {error}"
@@ -272,7 +272,7 @@ class StockAnalyticsService:
             and cumulative returns.
 
         Raises:
-            StockAnalyticsServiceError: Alpaca price bars cannot be fetched, or any unexpected error
+            StockAnalyticsInternalServerError: Alpaca price bars cannot be fetched, or any unexpected error
             occurs while calculating returns.
         """
         try:
@@ -316,15 +316,15 @@ class StockAnalyticsService:
 
             return response
 
-        except StockAnalyticsServiceError:
+        except StockAnalyticsInternalServerError:
             raise
-        except AssetAnalyticsServiceError as e:
-            raise StockAnalyticsServiceError(
+        except AssetAnalyticsInternalServerError as e:
+            raise StockAnalyticsInternalServerError(
                 message=f"Failed to get stock price bars for stock '{symbol}': {e}",
                 code="STOCK_ANALYTICS_GET_BARS_FAILED",
             ) from e
         except Exception as e:
-            raise StockAnalyticsServiceError(
+            raise StockAnalyticsInternalServerError(
                 message=f"Failed to calculate stock bars for stock '{symbol}': {e}",
                 code="STOCK_ANALYTICS_GET_BARS_FAILED",
             ) from e

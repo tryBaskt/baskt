@@ -7,7 +7,11 @@ from typing import Any, Dict, Optional
 from botocore.exceptions import ClientError
 
 # Baskt imports
-from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+from clients.dynamodb_client import (
+	DynamoDBClient,
+	DynamoDBClientError,
+	to_dynamodb_value,
+)
 
 
 class ModelPortfolioUpdateLockInternalServerError(Exception):
@@ -143,13 +147,13 @@ class ModelPortfolioUpdateLockRepository:
 		now = int(time.time())
 		expires_at = now + int(lease_seconds)
 
-		item = {
+		item = to_dynamodb_value({
 			"portfolio_id": str(portfolio_id),
 			"owner_token": str(owner_token),
 			"created_at": now,
 			"updated_at": now,
 			"expires_at": expires_at
-		}
+		})
 
 		try:
 			self.lock_table_client.table.put_item(

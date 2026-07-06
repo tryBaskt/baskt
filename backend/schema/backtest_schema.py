@@ -4,7 +4,7 @@
 # Python imports
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 
@@ -25,6 +25,7 @@ class BacktestRequest(BaseModel):
 class BacktestAnalyticsResponse(BaseModel):
     start_date: date
     end_date: date
+    timestamps: List[datetime]
     cumulative_returns: List[float]
     final_cumulative_return: Optional[float]
     cagr: Optional[float]
@@ -35,6 +36,5 @@ class BacktestAnalyticsResponse(BaseModel):
     sharpe_ratio: Optional[float]
     maximum_drawdown: Optional[float]
     maximum_drawdown_duration: Optional[float]
-
 
 

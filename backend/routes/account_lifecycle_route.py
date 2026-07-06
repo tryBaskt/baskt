@@ -1,12 +1,20 @@
-# backend/routes/
+# backend/routes/account_lifecycle_route.py
 
 # Python imports
 from __future__ import annotations
 from typing import Any, Dict
+from dataclasses import asdict
 
 # Fast api Imports
 from fastapi import APIRouter, Depends, HTTPException, Query
-from starlette.status import HTTP_200_OK, HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_422_UNPROCESSABLE_CONTENT, HTTP_500_INTERNAL_SERVER_ERROR
+from starlette.status import (
+	HTTP_200_OK,
+	HTTP_201_CREATED,
+	HTTP_409_CONFLICT,
+	HTTP_403_FORBIDDEN,
+	HTTP_422_UNPROCESSABLE_CONTENT,
+	HTTP_500_INTERNAL_SERVER_ERROR
+)
 
 # Baskt Imports
 from core.deps import get_account_lifecycle_service, get_current_active_alpaca_account, get_current_user
@@ -23,11 +31,29 @@ from schema.account_lifecycle_schema import (
 	BasktBanksResponse,
 	BasktTransferResponse,
 	BasktTransfersResponse,
+	BasktAccountDetailsResponse,
+	UpdateBasktContactRequest,
+	UpdateBasktIdentityRequest,
+	UpdateBasktDisclosuresRequest,
+	BasktDisplayName,
+	BasktDescription,
+	GetIsExistsDisplayNameResponse
 )
-from services.account_lifecycle_service import AccountLifecycleService, AccountLifecycleServiceBasktAccountDisabled, AccountLifecycleServiceError
+from services.account_lifecycle_service import (
+	AccountLifecycleInternalServerError,
+	AccountLifecycleDisplayNameTakenError,
+	AccountLifecycleService,
+	AccountLifecycleServiceBasktAccountDisabled,
+)
 
 # Alpaca imports
 from alpaca.broker.models import ACHRelationship, Bank, Transfer, TradeAccount
+from domain.baskt_account_domain import (
+	BasktAccount,
+	ContactData,
+	DisclosuresData,
+	IdentityData,
+)
 
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -37,10 +63,14 @@ def _raise_account_lifecycle_http_exception(err: Exception) -> None:
 	"""
 	Convert account lifecycle exceptions into FastAPI HTTP exceptions.
 	"""
-	if isinstance(err, AccountLifecycleServiceError):
+	if isinstance(err, HTTPException):
+		raise err
+	if isinstance(err, AccountLifecycleInternalServerError):
 		if isinstance(err, AccountLifecycleServiceBasktAccountDisabled):
 			status_code = HTTP_403_FORBIDDEN
-		elif "UNSUPPORTED" in err.code:
+		elif isinstance(err, AccountLifecycleDisplayNameTakenError):
+			status_code = HTTP_409_CONFLICT
+		elif "UNSUPPORTED" in err.code or "INVALID" in err.code:
 			status_code = HTTP_422_UNPROCESSABLE_CONTENT
 		else:
 			status_code = HTTP_500_INTERNAL_SERVER_ERROR
@@ -87,6 +117,20 @@ def _to_trade_account_response(trade_account: TradeAccount) -> BasktTradeAccount
 		last_daytrade_count=_to_optional_str(getattr(trade_account, "last_daytrade_count", None)),
 		last_buying_power=_to_optional_str(getattr(trade_account, "last_buying_power", None)),
 		clearing_broker=_to_enum_name(trade_account.clearing_broker) if getattr(trade_account, "clearing_broker", None) else None,
+	)
+
+
+def _to_account_details_response(
+	baskt_account: BasktAccount,
+) -> BasktAccountDetailsResponse:
+	"""Convert a persisted Baskt account into its public settings response."""
+	return BasktAccountDetailsResponse(
+		display_name=baskt_account.display_name,
+		description=baskt_account.description,
+		contact=asdict(baskt_account.contact_data),
+		identity=asdict(baskt_account.identity_data),
+		disclosures=asdict(baskt_account.disclosures_data),
+		agreements=[asdict(agreement) for agreement in baskt_account.agreements_data],
 	)
 
 
@@ -154,6 +198,29 @@ def _to_transfer_response(alpaca_account_id: str, transfer: Transfer) -> BasktTr
 	)
 
 
+@router.get(
+	"/is-exists-display-name",
+	response_model=GetIsExistsDisplayNameResponse,
+	status_code=HTTP_200_OK,
+)
+def is_exists_display_name(
+	display_name: str = Query(min_length=1, max_length=50),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service)
+) -> GetIsExistsDisplayNameResponse:
+	display_name = str(display_name).strip()
+	if not display_name:
+		raise HTTPException(
+			status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+			detail="display_name is required to check whether it exists",
+		)
+	try:
+		return GetIsExistsDisplayNameResponse(
+			is_exists=service.is_exists_display_name(display_name=display_name)
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
 @router.post("/create-baskt-account", response_model=None, status_code=HTTP_201_CREATED)
 def create_baskt_account(
 	request: CreateBasktAccountLifecycleRequest,
@@ -167,6 +234,176 @@ def create_baskt_account(
 		password = payload.pop("password", None)
 		service.create_baskt_account(account_data=payload, password=password)
 		return 
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.get(
+	"/account-details",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def get_account_details(
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Return the authenticated user's persisted account details."""
+	try:
+		baskt_account = service.get_baskt_account(
+			cognito_user_id=user["sub"]
+		)
+		return _to_account_details_response(baskt_account)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.put(
+	"/profile/display-name",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_display_name(
+	request: BasktDisplayName,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Update the authenticated user's Baskt display name."""
+	try:
+		service.update_display_name(
+			cognito_user_id=user["sub"],
+			display_name=request.display_name,
+		)
+		return _to_account_details_response(
+			service.get_baskt_account(cognito_user_id=user["sub"])
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.put(
+	"/profile/description",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_description(
+	request: BasktDescription,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Update the authenticated user's profile description."""
+	try:
+		service.update_description(
+			cognito_user_id=user["sub"],
+			description=request.description,
+		)
+		return _to_account_details_response(
+			service.get_baskt_account(cognito_user_id=user["sub"])
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+def _update_account_details(
+	*,
+	user: Dict[str, Any],
+	service: AccountLifecycleService,
+	updated_data: ContactData | IdentityData | DisclosuresData,
+) -> BasktAccountDetailsResponse:
+	"""Update one account section and return the complete refreshed account."""
+	service.update_baskt_account(
+		cognito_user_id=user["sub"],
+		alpaca_account_id=user["custom:alpaca_acct_id"],
+		updated_data=updated_data,
+	)
+	return _to_account_details_response(
+		service.get_baskt_account(cognito_user_id=user["sub"])
+	)
+
+
+@router.put(
+	"/account-details/contact",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_account_contact(
+	request: UpdateBasktContactRequest,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Replace the authenticated user's contact data."""
+	try:
+		return _update_account_details(
+			user=user,
+			service=service,
+			updated_data=ContactData(**request.model_dump()),
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.put(
+	"/account-details/identity",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_account_identity(
+	request: UpdateBasktIdentityRequest,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Replace the authenticated user's non-tax-ID identity data."""
+	try:
+		existing_account = service.get_baskt_account(
+			cognito_user_id=user["sub"]
+		)
+		identity_updates = request.model_dump(exclude_unset=True)
+		resulting_country_of_citizenship = identity_updates.get(
+			"country_of_citizenship",
+			existing_account.identity_data.country_of_citizenship,
+		)
+		if (
+			str(resulting_country_of_citizenship or "").upper() == "USA"
+			and "permanent_resident" in identity_updates
+		):
+			raise HTTPException(
+				status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+				detail={
+					"message": (
+						"US citizens cannot update permanent resident status."
+					),
+					"code": "PERMANENT_RESIDENT_UPDATE_NOT_ALLOWED",
+				},
+			)
+		identity_data = {
+			**asdict(existing_account.identity_data),
+			**identity_updates,
+		}
+		return _update_account_details(
+			user=user,
+			service=service,
+			updated_data=IdentityData(**identity_data),
+		)
+	except Exception as err:
+		_raise_account_lifecycle_http_exception(err)
+
+
+@router.put(
+	"/account-details/disclosures",
+	response_model=BasktAccountDetailsResponse,
+	status_code=HTTP_200_OK,
+)
+def update_account_disclosures(
+	request: UpdateBasktDisclosuresRequest,
+	user: Dict[str, Any] = Depends(get_current_user),
+	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
+) -> BasktAccountDetailsResponse:
+	"""Replace the authenticated user's disclosures data."""
+	try:
+		return _update_account_details(
+			user=user,
+			service=service,
+			updated_data=DisclosuresData(**request.model_dump()),
+		)
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
 
@@ -452,7 +689,7 @@ def create_transfer(
 			)
 			return
 
-		raise AccountLifecycleServiceError(
+		raise AccountLifecycleInternalServerError(
 			message=f"Unsupported funding source type '{request.funding_source_type}'",
 			code="ACCOUNT_LIFECYCLE_UNSUPPORTED_TRANSFER_SOURCE",
 		)

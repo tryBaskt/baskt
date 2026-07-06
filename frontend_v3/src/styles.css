@@ -484,6 +484,10 @@ textarea:focus {
   min-width: 420px;
 }
 
+.home-summary-grid {
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+}
+
 .metric-card {
   padding: 18px;
   box-shadow: none;
@@ -499,6 +503,16 @@ textarea:focus {
   display: block;
   margin: 8px 0 4px;
   font-size: 28px;
+}
+
+.metric-card--positive strong,
+.metric-card--positive small {
+  color: #067647;
+}
+
+.metric-card--negative strong,
+.metric-card--negative small {
+  color: #b42318;
 }
 
 .allocation-total {

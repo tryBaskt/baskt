@@ -31,6 +31,7 @@ from routes.investment_analytics_route import router as investment_analytics_rou
 from routes.trade_execution_route import router as trade_execution_router
 from routes.model_portfolios_stocks_search_route import router as model_portfolios_stocks_search_router
 from routes.stock_analytics_route import router as stock_analytics_router
+from routes.baskt_account_route import router as baskt_account_router
 
 
 error_logger = logging.getLogger("uvicorn.error")
@@ -86,11 +87,10 @@ def create_app() -> FastAPI:
         request: Request,
         error: RequestValidationError,
     ):
-        error_logger.error(
-            "Request validation failed: %s %s -> 422\n%s",
-            request.method,
-            request.url.path,
-            error.errors(),
+        _log_request_exception(
+            request,
+            error,
+            status_code=422,
         )
         return await request_validation_exception_handler(request, error)
 
@@ -126,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(trade_execution_router)
     app.include_router(model_portfolios_stocks_search_router)
     app.include_router(stock_analytics_router)
+    app.include_router(baskt_account_router)
 
     # Health check
     @app.get("/health")

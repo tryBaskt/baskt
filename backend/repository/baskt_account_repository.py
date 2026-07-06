@@ -1,0 +1,367 @@
+"""Persistence operations for Baskt accounts."""
+
+from __future__ import annotations
+
+from typing import Optional
+from dataclasses import is_dataclass
+
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
+
+from clients.dynamodb_client import (
+    DynamoDBClient,
+    DynamoDBClientError,
+    dataclass_to_dynamodb_item,
+    to_dynamodb_value,
+)
+from domain.baskt_account_domain import (
+    BasktAccount,
+    DisclosuresData,
+    ContactData,
+    IdentityData,
+    AgreementData
+)
+
+
+class BasktAccountRepositoryError(Exception):
+    """Base exception for Baskt account persistence failures."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "BASKT_ACCOUNT_REPOSITORY_ERROR",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class BasktAccountBadGatewayError(BasktAccountRepositoryError):
+    """Raised when the DynamoDB dependency fails."""
+
+    def __init__(
+        self,
+        operation: str,
+        cognito_user_id: str,
+        *,
+        cause: Optional[Exception] = None,
+    ) -> None:
+        message = (
+            f"DynamoDB failed while {operation} for Baskt account "
+            f"'{cognito_user_id}'"
+        )
+        if cause:
+            message = f"{message}: {cause}"
+        super().__init__(message, code="BASKT_ACCOUNT_BAD_GATEWAY")
+
+
+class BasktAccountUnprocessableEntityError(BasktAccountRepositoryError):
+    """Raised when a Baskt account cannot be persisted safely."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            message,
+            code="BASKT_ACCOUNT_UNPROCESSABLE_ENTITY",
+        )
+
+
+class BasktAccountNotFoundError(BasktAccountRepositoryError):
+    """Raised when a Baskt account not found."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            message,
+            code="BASKT_ACCOUNT_NOT_FOUND_ERROR",
+        )
+
+
+class BasktAccountRepository:
+    """Repository for Baskt account records stored in DynamoDB."""
+
+    def __init__(self, dynamodb_client: DynamoDBClient) -> None:
+        self.dynamodb = dynamodb_client
+
+    def write_baskt_account(self, baskt_account: BasktAccount) -> None:
+        """Write the complete Baskt account as one DynamoDB item.
+
+        This is an upsert. If an item with the same ``cognito_user_id`` exists,
+        DynamoDB replaces it with the newly serialized account.
+
+        Args:
+            baskt_account: Complete account domain object to persist.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If the partition key is
+                empty or the domain object cannot be serialized.
+            BasktAccountBadGatewayError: If DynamoDB rejects the write.
+        """
+        cognito_user_id = str(baskt_account.cognito_user_id).strip()
+        if not cognito_user_id:
+            raise BasktAccountUnprocessableEntityError(
+                "cognito_user_id is required to write a Baskt account"
+            )
+
+        try:
+            item = dataclass_to_dynamodb_item(baskt_account)
+        except (TypeError, ValueError) as error:
+            raise BasktAccountUnprocessableEntityError(
+                f"Failed to serialize Baskt account '{cognito_user_id}': {error}"
+            ) from error
+
+        try:
+            self.dynamodb.put_item(item=item)
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="writing account",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+    def is_exists_display_name(self, display_name: str) -> bool:
+        """Return whether an account already uses the given display name.
+
+        The lookup uses the ``display_name_index`` global secondary index and
+        stops after the first matching account.
+
+        Args:
+            display_name: Display name to look up.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If display_name is empty.
+            BasktAccountBadGatewayError: If DynamoDB rejects the query.
+        """
+        display_name = str(display_name).strip()
+        if not display_name:
+            raise BasktAccountUnprocessableEntityError(
+                "display_name is required to check whether it exists"
+            )
+
+        try:
+            items = self.dynamodb.query(
+                key_condition=Key("display_name").eq(display_name),
+                IndexName="display_name_index",
+                ProjectionExpression="display_name",
+                Limit=1,
+            )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="checking whether display_name exists",
+                cognito_user_id=display_name,
+                cause=error,
+            ) from error
+
+        return bool(items)
+
+    def get_baskt_account(self, cognito_user_id: str) -> BasktAccount:
+        """Get a Baskt account by Cognito user ID.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the DynamoDB partition key.
+
+        Returns:
+            The matching BasktAccount.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If cognito_user_id is empty.
+            BasktAccountBadGatewayError: If DynamoDB rejects the read.
+            BasktAccountNotFoundError: If the account does not exist.
+        """
+
+        try:
+            item = self.dynamodb.get_item(
+                key={"cognito_user_id": cognito_user_id},
+            )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="getting account",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+        if not item:
+
+            raise BasktAccountNotFoundError(
+                f"Baskt account '{cognito_user_id}' was not found in table "
+            )
+
+        try:
+            identity_data = dict(item["identity_data"])
+
+            return BasktAccount(
+                cognito_user_id=item["cognito_user_id"],
+                display_name=item["display_name"],
+                description=item["description"],
+                alpaca_account_id=item["alpaca_account_id"],
+                alpaca_account_number=item["alpaca_account_number"],
+                agreements_data=[
+                    AgreementData(**agreement)
+                    for agreement in item.get("agreements_data", [])
+                ],
+                disclosures_data=DisclosuresData(**item["disclosures_data"]),
+                identity_data=IdentityData(**identity_data),
+                contact_data=ContactData(**item["contact_data"]),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise BasktAccountUnprocessableEntityError(
+                f"Failed to deserialize Baskt account "
+                f"'{cognito_user_id}': {error}"
+            ) from error
+        
+    def get_display_name(
+        self,
+        cognito_user_id: str,
+    ) -> str:
+        """Return only the display name for an existing Baskt account.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+
+        Returns:
+            The account's display name.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If the user ID is empty or
+                the stored display name is missing or invalid.
+            BasktAccountNotFoundError: If the account does not exist.
+            BasktAccountBadGatewayError: If DynamoDB rejects the read.
+        """
+
+        try:
+            item = self.dynamodb.get_item(
+                key={"cognito_user_id": cognito_user_id},
+                projection_expression="display_name",
+            )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="getting display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+        if not item:
+            raise BasktAccountNotFoundError(
+                f"Baskt account '{cognito_user_id}' was not found"
+            )
+
+        display_name = item.get("display_name")
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise BasktAccountUnprocessableEntityError(
+                f"Baskt account '{cognito_user_id}' has no valid display_name"
+            )
+
+        return display_name
+
+    def update_display_name(
+        self,
+        cognito_user_id: str,
+        display_name: str,
+    ) -> None:
+        """Update the display name for an existing Baskt account.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+            display_name: New user-facing name for the account.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If either value is empty.
+            BasktAccountBadGatewayError: If DynamoDB rejects the update.
+        """
+
+        try:
+            self.dynamodb.table.update_item(
+                Key={"cognito_user_id": cognito_user_id},
+                UpdateExpression="SET #display_name = :display_name",
+                ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={"#display_name": "display_name"},
+                ExpressionAttributeValues={":display_name": display_name},
+            )
+        except ClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+        except Exception as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating display_name",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+    def update_description(
+        self,
+        cognito_user_id: str,
+        description: str,
+    ) -> None:
+        """Update the profile description for an existing Baskt account."""
+        try:
+            self.dynamodb.table.update_item(
+                Key={"cognito_user_id": cognito_user_id},
+                UpdateExpression="SET #description = :description",
+                ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={"#description": "description"},
+                ExpressionAttributeValues={":description": description},
+            )
+        except Exception as error:
+            raise BasktAccountBadGatewayError(
+                operation="updating description",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+    def update_baskt_account(
+        self,
+        cognito_user_id: str,
+        updated_data: ContactData | IdentityData | DisclosuresData,
+    ) -> None:
+        """Replace one account-data section without rewriting the account.
+
+        The type of ``updated_data`` determines which top-level DynamoDB
+        attribute is replaced: ``contact_data``, ``identity_data``, or
+        ``disclosures_data``. All other account attributes remain unchanged.
+
+        Args:
+            cognito_user_id: Cognito user ID used as the partition key.
+            updated_data: Complete replacement value for one account section.
+
+        Raises:
+            BasktAccountUnprocessableEntityError: If the user ID is empty or
+                updated_data is not a supported domain dataclass.
+            BasktAccountBadGatewayError: If DynamoDB rejects the update.
+        """
+
+        attribute_names = {
+            "ContactData": "contact_data",
+            "IdentityData": "identity_data",
+            "DisclosuresData": "disclosures_data",
+        }
+        attribute_name = attribute_names.get(type(updated_data).__name__)
+        if not is_dataclass(updated_data) or attribute_name is None:
+            raise BasktAccountUnprocessableEntityError(
+                "updated_data must be ContactData, IdentityData, or "
+                "DisclosuresData"
+            )
+
+        try:
+            self.dynamodb.table.update_item(
+                Key={"cognito_user_id": cognito_user_id},
+                UpdateExpression="SET #attribute_name = :attribute_value",
+                ConditionExpression="attribute_exists(cognito_user_id)",
+                ExpressionAttributeNames={
+                    "#attribute_name": attribute_name,
+                },
+                ExpressionAttributeValues={
+                    ":attribute_value": to_dynamodb_value(updated_data),
+                },
+            )
+        except ClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation=f"updating {attribute_name}",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+        except Exception as error:
+            raise BasktAccountBadGatewayError(
+                operation=f"updating {attribute_name}",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error

@@ -10,9 +10,17 @@ from alpaca.broker.models import ACHRelationship, Transfer, Bank, TradeAccount
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient, CognitoClientError
-from domain.baskt_domain import BasktAccount
+from repository.baskt_account_repository import BasktAccountRepository
+from domain.baskt_account_domain import (
+	BasktAccount,
+	DisclosuresData,
+	ContactData,
+	IdentityData,
+	AgreementData
+)
+# from domain.baskt_domain import BasktAccount
 
-class AccountLifecycleServiceError(Exception):
+class AccountLifecycleInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_ERROR") -> None:
 		"""
 		Initialize an account lifecycle service exception.
@@ -27,7 +35,7 @@ class AccountLifecycleServiceError(Exception):
 		super().__init__(message)
 		self.code = code
 
-class AccountLifecycleServiceBasktAccountDisabled(AccountLifecycleServiceError):
+class AccountLifecycleServiceBasktAccountDisabled(AccountLifecycleInternalServerError):
 	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_BASKT_ACCOUNT_DISABLED") -> None:
 		"""
 		Initialize a disabled Baskt account exception.
@@ -41,11 +49,22 @@ class AccountLifecycleServiceBasktAccountDisabled(AccountLifecycleServiceError):
 		"""
 		super().__init__(message=message, code=code)
 
+
+class AccountLifecycleDisplayNameTakenError(AccountLifecycleInternalServerError):
+	"""Raised when a requested display name is already in use."""
+
+	def __init__(self, display_name: str) -> None:
+		super().__init__(
+			message=f"Display name '{display_name}' is already taken",
+			code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_TAKEN",
+		)
+
 class AccountLifecycleService:
 	def __init__(
 		self,
 		alpaca_broker_client: AlpacaBrokerClient,
 		cognito_client: CognitoClient,
+		baskt_account_repository: BasktAccountRepository
 	) -> None:
 		"""
 		Initialize account lifecycle service dependencies.
@@ -53,16 +72,18 @@ class AccountLifecycleService:
 		Args:
 			alpaca_broker_client: Client used for Alpaca broker operations.
 			cognito_client: Client used for Cognito user operations.
+			baskt_account_repository: Repository used to persist Baskt account data.
 
 		Returns:
 			None.
 		"""
 		self.alpaca_broker_client = alpaca_broker_client
 		self.cognito_client = cognito_client
+		self.baskt_account_repository = baskt_account_repository
 
 	def create_baskt_account(self, account_data: Dict[str, Any], password: Optional[str] = None) -> Dict[str, str]:
 		"""
-		Create an Alpaca broker account and matching Cognito user.
+		Create matching Alpaca, Cognito, and persisted Baskt accounts.
 
 		Args:
 			account_data: Account creation payload containing contact, identity,
@@ -74,16 +95,26 @@ class AccountLifecycleService:
 			Cognito user ID, and email address.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca account creation or Cognito
+			AccountLifecycleInternalServerError: If Alpaca account creation or Cognito
 			user creation fails.
 		"""
+
+		display_name = str(account_data.get("display_name", "")).strip()
+		if not display_name:
+			raise AccountLifecycleInternalServerError(
+				message="display_name is required to create a Baskt account",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_INVALID",
+			)
+		if self.is_exists_display_name(display_name):
+			raise AccountLifecycleDisplayNameTakenError(display_name)
+		account_data["display_name"] = display_name
 
 		try:
 			alpaca_account_data = self.alpaca_broker_client.create_alpaca_account(account_data=account_data)
 			alpaca_account_id = alpaca_account_data["alpaca_account_id"]
 			alpaca_account_number = alpaca_account_data["alpaca_account_number"]
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create Alpaca account: {err}",
 				code="ACCOUNT_LIFECYCLE_ALPACA_CREATE_FAILED",
 			) from err
@@ -91,10 +122,42 @@ class AccountLifecycleService:
 		try:
 			cognito_user_id = self.cognito_client.create_cognito_user(account_data=account_data, password=password, alpaca_account_id=alpaca_account_id, alpaca_account_number=alpaca_account_number)
 		except CognitoClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Alpaca account created, but Cognito user creation failed: {err}",
 				code="ACCOUNT_LIFECYCLE_COGNITO_CREATE_FAILED",
 			) from err
+
+		try:
+			baskt_account = BasktAccount(
+				cognito_user_id=cognito_user_id,
+				display_name=account_data["display_name"],
+				alpaca_account_id=alpaca_account_id,
+				alpaca_account_number=alpaca_account_number,
+				agreements_data=[
+					AgreementData(**agreement_data)
+					for agreement_data in account_data["agreements"]
+				],
+				disclosures_data=DisclosuresData(**account_data["disclosures"]),
+				identity_data=IdentityData(
+					**{
+						key: value
+						for key, value in account_data["identity"].items()
+						if key != "tax_id"
+					}
+				),
+				contact_data=ContactData(**account_data["contact"]),
+			)
+
+			self.baskt_account_repository.write_baskt_account(
+				baskt_account=baskt_account
+			)
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Cognito user and alpaca account created, but failed to persist baskt account details: {err}",
+				code="ACCOUNT_LIFECYCLE_BASKT_ACCOUNT_PERSIST_FAILED",
+			) from err
+
+
 
 		return {
 			"alpaca_account_id": alpaca_account_id,
@@ -103,117 +166,113 @@ class AccountLifecycleService:
 			"email_address": account_data["contact"]["email_address"],
 		}
 
-	def _get_baskt_account_helper(self, cognito_role_dict: Dict[str, Any], active_only: bool = True) -> BasktAccount:
-		"""
-		Build a Baskt account aggregate from Cognito attributes and Alpaca data.
-
-		Args:
-			cognito_role_dict: Cognito user attributes containing Alpaca account
-				IDs and Cognito status fields.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
-
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
-
-		Raises:
-			AccountLifecycleServiceError: If Alpaca account lookup fails.
-			AccountLifecycleServiceBasktAccountDisabled: If active_only is True
-			and the account is not enabled/submitted/active.
-		"""
-		alpaca_account_id=cognito_role_dict["alpaca_account_id"]
-		cognito_user_id=cognito_role_dict["cognito_user_id"]
+	def is_exists_display_name(self, display_name: str) -> bool:
+		"""Return whether a normalized display name is already in use."""
+		display_name = str(display_name).strip()
+		if not display_name:
+			raise AccountLifecycleInternalServerError(
+				message="display_name is required to check availability",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_INVALID",
+			)
 		try:
-			alpaca_account = self.alpaca_broker_client.get_alpaca_account_by_id(
-				account_id=alpaca_account_id,
+			return self.baskt_account_repository.is_exists_display_name(display_name)
+		except AccountLifecycleInternalServerError:
+			raise
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Failed to check display name availability: {err}",
+				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_CHECK_FAILED",
+			) from err
+
+	def update_display_name(
+		self,
+		cognito_user_id: str,
+		display_name: str,
+	) -> None:
+		"""Update the user-facing display name stored by Baskt."""
+		display_name = str(display_name).strip()
+		if not display_name:
+			raise AccountLifecycleInternalServerError(
+				message="display_name is required to update a Baskt account",
+				code="ACCOUNT_LIFECYCLE_UPDATE_DISPLAY_NAME_INVALID",
+			)
+		try:
+			self.baskt_account_repository.update_display_name(
 				cognito_user_id=cognito_user_id,
+				display_name=display_name,
 			)
-		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
-				message=f"Failed to get Alpaca account for account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT_HELPER"
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=(
+					"Failed to update display name for Cognito user "
+					f"'{cognito_user_id}': {err}"
+				),
+				code="ACCOUNT_LIFECYCLE_UPDATE_DISPLAY_NAME_FAILED"
 			) from err
-		
-		baskt_account = BasktAccount(
-			cognito_user_id=cognito_role_dict["cognito_user_id"],
-			alpaca_account_id=str(alpaca_account.id),
-			alpaca_account_number=alpaca_account.account_number,
-			email_address=str(alpaca_account.contact.email_address),
-			cognito_confirmation_status=cognito_role_dict["cognito_confirmation_status"],
-			cognito_enabled_status=cognito_role_dict["cognito_enabled_status"],
-			alpaca_account_status=alpaca_account.status
-		)
 
-		if active_only and (not (baskt_account.cognito_enabled_status and baskt_account.alpaca_account_status.name in ["ACTIVE", "SUBMITTED"])):
-			# We do actually want an account disabled exception
-			raise AccountLifecycleServiceBasktAccountDisabled(
-				message=f"Baskt account is disabled. Cognito user: {baskt_account.cognito_enabled_status}, Alpaca account: {baskt_account.alpaca_account_status.name}"
+	def update_description(self, cognito_user_id: str, description: str) -> None:
+		"""Update the user-facing profile description stored by Baskt."""
+		try:
+			self.baskt_account_repository.update_description(
+				cognito_user_id=cognito_user_id,
+				description=str(description).strip(),
 			)
-		
-		return baskt_account
-
-	
-	def get_baskt_account_by_email_address(self, email_address: str, active_only: bool = True) -> BasktAccount:
-		"""
-		Get a Baskt account by Cognito email address.
-
-		Args:
-			email_address: Email address used to find the Cognito user.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
-
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
-
-		Raises:
-			AccountLifecycleServiceError: If Cognito or Alpaca lookup fails.
-		"""
-		try:
-			cognito_role_dict = self.cognito_client.get_cognito_user_by_email_address(email_address=email_address)
-			return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
-		# Propagate disabled account errors so the route can map them correctly.
-		except AccountLifecycleServiceBasktAccountDisabled:
-			raise
-		# Other service-layer errors should remain AccountLifecycleServiceError.
-		except AccountLifecycleServiceError:
-			raise
-		except CognitoClientError as err:
-			raise AccountLifecycleServiceError(
-				message=f"Failed to get Baskt account for email address '{email_address}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=(
+					"Failed to update description for Cognito user "
+					f"'{cognito_user_id}': {err}"
+				),
+				code="ACCOUNT_LIFECYCLE_UPDATE_DESCRIPTION_FAILED",
 			) from err
-	
 
-	def get_baskt_account_by_cognito_user_id(self, cognito_user_id: str, active_only: bool = True) -> BasktAccount:
-		"""
-		Get a Baskt account by Cognito user ID.
+	def update_baskt_account(
+		self,
+		cognito_user_id: str,
+		alpaca_account_id: str,
+		updated_data: ContactData | IdentityData | DisclosuresData
+	):
 
-		Args:
-			cognito_user_id: Cognito user ID used to find account metadata.
-			active_only: When True, reject disabled Cognito users or inactive
-				Alpaca accounts.
-
-		Returns:
-			BasktAccount: Combined Baskt account domain object.
-
-		Raises:
-			AccountLifecycleServiceError: If Cognito or Alpaca lookup fails.
-		"""
 		try:
-			cognito_role_dict = self.cognito_client.get_cognito_user_by_cognito_user_id(cognito_user_id=cognito_user_id)
-			return self._get_baskt_account_helper(cognito_role_dict=cognito_role_dict, active_only=active_only)
-		
-		# Propagate disabled account errors so the route can map them correctly.
-		except AccountLifecycleServiceBasktAccountDisabled:
-			raise
-		# Other service-layer errors should remain AccountLifecycleServiceError.
-		except AccountLifecycleServiceError:
-			raise
-		except CognitoClientError as err:
-			raise AccountLifecycleServiceError(
-				message=f"Failed to get Baskt account for cognito user id '{cognito_user_id}': {err}",
-				code="ACCOUNT_LIFECYCLE_SERVICE_GET_BASKT_ACCOUNT"
+			self.alpaca_broker_client.update_alpaca_account(
+				alpaca_account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id,
+				updated_data=updated_data
+			)
+
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Failed to update baskt account in alpaca for alpaca account '{alpaca_account_id}' and cognito user '{cognito_user_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_UPDATE_BASKT_ACCOUNT_FAILED"
 			) from err
+
+		try:
+			self.baskt_account_repository.update_baskt_account(
+				cognito_user_id=cognito_user_id,
+				updated_data=updated_data
+			)
+
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=f"Succeeded to update baskt account in alpaca, but failed to update in dynamodb for alpaca account '{alpaca_account_id}' and cognito user '{cognito_user_id}': {err}",
+				code="ACCOUNT_LIFECYCLE_UPDATE_BASKT_ACCOUNT_FAILED"
+			) from err
+
+	def get_baskt_account(self, cognito_user_id: str) -> BasktAccount:
+		"""Return the persisted Baskt account for an authenticated user."""
+		try:
+			return self.baskt_account_repository.get_baskt_account(
+				cognito_user_id=cognito_user_id
+			)
+		except Exception as err:
+			raise AccountLifecycleInternalServerError(
+				message=(
+					"Failed to get persisted Baskt account for Cognito user "
+					f"'{cognito_user_id}': {err}"
+				),
+				code="ACCOUNT_LIFECYCLE_GET_BASKT_ACCOUNT_FAILED",
+			) from err
+
 
 	def create_direct_ach_relationship(
 		self,
@@ -243,7 +302,7 @@ class AccountLifecycleService:
 			ACHRelationship: Alpaca ACH relationship response.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the ACH
+			AccountLifecycleInternalServerError: If Alpaca fails to create the ACH
 			relationship.
 		"""
 		try:
@@ -257,7 +316,7 @@ class AccountLifecycleService:
 				nickname=nickname
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create ACH relationship for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_ACH_RELATIONSHIP_FAILED",
 			) from err
@@ -282,7 +341,7 @@ class AccountLifecycleService:
 			ACHRelationship: Alpaca ACH relationship response.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the Plaid ACH
+			AccountLifecycleInternalServerError: If Alpaca fails to create the Plaid ACH
 			relationship.
 		"""
 		try:
@@ -292,7 +351,7 @@ class AccountLifecycleService:
 				processor_token=processor_token
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create Plaid ACH relationship for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_PLAID_ACH_RELATIONSHIP_FAILED",
 			) from err
@@ -316,13 +375,13 @@ class AccountLifecycleService:
 			List[ACHRelationship]: ACH relationships returned by Alpaca.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to fetch ACH
+			AccountLifecycleInternalServerError: If Alpaca fails to fetch ACH
 			relationships.
 		"""
 		try:
 			return self.alpaca_broker_client.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to get ACH relationships for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_GET_ACH_RELATIONSHIPS_FAILED",
 			) from err
@@ -346,7 +405,7 @@ class AccountLifecycleService:
 			None.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to delete the ACH
+			AccountLifecycleInternalServerError: If Alpaca fails to delete the ACH
 			relationship.
 		"""
 		try:
@@ -356,7 +415,7 @@ class AccountLifecycleService:
 				ach_relationship_id=ach_relationship_id
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to delete ACH relationship '{ach_relationship_id}' for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_DELETE_ACH_RELATIONSHIP_FAILED"
 			) from err
@@ -377,7 +436,7 @@ class AccountLifecycleService:
 			TradeAccount: Alpaca trade account details.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to fetch the trade
+			AccountLifecycleInternalServerError: If Alpaca fails to fetch the trade
 			account.
 		"""
 		try:
@@ -386,7 +445,7 @@ class AccountLifecycleService:
 				cognito_user_id=cognito_user_id
 			)
 		except AlpacaBrokerClientError as e:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to get trade account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
 				code="ACCOUNT_LIFECYCLE_GET_TRADE_ACCOUNT_FAILED"
 			) from e
@@ -421,7 +480,7 @@ class AccountLifecycleService:
 			Transfer: Alpaca transfer response.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the ACH
+			AccountLifecycleInternalServerError: If Alpaca fails to create the ACH
 			transfer.
 		"""
 		try:
@@ -436,7 +495,7 @@ class AccountLifecycleService:
 			)
 		
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create ACH transfer request for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_ACH_TRANSFER_REQUEST_FAILED",
 			) from err
@@ -478,7 +537,7 @@ class AccountLifecycleService:
 			Bank: Alpaca bank relationship response.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the bank
+			AccountLifecycleInternalServerError: If Alpaca fails to create the bank
 			relationship.
 		"""
 		try:
@@ -496,7 +555,7 @@ class AccountLifecycleService:
 				street_address=street_address
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create bank relationship for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_BANK_REQUEST_FAILED",
 			) from err
@@ -519,7 +578,7 @@ class AccountLifecycleService:
 			List[Bank]: Bank relationships returned by Alpaca.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to fetch bank
+			AccountLifecycleInternalServerError: If Alpaca fails to fetch bank
 			relationships.
 		"""
 		try:
@@ -528,7 +587,7 @@ class AccountLifecycleService:
 				alpaca_account_id=alpaca_account_id,
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to get banks for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_GET_BANKS_FAILED",
 			) from err
@@ -552,7 +611,7 @@ class AccountLifecycleService:
 			None.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to delete the bank
+			AccountLifecycleInternalServerError: If Alpaca fails to delete the bank
 			relationship.
 		"""
 		try:
@@ -562,7 +621,7 @@ class AccountLifecycleService:
 				bank_id=bank_id
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to delete bank '{bank_id}' for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_DELETE_BANK_FAILED"
 			) from err
@@ -598,7 +657,7 @@ class AccountLifecycleService:
 			Transfer: Alpaca transfer response.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to create the wire
+			AccountLifecycleInternalServerError: If Alpaca fails to create the wire
 			transfer.
 		"""
 		try:
@@ -613,7 +672,7 @@ class AccountLifecycleService:
 				additional_information=additional_information
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to create bank transfer request for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_CREATE_BANK_TRANSFER_REQUEST_FAILED",
 			) from err
@@ -642,7 +701,7 @@ class AccountLifecycleService:
 			account.
 
 		Raises:
-			AccountLifecycleServiceError: If Alpaca fails to fetch transfers.
+			AccountLifecycleInternalServerError: If Alpaca fails to fetch transfers.
 		"""
 		try:
 			return self.alpaca_broker_client.get_transfers(
@@ -652,7 +711,7 @@ class AccountLifecycleService:
 				offset=offset,
 			)
 		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleServiceError(
+			raise AccountLifecycleInternalServerError(
 				message=f"Failed to get transfers for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_GET_TRANSFERS_FAILED",
 			) from err

@@ -9,6 +9,8 @@ from starlette import status
 
 from core.deps import get_current_user, get_model_portfolios_stocks_search_service
 from schema.model_portfolios_stocks_search_schema import (
+    BasktAccountOpenSearchResultResponse,
+    BasktAccountsOpenSearchResultResponse,
     ModelPortfolioOpenSearchResultResponse,
     ModelPortfoliosOpenSearchResultResponse,
     ModelPortfoliosStocksOpenSearchResponse,
@@ -17,8 +19,8 @@ from schema.model_portfolios_stocks_search_schema import (
 )
 
 from services.model_portfolios_stocks_search_service import (
+    ModelPortfoliosStocksSearchInternalServerError,
     ModelPortfoliosStocksSearchService,
-    ModelPortfoliosStocksSearchServiceError,
 )
 
 
@@ -41,21 +43,29 @@ def _raise_search_http_exception(error: Exception) -> None:
     if isinstance(error, HTTPException):
         raise error
 
-    if isinstance(error, ModelPortfoliosStocksSearchServiceError):
+    if isinstance(error, ModelPortfoliosStocksSearchInternalServerError):
         invalid_request_codes = {
             "MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT",
             "MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
+            "BASKT_ACCOUNT_SEARCH_INVALID_LIMIT",
+            "BASKT_ACCOUNT_SEARCH_INVALID_OFFSET",
         }
         status_code = (
-            status.HTTP_422_UNPROCESSABLE_ENTITY
+            status.HTTP_422_UNPROCESSABLE_CONTENT
             if error.code in invalid_request_codes
             else status.HTTP_502_BAD_GATEWAY
         )
-        raise HTTPException(status_code=status_code, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status_code,
+            detail={"message": str(error), "code": error.code},
+        ) from error
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unexpected model portfolio search error: {error}",
+        detail={
+            "message": f"Unexpected model portfolio search error: {error}",
+            "code": "MODEL_PORTFOLIOS_STOCKS_SEARCH_UNEXPECTED_ERROR",
+        },
     ) from error
 
 
@@ -101,6 +111,9 @@ def search_model_portfolios_and_stocks(
             "model_portfolios_opensearch_result"
         ]
         stocks_response = search_response["stocks_search_result"]
+        baskt_accounts_response = search_response[
+            "baskt_accounts_opensearch_result"
+        ]
         return ModelPortfoliosStocksOpenSearchResponse(
             model_portfolios=ModelPortfoliosOpenSearchResultResponse(
                 model_portfolios=[
@@ -110,6 +123,9 @@ def search_model_portfolios_and_stocks(
                         description=model_portfolio.description,
                         portfolio_owner_cognito_user_id=(
                             model_portfolio.portfolio_owner_cognito_user_id
+                        ),
+                        portfolio_owner_display_name=(
+                            model_portfolio.portfolio_owner_display_name
                         ),
                         created_at=model_portfolio.created_at,
                         updated_at=model_portfolio.updated_at,
@@ -136,6 +152,60 @@ def search_model_portfolios_and_stocks(
                     for stock in stocks_response
                 ]
             ),
+            baskt_accounts=BasktAccountsOpenSearchResultResponse(
+                baskt_accounts=[
+                    BasktAccountOpenSearchResultResponse(
+                        cognito_user_id=account.cognito_user_id,
+                        display_name=account.display_name,
+                        description=account.description,
+                        profile_image=account.profile_image,
+                    )
+                    for account in baskt_accounts_response.baskt_accounts
+                ],
+                total=baskt_accounts_response.total,
+                limit=baskt_accounts_response.limit,
+                offset=baskt_accounts_response.offset,
+            ),
+        )
+    except Exception as error:
+        _raise_search_http_exception(error)
+
+
+@router.get(
+    "/baskt-accounts",
+    response_model=BasktAccountsOpenSearchResultResponse,
+    status_code=status.HTTP_200_OK,
+)
+def search_baskt_accounts(
+    query: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: Dict[str, Any] = Depends(get_current_user),
+    service: ModelPortfoliosStocksSearchService = Depends(
+        get_model_portfolios_stocks_search_service
+    ),
+) -> BasktAccountsOpenSearchResultResponse:
+    """Search public Baskt accounts by display name or description."""
+    del user
+    try:
+        result = service.search_baskt_accounts(
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
+        return BasktAccountsOpenSearchResultResponse(
+            baskt_accounts=[
+                BasktAccountOpenSearchResultResponse(
+                    cognito_user_id=account.cognito_user_id,
+                    display_name=account.display_name,
+                    description=account.description,
+                    profile_image=account.profile_image,
+                )
+                for account in result.baskt_accounts
+            ],
+            total=result.total,
+            limit=result.limit,
+            offset=result.offset,
         )
     except Exception as error:
         _raise_search_http_exception(error)
@@ -187,6 +257,9 @@ def search_model_portfolios(
                     description=model_portfolio.description,
                     portfolio_owner_cognito_user_id=(
                         model_portfolio.portfolio_owner_cognito_user_id
+                    ),
+                    portfolio_owner_display_name=(
+                        model_portfolio.portfolio_owner_display_name
                     ),
                     created_at=model_portfolio.created_at,
                     updated_at=model_portfolio.updated_at,

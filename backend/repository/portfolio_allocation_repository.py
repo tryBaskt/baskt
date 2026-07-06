@@ -4,9 +4,12 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
-from decimal import Decimal
 from boto3.dynamodb.conditions import Key
-from clients.dynamodb_client import DynamoDBClient, DynamoDBClientError
+from clients.dynamodb_client import (
+    DynamoDBClient,
+    DynamoDBClientError,
+    dataclass_to_dynamodb_item,
+)
 import time
 
 # Baskt imports
@@ -29,29 +32,49 @@ def _optional_int(value: object) -> Optional[int]:
     return None if value is None else int(value)
 
 
+def _parse_position(item: Dict) -> PortfolioAllocationPosition:
+    """Convert a stored allocation position map into its domain model."""
+    return PortfolioAllocationPosition(
+        **{
+            **item,
+            "symbol": str(item["symbol"]),
+            "filled_quantity": float(item["filled_quantity"]),
+            "direction": int(item["direction"]),
+            "filled_avg_price": float(item["filled_avg_price"]),
+        }
+    )
+
+
 def _parse_transaction_snapshot(item: Dict) -> PortfolioAllocationTransactionSnapshot:
     """Convert a stored DynamoDB transaction map into its domain model."""
     return PortfolioAllocationTransactionSnapshot(
-        transaction_id=str(item["transaction_id"]),
-        model_portfolio_snapshot_id=(
-            None
-            if item.get("model_portfolio_snapshot_id") is None
-            else str(item["model_portfolio_snapshot_id"])
-        ),
-        created_at=to_utc_from_iso(item["created_at"]),
-        updated_at=to_utc_from_iso(item.get("updated_at", item["created_at"])),
-        requested_amount=_optional_float(item.get("requested_amount")),
-        transaction_type=str(item["transaction_type"]),
-        status=str(item["status"]),
-        filled_at=_optional_datetime(item.get("filled_at")),
-        number_orders=_optional_int(item.get("number_orders")),
-        cost_basis=_optional_float(item.get("cost_basis")),
-        order_fill_percent=_optional_float(item.get("order_fill_percent")),
-        status_explanation=(
-            None
-            if item.get("status_explanation") is None
-            else str(item["status_explanation"])
-        ),
+        **{
+            **item,
+            "transaction_id": str(item["transaction_id"]),
+            "model_portfolio_snapshot_id": (
+                None
+                if item.get("model_portfolio_snapshot_id") is None
+                else str(item["model_portfolio_snapshot_id"])
+            ),
+            "created_at": to_utc_from_iso(item["created_at"]),
+            "updated_at": to_utc_from_iso(
+                item.get("updated_at", item["created_at"])
+            ),
+            "requested_amount": _optional_float(item.get("requested_amount")),
+            "transaction_type": str(item["transaction_type"]),
+            "status": str(item["status"]),
+            "filled_at": _optional_datetime(item.get("filled_at")),
+            "number_orders": _optional_int(item.get("number_orders")),
+            "cost_basis": _optional_float(item.get("cost_basis")),
+            "order_fill_percent": _optional_float(
+                item.get("order_fill_percent")
+            ),
+            "status_explanation": (
+                None
+                if item.get("status_explanation") is None
+                else str(item["status_explanation"])
+            ),
+        }
     )
 
 
@@ -59,40 +82,7 @@ def _serialize_transaction_snapshot(
     transaction: PortfolioAllocationTransactionSnapshot,
 ) -> Dict:
     """Convert a transaction domain model into a DynamoDB-compatible map."""
-    return {
-        "transaction_id": str(transaction.transaction_id),
-        "model_portfolio_snapshot_id": transaction.model_portfolio_snapshot_id,
-        "created_at": transaction.created_at.isoformat(),
-        "updated_at": transaction.updated_at.isoformat(),
-        "filled_at": (
-            transaction.filled_at.isoformat()
-            if transaction.filled_at is not None
-            else None
-        ),
-        "requested_amount": (
-            Decimal(str(transaction.requested_amount))
-            if transaction.requested_amount is not None
-            else None
-        ),
-        "number_orders": (
-            int(transaction.number_orders)
-            if transaction.number_orders is not None
-            else None
-        ),
-        "transaction_type": str(transaction.transaction_type),
-        "cost_basis": (
-            Decimal(str(transaction.cost_basis))
-            if transaction.cost_basis is not None
-            else None
-        ),
-        "order_fill_percent": (
-            Decimal(str(transaction.order_fill_percent))
-            if transaction.order_fill_percent is not None
-            else None
-        ),
-        "status": str(transaction.status),
-        "status_explanation": transaction.status_explanation,
-    }
+    return dataclass_to_dynamodb_item(transaction)
 
 
 class PortfolioAllocationInternalServerError(Exception):
@@ -506,12 +496,7 @@ class PortfolioAllocationRepository:
         return [
             PortfolioAllocationPositionSnapshot(
                 positions=[
-                    PortfolioAllocationPosition(
-                        symbol=position["symbol"],
-                        filled_quantity=float(position["filled_quantity"]),
-                        direction=int(position["direction"]),
-                        filled_avg_price=float(position["filled_avg_price"])
-                    )
+                    _parse_position(position)
                     for position in position_snapshot["positions"]
                 ],
                 timestamp=to_utc_from_iso(position_snapshot["timestamp"])
@@ -564,12 +549,7 @@ class PortfolioAllocationRepository:
 
         return PortfolioAllocationPositionSnapshot(
             positions=[
-                PortfolioAllocationPosition(
-                    symbol=position["symbol"],
-                    filled_quantity=float(position["filled_quantity"]),
-                    direction=int(position["direction"]),
-                    filled_avg_price=float(position["filled_avg_price"])
-                )
+                _parse_position(position)
                 for position in position_snapshot["positions"]
             ],
             timestamp=to_utc_from_iso(position_snapshot["timestamp"])
@@ -662,12 +642,7 @@ class PortfolioAllocationRepository:
                 position_history = [
                     PortfolioAllocationPositionSnapshot(
                         positions=[
-                            PortfolioAllocationPosition(
-                                filled_avg_price=float(position["filled_avg_price"]),
-                                symbol=str(position["symbol"]),
-                                filled_quantity=float(position["filled_quantity"]),
-                                direction=int(position["direction"]),
-                            )
+                            _parse_position(position)
                             for position in position_snapshot["positions"]
                         ],
                         timestamp=to_utc_from_iso(position_snapshot["timestamp"]),
@@ -743,12 +718,7 @@ class PortfolioAllocationRepository:
             position_history = [
                 PortfolioAllocationPositionSnapshot(
                     positions=[
-                        PortfolioAllocationPosition(
-                            filled_avg_price=float(position["filled_avg_price"]),
-                            symbol=position["symbol"],
-                            filled_quantity=float(position["filled_quantity"]),
-                            direction=int(position["direction"]),
-                        )
+                        _parse_position(position)
                         for position in position_snapshot["positions"]
                     ],
                     timestamp=to_utc_from_iso(position_snapshot["timestamp"])
@@ -796,32 +766,7 @@ class PortfolioAllocationRepository:
         """
 
         try:
-            item = {
-                "cognito_user_id": portfolio_allocation.cognito_user_id,
-                "portfolio_id": portfolio_allocation.portfolio_id,
-                "position_history": [
-                    {
-                        "positions": [
-                            {
-                                "filled_avg_price": Decimal(str(position.filled_avg_price)),
-                                "symbol": position.symbol,
-                                "filled_quantity": Decimal(str(position.filled_quantity)),
-                                "direction": int(position.direction),
-                            }
-                            for position in position_snapshot.positions
-                        ],
-                        "timestamp": position_snapshot.timestamp.isoformat()
-                    }
-                    for position_snapshot in portfolio_allocation.position_history
-                ],
-                "transaction_history": [
-                    _serialize_transaction_snapshot(transaction_snapshot)
-                    for transaction_snapshot in portfolio_allocation.transaction_history
-                ],
-                "total_cost_basis": Decimal(str(portfolio_allocation.total_cost_basis)),
-                "portfolio_allocation_type": str(portfolio_allocation.portfolio_allocation_type),
-                "portfolio_name": str(portfolio_allocation.portfolio_name)
-            }
+            item = dataclass_to_dynamodb_item(portfolio_allocation)
         except Exception as e:
             raise PortfolioAllocationUnprocessableEntityError(
                 operation="serializing portfolio allocation for persistence",
