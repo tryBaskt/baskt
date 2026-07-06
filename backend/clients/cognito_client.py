@@ -147,50 +147,6 @@ class CognitoClient:
             "attributes": attributes,
         }
 
-    def get_user_existence_status(self, email_address: str) -> Dict[str, Any]:
-        """
-        Return whether a Cognito user exists and, when present, the enable and
-        confirmation status.
-
-        Args:
-            email_address: Email address used as the Cognito username.
-
-        Returns:
-            Dict[str, Any]: User existence payload with exists, enabled, and
-            confirmation_status fields.
-
-        Raises:
-            CognitoClientError: If Cognito fails while checking user existence
-            or the request cannot be sent.
-        """
-        try:
-            response = self.cognito_client.admin_get_user(
-                UserPoolId=self.user_pool_id,
-                Username=email_address,
-            )
-            return {
-                "exists": True,
-                "enabled": bool(response.get("Enabled", False)),
-                "confirmation_status": response.get("UserStatus"),
-            }
-        except ClientError as err:
-            if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
-                return {
-                    "exists": False,
-                    "enabled": None,
-                    "confirmation_status": None,
-                }
-
-            raise CognitoClientError(
-                message=f"Failed to get user existence status for email address '{email_address}': {err}",
-                code="COGNITO_GET_USER_EXISTENCE_STATUS_FAILED",
-            ) from err
-        except (BotoCoreError, ParamValidationError) as err:
-            raise CognitoClientError(
-                message=f"Failed to get user existence status for email address '{email_address}': {err}",
-                code="COGNITO_GET_USER_EXISTENCE_STATUS_FAILED",
-            ) from err
-
 
     def create_cognito_user(
         self, 
@@ -294,7 +250,79 @@ class CognitoClient:
             message=f"Cognito user creation is not supported for environment '{self.env}'",
             code="COGNITO_CREATE_USER_UNSUPPORTED_ENV",
         )
-            
+
+    def delete_cognito_user(
+        self,
+        cognito_user_id: str
+    ) -> None:
+        """Delete a user from the configured Cognito user pool.
+
+        Args:
+            cognito_user_id: Cognito username/user ID to delete.
+
+        Returns:
+            None.
+
+        Raises:
+            CognitoClientCognitoUserNotFound: If the Cognito user does not
+                exist.
+            CognitoClientError: If Cognito rejects the deletion or the request
+                cannot be sent.
+        """
+        try:
+            self.cognito_client.admin_delete_user(
+                UserPoolId=self.user_pool_id,
+                Username=cognito_user_id,
+            )
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
+                raise CognitoClientCognitoUserNotFound(
+                    identifier=cognito_user_id,
+                    identifier_type="cognito_user_id",
+                ) from err
+
+            raise CognitoClientError(
+                message=f"Failed to delete Cognito user '{cognito_user_id}': {err}",
+                code="COGNITO_DELETE_USER_FAILED",
+            ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to delete Cognito user '{cognito_user_id}': {err}",
+                code="COGNITO_DELETE_USER_FAILED",
+            ) from err
+
+    def is_exists_cognito_user(self, cognito_user_id: str) -> bool:
+        """Return whether a user exists in the configured Cognito user pool.
+
+        Args:
+            cognito_user_id: Cognito username/user ID to look up.
+
+        Returns:
+            bool: True when the user exists, otherwise False.
+
+        Raises:
+            CognitoClientError: If Cognito fails for a reason other than the
+                user not existing, or the request cannot be sent.
+        """
+        try:
+            self.cognito_client.admin_get_user(
+                UserPoolId=self.user_pool_id,
+                Username=cognito_user_id,
+            )
+            return True
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") == "UserNotFoundException":
+                return False
+
+            raise CognitoClientError(
+                message=f"Failed to check whether Cognito user '{cognito_user_id}' exists: {err}",
+                code="COGNITO_USER_EXISTS_CHECK_FAILED",
+            ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to check whether Cognito user '{cognito_user_id}' exists: {err}",
+                code="COGNITO_USER_EXISTS_CHECK_FAILED",
+            ) from err
 
     def get_cognito_user_by_cognito_user_id(self, cognito_user_id: str) -> Dict[str, Any]:
         """

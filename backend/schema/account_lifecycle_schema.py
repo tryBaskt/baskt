@@ -213,6 +213,7 @@ class BasktBanksResponse(RootModel[List[BasktBankResponse]]):
 
 
 class BasktTransferResponse(BaseModel):
+    transfer_id: str # UUID
     alpaca_account_id: str # UUID
     created_at: str # datetime
     updated_at: Optional[str] = None # Optional[datetime] = None

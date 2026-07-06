@@ -6,13 +6,22 @@ from typing import List, Dict
 
 from alpaca.trading.models import Order
 
-from conftest import TestEngine
+from .conftest import MockSQSClient, TestEngine
 
 FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
 FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
 
 PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "004989ae-a5eb-4ea1-b525-3eab8bf5a5aa"
 PORTFOLIO_OWNER_COGNITO_USER_ID = "c46894f8-e091-7088-e0fd-35d1d15bffb7"
+
+
+def _stock_asset_id(test_engine: TestEngine, symbol: str) -> str:
+    """Use generated IDs for mocks and Alpaca's real asset ID for AWS tests."""
+    if isinstance(test_engine.sqs_client, MockSQSClient):
+        return str(uuid.uuid4())
+    return test_engine.alpaca_broker_client.get_stock_by_symbol(
+        symbol=symbol
+    ).stock_id
 
 def _create_portfolio(
     test_engine: TestEngine,
@@ -236,7 +245,7 @@ def _cleanup_stock_test(
 @pytest.mark.integration
 def test_stock_basic_buy(test_engine: TestEngine):
     """Test buying and recording a single stock position."""
-    asset_id = str(uuid.uuid4())
+    asset_id = _stock_asset_id(test_engine, "AAPL")
     buy_response = None
 
     try:
@@ -261,7 +270,7 @@ def test_stock_basic_buy(test_engine: TestEngine):
 @pytest.mark.integration
 def test_stock_buy_and_partial_sell(test_engine: TestEngine):
     """Test partially selling a previously purchased stock."""
-    asset_id = str(uuid.uuid4())
+    asset_id = _stock_asset_id(test_engine, "AAPL")
     buy_response = None
     sell_response = None
 
@@ -296,7 +305,7 @@ def test_stock_buy_and_partial_sell(test_engine: TestEngine):
 @pytest.mark.integration
 def test_stock_buy_partial_sell_buy_and_close(test_engine: TestEngine):
     """Test buying, partially selling, buying again, and closing a stock."""
-    asset_id = str(uuid.uuid4())
+    asset_id = _stock_asset_id(test_engine, "AAPL")
     first_buy_response = None
     sell_response = None
     second_buy_response = None
@@ -350,20 +359,20 @@ def test_stock_buy_partial_sell_buy_and_close(test_engine: TestEngine):
 @pytest.mark.integration
 def test_stock_short_under_minimum_errors(test_engine: TestEngine):
     """Test that opening a stock short below the minimum balance errors."""
-    asset_id = str(uuid.uuid4())
+    asset_id = _stock_asset_id(test_engine, "AAPL")
 
     try:
         with pytest.raises(Exception) as exc_info:
-            test_engine.trade_execution_service.execute_sell_to_stock(
-                symbol="AAPL",
-                asset_id=asset_id,
-                withdraw_amount=5.00,
-                alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-                cognito_user_id=FUNDED_COGNITO_USER_ID,
-                is_test=True,
+            _sell(
+                test_engine,
+                FUNDED_ALPACA_ACCOUNT_ID,
+                FUNDED_COGNITO_USER_ID,
+                asset_id,
+                "AAPL",
+                5.00,
             )
 
-        assert getattr(exc_info.value, "code", None) == "TRADE_EXECUTION_SELL_FAILED"
+        assert getattr(exc_info.value, "code", None) == "TRADE_EXECUTION_QUEUE_AMOUNT_INVALID"
     finally:
         _cleanup_stock_test(
             test_engine,
@@ -375,37 +384,26 @@ def test_stock_short_under_minimum_errors(test_engine: TestEngine):
 @pytest.mark.integration
 def test_stock_short_then_partial_cover(test_engine: TestEngine):
     """Test shorting a stock and partially covering while staying above the minimum."""
-    asset_id = str(uuid.uuid4())
+    asset_id = _stock_asset_id(test_engine, "AAPL")
     short_response = None
     cover_response = None
 
     try:
-        short_response = test_engine.trade_execution_service.execute_sell_to_stock(
-            symbol="AAPL",
-            asset_id=asset_id,
-            withdraw_amount=20.00,
-            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-            cognito_user_id=FUNDED_COGNITO_USER_ID,
-            is_test=True,
+        short_response = _sell(
+            test_engine,
+            FUNDED_ALPACA_ACCOUNT_ID,
+            FUNDED_COGNITO_USER_ID,
+            asset_id,
+            "AAPL",
+            30.00,
         )
-        test_engine.trade_execution_service.realize_filled_orders(
-            cognito_user_id=FUNDED_COGNITO_USER_ID,
-            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-            portfolio_id=asset_id,
-        )
-
-        cover_response = test_engine.trade_execution_service.execute_buy_to_stock(
-            symbol="AAPL",
-            asset_id=asset_id,
-            deposit_amount=5.00,
-            cognito_user_id=FUNDED_COGNITO_USER_ID,
-            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-            is_test=True,
-        )
-        test_engine.trade_execution_service.realize_filled_orders(
-            cognito_user_id=FUNDED_COGNITO_USER_ID,
-            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-            portfolio_id=asset_id,
+        cover_response = _buy(
+            test_engine,
+            FUNDED_ALPACA_ACCOUNT_ID,
+            FUNDED_COGNITO_USER_ID,
+            asset_id,
+            "AAPL",
+            10.00,
         )
 
         allocation = test_engine.portfolio_allocation_repository.get_portfolio_allocation(
@@ -415,7 +413,7 @@ def test_stock_short_then_partial_cover(test_engine: TestEngine):
         latest_snapshot = allocation.position_history[-1]
 
         assert allocation.total_cost_basis > 10.00
-        assert allocation.total_cost_basis < 20.00
+        assert allocation.total_cost_basis < 30.00
         assert len(latest_snapshot.positions) == 1
         assert latest_snapshot.positions[0].symbol == "AAPL"
         assert latest_snapshot.positions[0].direction == -1

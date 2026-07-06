@@ -7,8 +7,8 @@ from decimal import Decimal, InvalidOperation
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Mapping
-repo_root = Path(__file__).resolve().parents[2]
+from typing import Any, Mapping, List
+repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
@@ -24,6 +24,9 @@ from backend.domain.baskt_account_domain import (
     DisclosuresData,
     IdentityData,
 )
+
+FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
+FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
 
 load_dotenv()
 os.environ["ENV"] = "dev"
@@ -416,23 +419,6 @@ class TestEngine:
 
         return ach_relationship
     
-    def test_create_plaid_ach_relationship(
-        self, 
-        alpaca_account_id: str, 
-        cognito_user_id: str,
-        processor_token: str
-    ):
-
-        plaid_ach_relationship = self.account_lifecycle_service.create_plaid_ach_relationship(
-            alpaca_account_id=alpaca_account_id,
-            cognito_user_id=cognito_user_id,
-            processor_token=processor_token
-        )
-
-        assert str(plaid_ach_relationship.account_id) == alpaca_account_id
-        assert str(plaid_ach_relationship.processor_token)==processor_token
-
-        return str(plaid_ach_relationship.id)
 
     
     def test_get_ach_relationships(self, alpaca_account_id: str, cognito_user_id: str):
@@ -450,7 +436,14 @@ class TestEngine:
             cognito_user_id=cognito_user_id,
             ach_relationship_id=ach_relationship_id
         )
-
+        relationships_after_delete = self.account_lifecycle_service.get_ach_relationships(
+        alpaca_account_id=alpaca_account_id,
+        cognito_user_id=cognito_user_id,
+        )
+        assert all(
+            str(relationship.id) != ach_relationship_id
+            for relationship in relationships_after_delete
+        )
     
     def test_create_ach_transfer(
         self, 
@@ -482,114 +475,68 @@ class TestEngine:
 
         return transfer
     
-    def test_create_bank(
-        self, 
-        alpaca_account_id: str, 
+    def _clean_up_baskt_account(
+        self,
+        *,
         cognito_user_id: str,
-        name: str,
-        bank_code_type: str,
-        bank_code: str,
-        account_number: str
+        alpaca_account_id: str
     ):
+        try:
+            self.account_lifecycle_service.permanently_close_baskt_account(
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id
+            )
+        except Exception as err:
+            print(err)
+        
 
-        bank = self.account_lifecycle_service.create_bank(
-            alpaca_account_id=alpaca_account_id,
-            cognito_user_id=cognito_user_id,
-            name=name,
-            bank_code_type=bank_code_type,
-            bank_code=bank_code,
-            account_number=account_number,
-        )
 
-
-        assert bank is not None
-        assert bank.status.name.upper() in ["QUEUED", "APPROVED"]
-        assert str(bank.account_id) == alpaca_account_id
-        assert bank.name.upper() == name.upper()
-        assert bank.bank_code == bank_code
-        assert bank.account_number == account_number
-        assert bank.bank_code_type.name.upper() == bank_code_type
-
-        return bank
-    
-    def test_get_banks(self, alpaca_account_id: str, cognito_user_id: str):
-        banks = self.account_lifecycle_service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
-        return banks
-    
-    def test_delete_bank(
+    def _clean_up_achs_banks_baskt_account(
         self,
         alpaca_account_id: str,
         cognito_user_id: str,
-        bank_id: str
-    ):
-        self.account_lifecycle_service.delete_bank(
-            alpaca_account_id=alpaca_account_id,
-            cognito_user_id=cognito_user_id,
-            bank_id=bank_id
-        )
-    
-    def test_create_bank_transfer(
-        self, alpaca_account_id: str, 
-        cognito_user_id: str, 
-        amount: str,
-        direction: str,
-        timing: str,
-        fee_payment_method: str,
-        bank_id: str
-    ):
-
-        transfer = self.account_lifecycle_service.create_bank_transfer(
-            alpaca_account_id=alpaca_account_id,
-            cognito_user_id=cognito_user_id,
-            amount=amount,
-            direction=direction,
-            timing=timing,
-            fee_payment_method=fee_payment_method,
-            bank_id=bank_id
-        )
-
-        assert str(transfer.account_id) == alpaca_account_id
-        assert str(transfer.relationship_id).upper() == bank_id.upper()
-        assert transfer.amount == amount
-        assert transfer.type.name.upper() == "WIRE"
-        assert transfer.direction.name.upper() == direction.upper()
-        assert transfer.fee_payment_method.name.upper() == fee_payment_method.upper()
-
-        return transfer
-
-
-    def _clean_up_achs_banks(
-        self,
-        alpaca_account_id: str,
-        cognito_user_id: str
     ):
         try:
-            ach_relationships = self.test_get_ach_relationships(
-                alpaca_account_id=alpaca_account_id, 
-                cognito_user_id=cognito_user_id
+            transfers = self.account_lifecycle_service.get_transfers(
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
             )
-            self.test_delete_ach_relationship(
-                alpaca_account_id=alpaca_account_id, 
-                cognito_user_id=cognito_user_id, 
-                ach_relationship_id=str(ach_relationships[0].id)
-            )
-        except Exception as e:
-            pass
+            cancelable_statuses = {"QUEUED", "APPROVAL_PENDING", "PENDING"}
+            for transfer in transfers:
+                status = str(getattr(transfer.status, "name", transfer.status)).upper()
+                if status in cancelable_statuses:
+                    self.account_lifecycle_service.cancel_transfer(
+                        cognito_user_id=cognito_user_id,
+                        alpaca_account_id=alpaca_account_id,
+                        transfer_id=str(transfer.id),
+                    )
+        except Exception as err:
+            print(err)
 
         try:
-            banks = self.test_get_banks(
-                alpaca_account_id=alpaca_account_id, 
-                cognito_user_id=cognito_user_id
+            ach_relationships = self.account_lifecycle_service.get_ach_relationships(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
             )
-            self.test_delete_bank(
-                alpaca_account_id=alpaca_account_id, 
-                cognito_user_id=cognito_user_id, 
-                ach_relationship_id=str(banks[0].id)
-            )
-        except Exception as e:
-            pass
+        except Exception as err:
+            print(err)
 
+        try:
+            for ach_relationship in ach_relationships:
+                self.account_lifecycle_service.delete_ach_relationship(
+                    alpaca_account_id=alpaca_account_id,
+                    cognito_user_id=cognito_user_id,
+                    ach_relationship_id=str(ach_relationship.id),
+                )
+        except Exception as err:
+            print(err)
 
+        self._clean_up_baskt_account(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id
+        )
+
+   
 
 
 

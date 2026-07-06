@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import TestEngine
+from .conftest import TestEngine
 # from backend.services.model_portfolios_stocks_search_service import (
 #     ModelPortfolioSearchResult,
 #     ModelPortfoliosSearchResponse,

@@ -1,10 +1,13 @@
 import os
 import sys
+import json
+import threading
+from copy import deepcopy
 from pathlib import Path
 import pytest
 from dotenv import load_dotenv
-from typing import List, Dict
-repo_root = Path(__file__).resolve().parents[2]
+from typing import List, Dict, Any
+repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 import uuid
@@ -20,9 +23,11 @@ from backend.repository.order_repository import OrderRepository
 from backend.repository.user_trade_lock_repository import UserTradeLockRepository
 from backend.repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from backend.services.trade_execution_service import TradeExecutionService
+from backend.services.trade_execution_queuing_service import TradeExecutionQueuingService
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.domain.baskt_domain import BasktPosition
-from time import sleep
+from backend.domain.stock_domain import Stock
+from time import monotonic, sleep
 from datetime import datetime, timezone, timedelta
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
 from collections import defaultdict
@@ -32,11 +37,14 @@ from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
 from backend.domain.baskt_domain import BasktPosition
 from math import ceil, floor
-
+from collections import deque
+from typing import Deque
 MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
-MOCK_MARGIN = 0.001
+MOCK_MARGIN = 0.000
 EPS = 1e-6
+FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
+FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
 
 load_dotenv()
 os.environ["ENV"] = "dev"
@@ -46,6 +54,221 @@ get_settings.cache_clear()
 #######################################
 ############### CLIENTS ###############
 #######################################
+
+
+class MockSQSClient:
+    """Small in-memory SQS client used with the mock Alpaca test mode."""
+
+    def __init__(self) -> None:
+        self.queue_url = "https://mock-sqs.local/trade-execution"
+        self.messages: Deque[Dict[str, Any]] = deque()
+        self.processed_messages: List[Dict[str, Any]] = []
+        self.processing_errors: List[Exception] = []
+        self._lambda_handler = None
+        self._processor_lock = threading.Lock()
+
+    def set_lambda_handler(self, lambda_handler: Any) -> None:
+        """Register the mock Lambda invoked after a message is appended."""
+        self._lambda_handler = lambda_handler
+
+    def get_queue_url(self, QueueName: str) -> Dict[str, str]:
+        return {"QueueUrl": self.queue_url}
+
+    def send_message(self, *, QueueUrl: str, MessageBody: str) -> Dict[str, str]:
+        if QueueUrl != self.queue_url:
+            raise ValueError(f"Unknown mock SQS queue URL '{QueueUrl}'.")
+
+        message_id = str(uuid.uuid4())
+        self.messages.append(
+            {
+                "MessageId": message_id,
+                "ReceiptHandle": str(uuid.uuid4()),
+                "Body": MessageBody,
+                "message": json.loads(MessageBody),
+            }
+        )
+        if self._lambda_handler is not None:
+            threading.Thread(target=self._process_messages, daemon=True).start()
+        return {"MessageId": message_id}
+
+    def _process_messages(self) -> None:
+        """Process queued messages from the left with one mock worker."""
+        with self._processor_lock:
+            while self.messages and self._lambda_handler is not None:
+                message = self.messages[0]
+                try:
+                    self._lambda_handler(message)
+                except Exception as error:
+                    self.processing_errors.append(error)
+                    return
+                self.processed_messages.append(self.messages.popleft())
+
+    def wait_until_idle(self, timeout_seconds: float = 10.0) -> None:
+        """Wait for processing to finish and surface mock Lambda failures."""
+        deadline = monotonic() + timeout_seconds
+        while self.messages and not self.processing_errors:
+            if monotonic() >= deadline:
+                raise TimeoutError("Mock SQS did not finish processing before timeout.")
+            sleep(0.01)
+        if self.processing_errors:
+            raise self.processing_errors[0]
+
+    def receive_message(
+        self,
+        *,
+        QueueUrl: str,
+        MaxNumberOfMessages: int = 1,
+        **_: Any,
+    ) -> Dict[str, List[Dict[str, str]]]:
+        if QueueUrl != self.queue_url:
+            raise ValueError(f"Unknown mock SQS queue URL '{QueueUrl}'.")
+
+        messages = [
+            {
+                "MessageId": message["MessageId"],
+                "ReceiptHandle": message["ReceiptHandle"],
+                "Body": message["Body"],
+            }
+            for message in list(self.messages)[:MaxNumberOfMessages]
+        ]
+        return {"Messages": messages} if messages else {}
+
+    def delete_message(self, *, QueueUrl: str, ReceiptHandle: str) -> Dict[str, Any]:
+        if QueueUrl != self.queue_url:
+            raise ValueError(f"Unknown mock SQS queue URL '{QueueUrl}'.")
+
+        self.messages = deque(
+            message
+            for message in self.messages
+            if message["ReceiptHandle"] != ReceiptHandle
+        )
+        return {}
+
+
+class MockTradeExecutionLambda:
+    """Dispatch the leftmost mock SQS message to TradeExecutionService."""
+
+    def __init__(
+        self,
+        trade_execution_service: TradeExecutionService,
+        user_trade_lock_repository: UserTradeLockRepository,
+    ) -> None:
+        self.trade_execution_service = trade_execution_service
+        self.user_trade_lock_repository = user_trade_lock_repository
+
+    def __call__(self, sqs_message: Dict[str, Any]) -> None:
+        message = sqs_message["message"]
+        action = message["action"]
+        payload = message["payload"]
+
+        # Real SQS invokes Lambda after send_message returns and the queueing
+        # service releases this lock. The mock worker waits for the same state.
+        self._wait_until_queue_lock_is_released(payload["cognito_user_id"])
+
+        if action == "portfolio_update":
+            self.trade_execution_service.execute_update_in_portfolio(
+                portfolio_id=payload["portfolio_id"],
+                portfolio_owner_cognito_user_id=payload[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                cognito_user_id=payload["cognito_user_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+                model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
+                transaction_id=payload["transaction_id"],
+            )
+            return
+
+        if action == "portfolio_deposit":
+            self.trade_execution_service.execute_deposit_to_portfolio(
+                portfolio_id=payload["portfolio_id"],
+                portfolio_owner_cognito_user_id=payload[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                deposit_amount=float(payload["amount"]),
+                transaction_id=payload["transaction_id"],
+                cognito_user_id=payload["cognito_user_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+            )
+            return
+
+        if action == "portfolio_withdraw":
+            self.trade_execution_service.execute_withdraw_from_portfolio(
+                portfolio_id=payload["portfolio_id"],
+                portfolio_owner_cognito_user_id=payload[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                withdraw_amount=float(payload["amount"]),
+                transaction_id=payload["transaction_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+                cognito_user_id=payload["cognito_user_id"],
+            )
+            return
+
+        if action == "portfolio_withdraw_all":
+            self.trade_execution_service.execute_withdraw_all_from_portfolio(
+                portfolio_id=payload["portfolio_id"],
+                portfolio_owner_cognito_user_id=payload[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                transaction_id=payload["transaction_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+                cognito_user_id=payload["cognito_user_id"],
+            )
+            return
+
+        if action == "stock_buy":
+            self.trade_execution_service.execute_buy_to_stock(
+                symbol=str(payload["symbol"]).upper(),
+                asset_id=payload["asset_id"],
+                transaction_id=payload["transaction_id"],
+                deposit_amount=float(payload["amount"]),
+                cognito_user_id=payload["cognito_user_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+            )
+            return
+
+        if action == "stock_sell":
+            self.trade_execution_service.execute_sell_to_stock(
+                symbol=str(payload["symbol"]).upper(),
+                asset_id=payload["asset_id"],
+                transaction_id=payload["transaction_id"],
+                withdraw_amount=float(payload["amount"]),
+                alpaca_account_id=payload["alpaca_account_id"],
+                cognito_user_id=payload["cognito_user_id"],
+            )
+            return
+
+        if action == "stock_close":
+            self.trade_execution_service.execute_close_stock(
+                asset_id=payload["asset_id"],
+                transaction_id=payload["transaction_id"],
+                alpaca_account_id=payload["alpaca_account_id"],
+                cognito_user_id=payload["cognito_user_id"],
+            )
+            return
+
+        raise ValueError(f"Unsupported mock trade execution action '{action}'.")
+
+    def _wait_until_queue_lock_is_released(
+        self,
+        cognito_user_id: str,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        deadline = monotonic() + timeout_seconds
+        while self.user_trade_lock_repository.get_lock(cognito_user_id) is not None:
+            if monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Queue lock for user '{cognito_user_id}' was not released."
+                )
+            sleep(0.01)
+
+
+@pytest.fixture(scope="session")
+def sqs_client(request) -> Any:
+    if request.config.getoption("--mock_alpaca"):
+        return MockSQSClient()
+    return app_deps.get_sqs_client_cached()
+
 
 @pytest.fixture(scope="session")
 def cognito_client() -> CognitoClient:
@@ -64,7 +287,8 @@ def pytest_addoption(parser):
     )
 
 def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerClient:
-    mock = MagicMock(spec=AlpacaBrokerClient)
+    real_client = app_deps.get_alpaca_broker_client()
+    mock = MagicMock(spec=AlpacaBrokerClient, wraps=real_client)
     mock.client = MagicMock()
 
     state: Dict[str, Dict[str,Order | BasktPosition | float]] = {
@@ -178,9 +402,10 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
 
         _apply_filled_order_to_positions(alpaca_account_id=alpaca_account_id, order=order)
         return order
-
+    
     def get_latest_price(symbols: List[str]):
         return {symbol: float(state["prices"][symbol]) for symbol in symbols}
+
 
     def execute_quantity_buy(symbol: str, quantity: float, alpaca_account_id: str, cognito_user_id: str):
         return _make_order(alpaca_account_id=alpaca_account_id, symbol=symbol, order_side=OrderSide.BUY, qty=float(quantity))
@@ -194,8 +419,10 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         sell_order = execute_quantity_sell(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, symbol=symbol, quantity=ceil(quantity))
         if ceil(quantity) - quantity <= 0:
             return sell_order, None
+        accepted_sell_order = deepcopy(sell_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(sell_order.id))
         buy_order = execute_quantity_buy(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, symbol=symbol, quantity=ceil(quantity) - quantity)
-        return sell_order, buy_order
+        return accepted_sell_order, buy_order
 
     def execute_close_position(symbol: str, alpaca_account_id: str, cognito_user_id: str):
         position: BasktPosition = state["positions"][alpaca_account_id][symbol]
@@ -206,6 +433,52 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
             order_side=order_side,
             qty=float(position.filled_quantity),
         )
+
+    def execute_long_to_short_sell(
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ):
+        close_order = execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        accepted_close_order = deepcopy(close_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(close_order.id))
+        short_orders = execute_quantity_fractional_sell(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [accepted_close_order] + [
+            order for order in short_orders if order is not None
+        ]
+
+    def execute_short_to_long_buy(
+        symbol: str,
+        quantity: float,
+        curr_quantity: float,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+    ):
+        close_order = execute_close_position(
+            symbol=symbol,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        accepted_close_order = deepcopy(close_order)
+        _apply_fill(alpaca_account_id=alpaca_account_id, order_id=str(close_order.id))
+        buy_order = execute_quantity_buy(
+            symbol=symbol,
+            quantity=quantity - curr_quantity,
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        return [accepted_close_order, buy_order]
 
 
     def get_baskt_positions_dict(alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
@@ -241,16 +514,30 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         state["orders"][account_id][order_id] = order
         return True
 
-    mock.get_latest_price.side_effect = get_latest_price
+    def get_stock_by_asset_id(*, asset_id: str) -> Stock:
+        return Stock(
+            symbol="AAPL",
+            tradable=True,
+            fractionable=True,
+            shortable=True,
+            marginable=True,
+            stock_id=asset_id,
+            stock_class="US_EQUITY",
+        )
+
     mock.execute_quantity_buy.side_effect = execute_quantity_buy
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
     mock.execute_close_position.side_effect = execute_close_position
+    mock.execute_long_to_short_sell.side_effect = execute_long_to_short_sell
+    mock.execute_short_to_long_buy.side_effect = execute_short_to_long_buy
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
+    mock.get_latest_price.side_effect = get_latest_price
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position
     mock.client.get_orders_for_account.side_effect = get_orders_for_account
     mock.client.cancel_order_for_account_by_id.side_effect = cancel_order_for_account_by_id
+    mock.get_stock_by_asset_id.side_effect = get_stock_by_asset_id
 
     return mock
 
@@ -390,6 +677,41 @@ def trade_execution_service(
         user_trade_lock_repository=user_trade_lock_repository,
     )
 
+@pytest.fixture(scope="session")
+def trade_execution_queuing_service(
+    sqs_client: Any,
+    trade_execution_service: TradeExecutionService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    alpaca_broker_client: AlpacaBrokerClient,
+    portfolio_allocation_repository: PortfolioAllocationRepository,
+    user_trade_lock_repository: UserTradeLockRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+) -> TradeExecutionQueuingService:
+
+    queue_url = (
+        sqs_client.queue_url
+        if isinstance(sqs_client, MockSQSClient)
+        else app_deps.get_trade_execution_queue_url()
+    )
+    if isinstance(sqs_client, MockSQSClient):
+        sqs_client.set_lambda_handler(
+            MockTradeExecutionLambda(
+                trade_execution_service=trade_execution_service,
+                user_trade_lock_repository=user_trade_lock_repository,
+            )
+        )
+    return TradeExecutionQueuingService(
+        sqs_client=sqs_client,
+        queue_url=queue_url,
+        model_portfolio_repository=model_portfolio_repository,
+        portfolio_allocation_repository=portfolio_allocation_repository,
+        alpaca_broker_client=alpaca_broker_client,
+        user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+    )
+
+
+
 ###########################################
 ############### TEST ENGINE ###############
 ###########################################
@@ -399,6 +721,8 @@ class TestEngine:
         self,
         account_lifecycle_service: AccountLifecycleService,
         trade_execution_service: TradeExecutionService,
+        trade_execution_queuing_service: TradeExecutionQueuingService,
+        sqs_client: Any,
         model_portfolio_repository: ModelPortfolioRepository,
         order_repository: OrderRepository,
         alpaca_broker_client: AlpacaBrokerClient,
@@ -407,6 +731,8 @@ class TestEngine:
     ):
         self.account_lifecycle_service = account_lifecycle_service
         self.trade_execution_service = trade_execution_service
+        self.trade_execution_queuing_service = trade_execution_queuing_service
+        self.sqs_client = sqs_client
         self.model_portfolio_repository = model_portfolio_repository
         self.order_repository = order_repository
         self.alpaca_broker_client = alpaca_broker_client
@@ -415,6 +741,182 @@ class TestEngine:
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
         self.portfolio_allocation_history_size = 0
+
+    def test_queue_stock_buy(
+        self,
+        *,
+        symbol: str,
+        asset_id: str,
+        amount: float,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+    ) -> str:
+        """Queue a stock buy and verify that mock SQS received its payload."""
+        message_id = self.trade_execution_queuing_service.queue_stock_buy(
+            symbol=symbol,
+            asset_id=asset_id,
+            amount=amount,
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+        )
+
+        if isinstance(self.sqs_client, MockSQSClient):
+            self.sqs_client.wait_until_idle()
+            processed_message = self.sqs_client.processed_messages[-1]
+            assert processed_message["MessageId"] == message_id
+            assert processed_message["message"]["action"] == "stock_buy"
+            assert processed_message["message"]["payload"]["asset_id"] == asset_id
+
+        return message_id
+
+    def _queue_and_get_response(
+        self,
+        *,
+        queue_action: Any,
+        alpaca_account_id: str,
+        cognito_user_id: str,
+        portfolio_id: str,
+        timeout_seconds: float = 60.0,
+    ) -> Dict[str, Any]:
+        """Queue one action and wait for either mock or AWS Lambda execution."""
+        previous_transaction_ids = set()
+        if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(
+            cognito_user_id=cognito_user_id,
+            portfolio_id=portfolio_id,
+        ):
+            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+            )
+            previous_transaction_ids = {
+                transaction.transaction_id
+                for transaction in allocation.transaction_history
+            }
+
+        message_id = queue_action()
+        if isinstance(self.sqs_client, MockSQSClient):
+            self.sqs_client.wait_until_idle(timeout_seconds=timeout_seconds)
+            processed_message = next(
+                message
+                for message in reversed(self.sqs_client.processed_messages)
+                if message["MessageId"] == message_id
+            )
+            transaction_id = processed_message["message"]["payload"]["transaction_id"]
+        else:
+            transaction_id = self._wait_for_new_transaction(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                previous_transaction_ids=previous_transaction_ids,
+                timeout_seconds=timeout_seconds,
+            )
+
+        transaction = self._wait_for_transaction_execution(
+            cognito_user_id=cognito_user_id,
+            portfolio_id=portfolio_id,
+            transaction_id=transaction_id,
+            timeout_seconds=timeout_seconds,
+        )
+        order_rows = self._wait_for_transaction_orders(
+            transaction_id=transaction_id,
+            expected_order_count=int(transaction.number_orders or 0),
+            timeout_seconds=timeout_seconds,
+        )
+        order_ids = {str(row["order_id"]) for row in order_rows}
+        orders = [
+            self.alpaca_broker_client.get_order_by_id(
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+                order_id=order_id,
+            )
+            for order_id in order_ids
+        ]
+        return {"transaction_id": transaction_id, "orders": orders}
+
+    def _wait_for_new_transaction(
+        self,
+        *,
+        cognito_user_id: str,
+        portfolio_id: str,
+        previous_transaction_ids: set[str],
+        timeout_seconds: float,
+    ) -> str:
+        """Find the transaction persisted immediately before the AWS SQS send."""
+        deadline = monotonic() + timeout_seconds
+        while monotonic() < deadline:
+            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+            )
+            new_transactions = [
+                transaction
+                for transaction in allocation.transaction_history
+                if transaction.transaction_id not in previous_transaction_ids
+            ]
+            if new_transactions:
+                return new_transactions[-1].transaction_id
+            sleep(0.25)
+        raise TimeoutError(
+            f"No new transaction appeared for allocation '{portfolio_id}'."
+        )
+
+    def _wait_for_transaction_execution(
+        self,
+        *,
+        cognito_user_id: str,
+        portfolio_id: str,
+        transaction_id: str,
+        timeout_seconds: float,
+    ) -> Any:
+        """Wait until Lambda advances a queued transaction to an execution state."""
+        deadline = monotonic() + timeout_seconds
+        while monotonic() < deadline:
+            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+            )
+            transaction = next(
+                transaction
+                for transaction in allocation.transaction_history
+                if transaction.transaction_id == transaction_id
+            )
+            status = transaction.status.upper()
+            if status == "FAILED":
+                raise AssertionError(
+                    transaction.status_explanation
+                    or f"Queued transaction '{transaction_id}' failed."
+                )
+            if status not in {"QUEUED", "PROCESSING"}:
+                return transaction
+            sleep(0.25)
+        raise TimeoutError(
+            f"Transaction '{transaction_id}' was not executed before timeout."
+        )
+
+    def _wait_for_transaction_orders(
+        self,
+        *,
+        transaction_id: str,
+        expected_order_count: int,
+        timeout_seconds: float,
+    ) -> List[Dict[str, Any]]:
+        """Wait for Lambda's order records to become visible in DynamoDB."""
+        if expected_order_count == 0:
+            return []
+
+        deadline = monotonic() + timeout_seconds
+        while monotonic() < deadline:
+            try:
+                rows = self.order_repository.get_orders_by_transaction(
+                    transaction_id=transaction_id
+                )
+            except Exception:
+                rows = []
+            if len(rows) >= expected_order_count:
+                return rows
+            sleep(0.25)
+        raise TimeoutError(
+            f"Orders for transaction '{transaction_id}' were not visible before timeout."
+        )
     
     def test_create_portfolio(
         self,
@@ -457,13 +959,17 @@ class TestEngine:
         alpaca_account_id: str,
         portfolio_owner_cognito_user_id: str,
     ):
-        dep_response = self.trade_execution_service.execute_deposit_to_portfolio(
-            portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-            deposit_amount=deposit_amount,
-            cognito_user_id=cognito_user_id,
+        dep_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
-            is_test=True
+            cognito_user_id=cognito_user_id,
+            portfolio_id=portfolio_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_deposit(
+                portfolio_id=portfolio_id,
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                amount=deposit_amount,
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+            ),
         )
         dep_orders = dep_response["orders"]
 
@@ -684,12 +1190,71 @@ class TestEngine:
         )
         if not updated or new_snapshot_id is None:
             return {}
-
-        updated_orders_dict = self.trade_execution_service.execute_update_in_portfolio(
-            portfolio_id=portfolio_id, 
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id, 
-            is_test=True
+        followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(
+            portfolio_id=portfolio_id
         )
+        previous_transaction_ids = {}
+        for follower in followers:
+            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=follower["cognito_user_id"],
+                portfolio_id=portfolio_id,
+            )
+            previous_transaction_ids[follower["cognito_user_id"]] = {
+                transaction.transaction_id
+                for transaction in allocation.transaction_history
+            }
+
+        message_ids = self.trade_execution_queuing_service.queue_portfolio_update(
+            portfolio_id=portfolio_id,
+            model_portfolio_snapshot_id=new_snapshot_id,
+        )
+        if isinstance(self.sqs_client, MockSQSClient):
+            self.sqs_client.wait_until_idle()
+
+        updated_orders_dict = {}
+        followers_by_user = {
+            follower["cognito_user_id"]: follower
+            for follower in followers
+        }
+        for cognito_user_id, message_id in message_ids.items():
+            if isinstance(self.sqs_client, MockSQSClient):
+                processed_message = next(
+                    message
+                    for message in reversed(self.sqs_client.processed_messages)
+                    if message["MessageId"] == message_id
+                )
+                transaction_id = processed_message["message"]["payload"]["transaction_id"]
+            else:
+                transaction_id = self._wait_for_new_transaction(
+                    cognito_user_id=cognito_user_id,
+                    portfolio_id=portfolio_id,
+                    previous_transaction_ids=previous_transaction_ids[cognito_user_id],
+                    timeout_seconds=60.0,
+                )
+            transaction = self._wait_for_transaction_execution(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+                transaction_id=transaction_id,
+                timeout_seconds=60.0,
+            )
+            rows = self._wait_for_transaction_orders(
+                transaction_id=transaction_id,
+                expected_order_count=int(transaction.number_orders or 0),
+                timeout_seconds=60.0,
+            )
+            order_ids = {str(row["order_id"]) for row in rows}
+            alpaca_account_id = followers_by_user[cognito_user_id]["alpaca_account_id"]
+            updated_orders_dict[cognito_user_id] = {
+                "transaction_id": transaction_id,
+                "orders": [
+                    self.alpaca_broker_client.get_order_by_id(
+                        alpaca_account_id=alpaca_account_id,
+                        cognito_user_id=cognito_user_id,
+                        order_id=order_id,
+                    )
+                    for order_id in order_ids
+                ],
+            }
         self.model_portfolio_update_times[portfolio_id].append(update_time)
 
         # Wait for orders to be filled
@@ -715,13 +1280,17 @@ class TestEngine:
             price = quotes[snapshot_position.symbol]
             market_value += (price * snapshot_position.filled_quantity)
 
-        wd_response = self.trade_execution_service.execute_withdraw_from_portfolio(
-            portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-            withdraw_amount=withdraw_amount,
+        wd_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            is_test=True
+            portfolio_id=portfolio_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_withdrawal(
+                portfolio_id=portfolio_id,
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                amount=withdraw_amount,
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+            ),
         )
         wd_orders = wd_response["orders"]
         # Wait for orders to be filled
@@ -819,12 +1388,16 @@ class TestEngine:
         portfolio_id: str,
     ):
 
-        wd_response = self.trade_execution_service.execute_withdraw_all_from_portfolio(
-            portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+        wd_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            is_test=True
+            portfolio_id=portfolio_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_withdraw_all(
+                portfolio_id=portfolio_id,
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+            ),
         )
         wd_orders = wd_response["orders"]
         sleep(2)
@@ -887,13 +1460,17 @@ class TestEngine:
         cognito_user_id: str,
         alpaca_account_id: str,
     ):
-        dep_response = self.trade_execution_service.execute_buy_to_stock(
-            symbol=symbol,
-            asset_id=asset_id,
-            deposit_amount=deposit_amount,
-            cognito_user_id=cognito_user_id,
+        dep_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
-            is_test=True
+            cognito_user_id=cognito_user_id,
+            portfolio_id=asset_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_stock_buy(
+                symbol=symbol,
+                asset_id=asset_id,
+                amount=deposit_amount,
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+            ),
         )
         dep_orders = dep_response["orders"]
 
@@ -968,10 +1545,19 @@ class TestEngine:
             alpaca_filled_amount += (baskt_positions_dict[snapshot_position.symbol].filled_quantity * baskt_positions_dict[snapshot_position.symbol].filled_avg_price)
         assert abs(allocation.total_cost_basis - alpaca_filled_amount) / allocation.total_cost_basis <= MARGIN_ERROR
 
-        # Validate incremental deposit amount
-        prev_filled_amount = self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"][-1] if self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"] else 0.0
-        incremental_amount = alpaca_filled_amount - prev_filled_amount
-        assert abs(deposit_amount - incremental_amount) / deposit_amount <= MARGIN_ERROR
+        # Validate this transaction's fills. Allocation cost basis can decrease
+        # during a buy when the order is covering an existing short position.
+        deposit_order_ids = {str(order.id) for order in dep_orders}
+        net_deposit_filled_amount = sum(
+            float(row["filled_qty"]) * float(row["filled_avg_price"])
+            * (1 if str(row["side"]).upper() == "BUY" else -1)
+            for row in rows2
+            if row["order_id"] in deposit_order_ids
+        )
+        assert (
+            abs(deposit_amount - net_deposit_filled_amount) / deposit_amount
+            <= MARGIN_ERROR
+        )
 
         self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"].extend(dep_orders)
         self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["filled_amounts"].append(alpaca_filled_amount)
@@ -990,24 +1576,37 @@ class TestEngine:
         withdraw_amount: float,
         slippage_correction: int = 1
     ):
-        market_value = 0.0
-        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
-        snapshot = portfolio_allocation.position_history[-1]
-        symbols = [position.symbol for position in snapshot.positions]
-        quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
-        for snapshot_position in snapshot.positions:
-            price = quotes[snapshot_position.symbol]
-            market_value += (price * snapshot_position.filled_quantity)
+        # market_value = 0.0
+        # if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=co)
+        # portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        # snapshot = portfolio_allocation.position_history[-1]
+        # symbols = [position.symbol for position in snapshot.positions]
+        # quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
+        # for snapshot_position in snapshot.positions:
+        #     price = quotes[snapshot_position.symbol]
+        #     market_value += (price * snapshot_position.filled_quantity)
 
-        wd_response = self.trade_execution_service.execute_sell_to_stock(
-            symbol=symbol,
-            asset_id=asset_id,
-            withdraw_amount=withdraw_amount,
+        wd_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            is_test=True
+            portfolio_id=asset_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_stock_sell(
+                symbol=symbol,
+                asset_id=asset_id,
+                amount=withdraw_amount,
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+            ),
         )
         wd_orders = wd_response["orders"]
+        if cognito_user_id not in self.baskt_account_portfolio_positions:
+            self.baskt_account_portfolio_positions[cognito_user_id] = {}
+
+        if asset_id not in self.baskt_account_portfolio_positions[cognito_user_id]:
+            self.baskt_account_portfolio_positions[cognito_user_id][asset_id] = {
+                "all_orders":[],
+                "filled_amounts":[]
+            }
         # Wait for orders to be filled
         sleep(2)
 
@@ -1099,11 +1698,16 @@ class TestEngine:
         alpaca_account_id: str,
         cognito_user_id: str,
     ):
-        wd_response = self.trade_execution_service.execute_close_stock(
-            asset_id=asset_id,
+        wd_response = self._queue_and_get_response(
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
-            is_test=True
+            portfolio_id=asset_id,
+            queue_action=lambda: self.trade_execution_queuing_service.queue_stock_close(
+                symbol=symbol,
+                asset_id=asset_id,
+                alpaca_account_id=alpaca_account_id,
+                cognito_user_id=cognito_user_id,
+            ),
         )
         wd_orders = wd_response["orders"]
         sleep(2)
@@ -1213,6 +1817,17 @@ class TestEngine:
             except Exception as e:
                 continue
 
+        for cognito_user_id, _, asset_id in traded_accounts:
+            user_allocations = self.baskt_account_portfolio_positions.get(
+                cognito_user_id,
+                {},
+            )
+            user_allocations.pop(asset_id, None)
+            if not user_allocations:
+                self.baskt_account_portfolio_positions.pop(cognito_user_id, None)
+
+        self.portfolio_allocation_history_size = 0
+
 
 
     def test_clean_up(
@@ -1280,12 +1895,25 @@ class TestEngine:
                 except Exception as e:
                     continue
 
+        for cognito_user_id, _, portfolio_id in traded_accounts:
+            user_allocations = self.baskt_account_portfolio_positions.get(
+                cognito_user_id,
+                {},
+            )
+            user_allocations.pop(portfolio_id, None)
+            if not user_allocations:
+                self.baskt_account_portfolio_positions.pop(cognito_user_id, None)
+
+        self.portfolio_allocation_history_size = 0
+
 
 
 @pytest.fixture(scope="session")
 def test_engine(
     account_lifecycle_service: AccountLifecycleService,
     trade_execution_service: TradeExecutionService,
+    trade_execution_queuing_service: TradeExecutionQueuingService,
+    sqs_client: Any,
     model_portfolio_repository: ModelPortfolioRepository,
     order_repository: OrderRepository,
     alpaca_broker_client: AlpacaBrokerClient,
@@ -1295,6 +1923,8 @@ def test_engine(
     return TestEngine(
         account_lifecycle_service=account_lifecycle_service,
         trade_execution_service=trade_execution_service,
+        trade_execution_queuing_service=trade_execution_queuing_service,
+        sqs_client=sqs_client,
         model_portfolio_repository=model_portfolio_repository,
         order_repository=order_repository,
         alpaca_broker_client=alpaca_broker_client,
