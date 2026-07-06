@@ -421,12 +421,29 @@ class ModelPortfolioAnalyticsService:
             )
 
         benchmark_symbol = "SPY"
+        benchmark_start = simulation_prices.index[0]
         benchmark_prices_df = self.asset_analytics_service.get_prices_over_time(
             symbols=[benchmark_symbol],
-            start_datetime=simulation_prices.index[0],
+            start_datetime=benchmark_start,
             end_datetime=period_end_datetime,
             timeframe=timeframe,
         )
+
+        # A newly created portfolio may have only its synthetic snapshot-boundary
+        # price, particularly outside market hours. Alpaca returns no bars when
+        # the requested interval starts and ends between trading sessions, so
+        # seed the benchmark at the same boundary just as portfolio symbols are.
+        benchmark_start_prices = self.asset_analytics_service.get_prices_at_time(
+            symbols=[benchmark_symbol],
+            timestamp=benchmark_start,
+        )
+        benchmark_start_price = benchmark_start_prices.get(benchmark_symbol)
+        if benchmark_start_price is not None:
+            benchmark_prices_df.loc[
+                benchmark_start,
+                benchmark_symbol,
+            ] = benchmark_start_price
+
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
@@ -600,4 +617,3 @@ class ModelPortfolioAnalyticsService:
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
         
-
