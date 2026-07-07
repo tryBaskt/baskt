@@ -1,0 +1,19 @@
+resource "aws_dynamodb_table" "user_trade_lock" {
+  name         = "${var.environment}_user_trade_lock_dynamodb"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "cognito_user_id"
+
+  attribute {
+    name = "cognito_user_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
