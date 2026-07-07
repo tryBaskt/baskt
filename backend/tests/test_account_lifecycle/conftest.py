@@ -468,7 +468,7 @@ class TestEngine:
 
         assert str(transfer.account_id) == alpaca_account_id
         assert str(transfer.relationship_id).upper() == relationship_id.upper()
-        assert transfer.amount == amount
+        assert Decimal(str(transfer.amount)) == Decimal(str(amount))
         assert transfer.type.name.upper() == "ACH"
         assert transfer.direction.name.upper() == direction.upper()
         assert transfer.fee_payment_method.name.upper() == fee_payment_method.upper()
