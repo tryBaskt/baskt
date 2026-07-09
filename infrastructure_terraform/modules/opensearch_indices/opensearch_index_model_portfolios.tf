@@ -9,12 +9,15 @@ resource "opensearch_index" "model_portfolios" {
         type   = "text"
         fields = { keyword = { type = "keyword" } }
       }
-      description                        = { type = "text" }
-      portfolio_owner_cognito_user_id    = { type = "keyword" }
-      created_at                         = { type = "date" }
-      updated_at                         = { type = "date" }
-      visibility                         = { type = "keyword" }
+      description                     = { type = "text" }
+      portfolio_owner_cognito_user_id = { type = "keyword" }
+      created_at                      = { type = "date" }
+      updated_at                      = { type = "date" }
+      visibility                      = { type = "keyword" }
     }
   })
 
+  lifecycle {
+    prevent_destroy = true
+  }
 }

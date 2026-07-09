@@ -25,4 +25,11 @@ resource "opensearch_index" "baskt_accounts" {
     }
   })
 
+  lifecycle {
+    # OpenSearch normalizers are immutable after index creation. The existing
+    # dev index already has this normalizer, but the provider does not preserve
+    # it reliably when importing the index, which otherwise forces replacement.
+    ignore_changes  = [analysis_normalizer]
+    prevent_destroy = true
+  }
 }

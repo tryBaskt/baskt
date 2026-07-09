@@ -1,7 +1,15 @@
 name: Test AWS OIDC
 
 on:
+  push:
+    branches:
+      - develop
+      - "feature/**"
   workflow_dispatch:
+
+concurrency:
+  group: dev-aws-environment
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -9,6 +17,7 @@ permissions:
 
 jobs:
   test-aws-connection:
+    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     environment: dev
 

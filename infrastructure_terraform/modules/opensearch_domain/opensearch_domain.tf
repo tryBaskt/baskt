@@ -1,6 +1,6 @@
 resource "aws_opensearch_domain" "model_portfolio_search" {
   domain_name    = "${var.environment}-model-portfolio-search"
-  engine_version = "OpenSearch_2.11"
+  engine_version = "OpenSearch_3.5"
 
   cluster_config {
     instance_type            = "t3.small.search"

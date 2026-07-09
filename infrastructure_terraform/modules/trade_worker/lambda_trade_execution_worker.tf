@@ -12,20 +12,24 @@ resource "aws_lambda_function" "trade_execution_worker" {
   environment {
     variables = merge(
       {
-        ENV                                    = var.environment
-        ALPACA_ENV                             = "sandbox"
-        DEV_TRADE_EXECUTION_QUEUE_URL          = var.queue_url
-        MODEL_PORTFOLIO_DYNAMODB               = "_model_portfolio_dynamodb"
-        PORTFOLIO_ALLOCATION_DYNAMODB           = "_portfolio_allocation_dynamodb"
-        ORDER_DYNAMODB                          = "_order_dynamodb"
-        MODEL_PORTFOLIO_FOLLOWER_DYNAMODB       = "_model_portfolio_follower_dynamodb"
-        USER_TRADE_LOCK_DYNAMODB                = "_user_trade_lock_dynamodb"
-        MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB    = "_model_portfolio_update_lock_dynamodb"
-        BASKT_ACCOUNT_DYNAMODB                  = "_baskt_account_dynamodb"
+        ENV                                  = var.environment
+        ALPACA_ENV                           = "sandbox"
+        DEV_TRADE_EXECUTION_QUEUE_URL        = var.queue_url
+        MODEL_PORTFOLIO_DYNAMODB             = "_model_portfolio_dynamodb"
+        PORTFOLIO_ALLOCATION_DYNAMODB        = "_portfolio_allocation_dynamodb"
+        ORDER_DYNAMODB                       = "_order_dynamodb"
+        MODEL_PORTFOLIO_FOLLOWER_DYNAMODB    = "_model_portfolio_follower_dynamodb"
+        USER_TRADE_LOCK_DYNAMODB             = "_user_trade_lock_dynamodb"
+        MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB = "_model_portfolio_update_lock_dynamodb"
+        BASKT_ACCOUNT_DYNAMODB               = "_baskt_account_dynamodb"
       },
       var.trade_worker_environment,
     )
   }
 
-  depends_on = [aws_iam_role_policy.trade_worker]
+  depends_on = [
+    aws_iam_role_policy.trade_worker_sqs,
+    aws_iam_role_policy.trade_worker_dynamodb,
+    aws_iam_role_policy_attachment.trade_worker_basic_execution,
+  ]
 }
