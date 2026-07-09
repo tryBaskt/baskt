@@ -1,6 +1,4 @@
 resource "aws_iam_role_policy" "market_controller" {
-  count = var.trade_worker_image_uri == "" ? 0 : 1
-
   name = "${var.environment}-trade-execution-market-hours-controller"
   role = aws_iam_role.market_controller.id
   policy = jsonencode({
@@ -19,7 +17,7 @@ resource "aws_iam_role_policy" "market_controller" {
       {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
-        Resource = aws_lambda_function.trade_execution_worker[0].arn
+        Resource = aws_lambda_function.trade_execution_worker.arn
       }
     ]
   })

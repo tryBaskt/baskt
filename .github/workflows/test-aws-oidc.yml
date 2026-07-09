@@ -1,4 +1,4 @@
-name: Test AWS OIDC
+name: Test AWS OIDC and Terraform
 
 on:
   push:
@@ -16,17 +16,39 @@ permissions:
   contents: read
 
 jobs:
-  test-aws-connection:
+  test-aws-connection-and-terraform:
     if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
+      TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
+      TF_VAR_trade_worker_environment: ${{ secrets.TF_VAR_trade_worker_environment }}
+    defaults:
+      run:
+        working-directory: infrastructure_terraform/environments/dev
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive ../..
+
+      - name: Initialize Terraform without backend
+        run: terraform init -backend=false
+
+      - name: Validate Terraform
+        run: terraform validate -no-color

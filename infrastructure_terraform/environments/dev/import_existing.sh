@@ -136,34 +136,35 @@ import_resource module.trade_worker.aws_iam_role.market_controller \
 import_resource module.trade_worker.aws_iam_role.market_scheduler \
   dev-trade-execution-market-hours-scheduler-role
 
-if [[ -n "$worker_image_uri" && "$worker_image_uri" != "None" ]]; then
-  import_resource 'module.trade_worker.aws_lambda_function.trade_execution_worker[0]' \
-    dev-trade-execution-queue-worker
-  import_resource 'module.trade_worker.aws_iam_role_policy.market_controller[0]' \
-    dev-trade-execution-market-hours-controller-role:dev-trade-execution-market-hours-controller
-  import_resource 'module.trade_worker.aws_iam_role_policy.market_scheduler[0]' \
-    dev-trade-execution-market-hours-scheduler-role:dev-trade-execution-market-hours-scheduler
-  import_resource 'module.trade_worker.aws_lambda_function.market_hours_controller[0]' \
-    dev-trade-execution-market-hours-controller
-  import_resource 'module.trade_worker.aws_lambda_event_source_mapping.trade_execution_queue[0]' \
-    "$(mapping_uuid \
-      dev-trade-execution-queue-worker \
-      "$(aws sqs get-queue-attributes \
-        --queue-url "$(queue_url dev-trade-execution-queue)" \
-        --attribute-names QueueArn \
-        --query Attributes.QueueArn \
-        --output text)")"
-  import_resource 'module.trade_worker.aws_scheduler_schedule.market_prepare[0]' \
-    default/dev-trade-execution-prepare
-  import_resource 'module.trade_worker.aws_scheduler_schedule.market_open[0]' \
-    default/dev-trade-execution-open
-  import_resource 'module.trade_worker.aws_scheduler_schedule.market_early_close[0]' \
-    default/dev-trade-execution-early-close
-  import_resource 'module.trade_worker.aws_scheduler_schedule.market_close[0]' \
-    default/dev-trade-execution-close
-else
-  echo "Trade worker Lambda was not found; skipping count-based worker resources."
+if [[ -z "$worker_image_uri" || "$worker_image_uri" == "None" ]]; then
+  echo "Trade worker Lambda was not found; cannot import required worker resources." >&2
+  exit 1
 fi
+
+import_resource module.trade_worker.aws_lambda_function.trade_execution_worker \
+  dev-trade-execution-queue-worker
+import_resource module.trade_worker.aws_iam_role_policy.market_controller \
+  dev-trade-execution-market-hours-controller-role:dev-trade-execution-market-hours-controller
+import_resource module.trade_worker.aws_iam_role_policy.market_scheduler \
+  dev-trade-execution-market-hours-scheduler-role:dev-trade-execution-market-hours-scheduler
+import_resource module.trade_worker.aws_lambda_function.market_hours_controller \
+  dev-trade-execution-market-hours-controller
+import_resource module.trade_worker.aws_lambda_event_source_mapping.trade_execution_queue \
+  "$(mapping_uuid \
+    dev-trade-execution-queue-worker \
+    "$(aws sqs get-queue-attributes \
+      --queue-url "$(queue_url dev-trade-execution-queue)" \
+      --attribute-names QueueArn \
+      --query Attributes.QueueArn \
+      --output text)")"
+import_resource module.trade_worker.aws_scheduler_schedule.market_prepare \
+  default/dev-trade-execution-prepare
+import_resource module.trade_worker.aws_scheduler_schedule.market_open \
+  default/dev-trade-execution-open
+import_resource module.trade_worker.aws_scheduler_schedule.market_early_close \
+  default/dev-trade-execution-early-close
+import_resource module.trade_worker.aws_scheduler_schedule.market_close \
+  default/dev-trade-execution-close
 
 echo
 echo "Import complete. Resources in state:"

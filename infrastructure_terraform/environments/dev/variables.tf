@@ -16,9 +16,13 @@ variable "environment" {
 }
 
 variable "trade_worker_image_uri" {
-  description = "Immutable ECR image URI (preferably tagged by Git SHA). Empty skips worker creation during initial ECR bootstrap."
+  description = "Immutable ECR image URI for the existing trade execution worker, preferably tagged by Git SHA."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = trimspace(var.trade_worker_image_uri) != ""
+    error_message = "trade_worker_image_uri is required. Passing an empty value would make the worker deployment ambiguous."
+  }
 }
 
 variable "opensearch_endpoint_override" {

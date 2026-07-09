@@ -5,8 +5,6 @@ data "archive_file" "market_hours_controller" {
 }
 
 resource "aws_lambda_function" "market_hours_controller" {
-  count = var.trade_worker_image_uri == "" ? 0 : 1
-
   function_name    = "${var.environment}-trade-execution-market-hours-controller"
   role             = aws_iam_role.market_controller.arn
   runtime          = "python3.12"
@@ -18,7 +16,7 @@ resource "aws_lambda_function" "market_hours_controller" {
 
   environment {
     variables = {
-      TRADE_EXECUTION_FUNCTION_NAME = aws_lambda_function.trade_execution_worker[0].function_name
+      TRADE_EXECUTION_FUNCTION_NAME = aws_lambda_function.trade_execution_worker.function_name
       TRADE_EXECUTION_QUEUE_ARN     = var.queue_arn
     }
   }

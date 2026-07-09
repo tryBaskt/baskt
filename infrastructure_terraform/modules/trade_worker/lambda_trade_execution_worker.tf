@@ -1,6 +1,4 @@
 resource "aws_lambda_function" "trade_execution_worker" {
-  count = var.trade_worker_image_uri == "" ? 0 : 1
-
   function_name = "${var.environment}-trade-execution-queue-worker"
   role          = aws_iam_role.trade_worker.arn
   package_type  = "Image"
