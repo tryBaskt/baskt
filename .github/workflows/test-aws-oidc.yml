@@ -122,3 +122,13 @@ jobs:
       - name: Apply Terraform
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
         run: terraform apply -auto-approve tfplan
+
+      - name: Sync trade execution queue worker market-hours state
+        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
+        run: |
+          aws lambda invoke \
+            --function-name dev-trade-execution-market-hours-controller \
+            --payload '{"action":"sync"}' \
+            market-hours-sync-response.json
+
+          cat market-hours-sync-response.json
