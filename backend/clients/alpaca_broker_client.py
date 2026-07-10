@@ -1112,6 +1112,7 @@ class AlpacaBrokerClient:
             request is invalid, the account is inaccessible, the network
             request fails, or any unexpected error occurs.
         """
+        print("random print statement in execute quantity buy")
         order_req = MarketOrderRequest(
             symbol=symbol,
             qty=quantity,

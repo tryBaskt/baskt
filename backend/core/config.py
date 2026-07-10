@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # ---------- App ----------
     app_name: str = "portfolio-backend"
     env: str = Field(default="dev", description="dev|test|stage|prod")
-    alpaca_env: str = Field(default="sandbox", description="sandbox|live")
+    alpaca_env: str = "live" if env in ("stage", "prod") else "sandbox"
 
     # Read as a string to avoid JSON parsing edge-cases for list fields in env vars.
     # Accepts:
