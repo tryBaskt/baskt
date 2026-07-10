@@ -1804,6 +1804,8 @@ class TestEngine:
             except Exception as e:
                 pass
 
+        self._delete_order_rows_for_traded_accounts(traded_accounts)
+
         order_keys = {
             (transaction_id, str(order.id))
             for transaction_id, orders in transaction_id_order_id_dict.items()
@@ -1828,6 +1830,31 @@ class TestEngine:
 
         self.portfolio_allocation_history_size = 0
 
+
+    def _delete_order_rows_for_traded_accounts(
+        self,
+        traded_accounts: List[List[str]],
+    ) -> None:
+        """Delete order rows even when a test timed out before returning orders."""
+        for cognito_user_id, _, portfolio_id in traded_accounts:
+            try:
+                rows = self.order_repository.get_orders_by_portfolio(
+                    cognito_user_id=cognito_user_id,
+                    portfolio_id=portfolio_id,
+                )
+            except Exception:
+                rows = []
+
+            for row in rows:
+                try:
+                    self.order_repository.order_table_client.delete_item(
+                        key={
+                            "transaction_id": str(row["transaction_id"]),
+                            "order_id": str(row["order_id"]),
+                        }
+                    )
+                except Exception:
+                    continue
 
 
     def test_clean_up(
@@ -1885,6 +1912,8 @@ class TestEngine:
                 )
             except Exception as e:
                 continue
+
+        self._delete_order_rows_for_traded_accounts(traded_accounts)
 
         for transaction_id, orders in transaction_id_order_id_dict.items():
             for order in orders:
