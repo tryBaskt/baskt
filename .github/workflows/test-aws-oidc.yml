@@ -48,8 +48,17 @@ jobs:
       - name: Check Terraform formatting
         run: terraform fmt -check -recursive ../..
 
-      - name: Initialize Terraform without backend
-        run: terraform init -backend=false
+      - name: Initialize Terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=trybaskt-terraform-state-499133675835" \
+            -backend-config="key=baskt/dev/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
 
       - name: Validate Terraform
         run: terraform validate -no-color
+
+      - name: Plan Terraform
+        run: terraform plan -no-color
