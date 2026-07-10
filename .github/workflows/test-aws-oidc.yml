@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - develop
-      - feature-dev-deployment
       - "feature/**"
   workflow_dispatch:
 
@@ -18,7 +17,7 @@ permissions:
 
 jobs:
   test-aws-connection-and-terraform:
-    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/feature-dev-deployment' || startsWith(github.ref, 'refs/heads/feature/')
+    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -61,4 +60,8 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan Terraform
-        run: terraform plan -no-color
+        run: terraform plan -out=tfplan -no-color
+
+      - name: Apply Terraform
+        if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
+        run: terraform apply -auto-approve tfplan
