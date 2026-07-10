@@ -110,11 +110,9 @@ jobs:
           docker build \
             -f deployables/trade_execution_queue_worker/Dockerfile \
             -t "$image_uri" \
-            -t "${repository_uri}:latest" \
             .
 
           docker push "$image_uri"
-          docker push "${repository_uri}:latest"
 
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
