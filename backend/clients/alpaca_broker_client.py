@@ -377,7 +377,7 @@ class AlpacaBrokerClient:
             )
 
     
-    def close_alpaca_account(self, account_id: str, cognito_user_id: str) -> None:
+    def close_alpaca_account(self, alpaca_account_id: str, cognito_user_id: str) -> None:
         """
         Close an Alpaca broker account.
 
@@ -394,10 +394,10 @@ class AlpacaBrokerClient:
             network request fails, or any unexpected error occurs.
         """
         try:
-            self.client.close_account(account_id=account_id)
+            self.client.close_account(account_id=alpaca_account_id)
         except Exception as e:
             raise AlpacaBrokerClientError(
-                message=f"Failed to close alpaca account for alpaca account id '{account_id}' and cognito user id '{cognito_user_id}': {e}",
+                message=f"Failed to close alpaca account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_CLOSE_ALPACA_ACCOUNT_FAILED"
             )
 
@@ -886,6 +886,30 @@ class AlpacaBrokerClient:
                 message=f"Failed to get transfers for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
                 code="ALPACA_BROKER_GET_TRANSFERS_FAILED",
             ) from e
+
+
+    def cancel_transfer(
+        self,
+        *,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        transfer_id: str
+    ) -> None:
+        """Cancel a transfer for an Alpaca broker account.
+
+        Alpaca retains the transfer record and changes its status after a
+        successful cancellation.
+        """
+        try:
+            self.client.cancel_transfer_for_account(
+                account_id=alpaca_account_id,
+                transfer_id=transfer_id
+            )
+        except Exception as err:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to cancel transfer '{transfer_id}' for cognito user '{cognito_user_id}' and alpaca account '{alpaca_account_id}': {err}",
+                code="ALPACA_BROKER_CANCEL_TRANSFER_FAILED"
+            ) from err
             
     ##############################
     ###### TRADE EXECUTION #######
