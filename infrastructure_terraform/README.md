@@ -1,23 +1,22 @@
 # Baskt dev Terraform infrastructure
 
 This project manages only the existing Baskt development environment. Related
-resources live in reusable child modules, and the deployable root is
-`environments/dev`.
+resources live in child modules inside the deployable dev root at `dev`.
 
 Each AWS resource still has its own Terraform file. Terraform automatically
 combines all `.tf` files within each module folder.
 
 ```text
 infrastructure_terraform/
-├── environments/dev/       # Backend, providers, inputs, and module composition
-└── modules/
-    ├── dynamodb/
-    ├── ecr/
-    ├── opensearch_domain/
-    ├── opensearch_indices/
-    ├── queues/
-    ├── search_indexers/
-    └── trade_worker/
+└── dev/                    # Backend, providers, inputs, module composition
+    └── modules/
+        ├── dynamodb/
+        ├── ecr/
+        ├── opensearch_domain/
+        ├── opensearch_indices/
+        ├── queues/
+        ├── search_indexers/
+        └── trade_worker/
 ```
 
 ## Existing-resource migration
@@ -26,7 +25,7 @@ The physical resource names match the current dev infrastructure. Import every
 existing resource before the first apply. For example:
 
 ```bash
-cd infrastructure_terraform/environments/dev
+cd infrastructure_terraform/dev
 
 terraform init \
   -backend-config="bucket=YOUR_TERRAFORM_STATE_BUCKET" \
@@ -50,8 +49,8 @@ resolve all unexpected drift before allowing GitHub to apply anything.
 
 ## GitHub workflow
 
-Pull requests run formatting, validation, and `terraform plan`. A merge into
-`dev` assumes an AWS role through GitHub OIDC and applies the reviewed plan:
+Pushes to `develop` or `feature/**` run formatting, validation, `terraform plan`,
+and `terraform apply` against the dev environment through GitHub OIDC:
 
 ```bash
 terraform fmt -check -recursive

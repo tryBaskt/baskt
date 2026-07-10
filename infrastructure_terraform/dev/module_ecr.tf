@@ -1,4 +1,4 @@
 module "ecr" {
-  source      = "../../modules/ecr"
+  source      = "./modules/ecr"
   environment = var.environment
 }

@@ -1,5 +1,5 @@
 module "opensearch_indices" {
-  source      = "../../modules/opensearch_indices"
+  source      = "./modules/opensearch_indices"
   environment = var.environment
 
   providers = {

@@ -1,5 +1,5 @@
 module "search_indexers" {
-  source = "../../modules/search_indexers"
+  source = "./modules/search_indexers"
 
   environment                = var.environment
   aws_region                 = var.aws_region

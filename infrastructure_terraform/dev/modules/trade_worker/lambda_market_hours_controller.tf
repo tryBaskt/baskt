@@ -1,6 +1,6 @@
 data "archive_file" "market_hours_controller" {
   type        = "zip"
-  source_file = "${path.module}/../../../infrastructure/dev/lambda/trade_execution_queue_worker/market_hours_controller.py"
+  source_file = "${path.module}/../../../../deployables/trade_execution_queue_worker/market_hours_controller.py"
   output_path = "${path.module}/market_hours_controller.zip"
 }
 

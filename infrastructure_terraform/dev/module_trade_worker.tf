@@ -1,5 +1,5 @@
 module "trade_worker" {
-  source = "../../modules/trade_worker"
+  source = "./modules/trade_worker"
 
   environment              = var.environment
   aws_region               = var.aws_region

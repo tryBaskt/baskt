@@ -1,0 +1,7 @@
+*
+!backend/
+!backend/**
+!deployables/
+!deployables/trade_execution_queue_worker/
+!deployables/trade_execution_queue_worker/handler.py
+!deployables/trade_execution_queue_worker/requirements.txt

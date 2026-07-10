@@ -26,11 +26,13 @@ jobs:
       TF_VAR_trade_worker_environment: ${{ secrets.TF_VAR_trade_worker_environment }}
     defaults:
       run:
-        working-directory: infrastructure_terraform/environments/dev
+        working-directory: infrastructure_terraform/dev
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.1.0
@@ -41,11 +43,36 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+      - name: Detect trade execution queue worker image changes
+        id: trade-execution-queue-worker-changes
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before="${{ github.event.before }}"
+          if [[ -z "$before" || "$before" == "0000000000000000000000000000000000000000" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+          if echo "$changed_files" | grep -E '^(backend/|deployables/trade_execution_queue_worker/)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Check Terraform formatting
-        run: terraform fmt -check -recursive ../..
+        run: terraform fmt -check -recursive .
 
       - name: Initialize Terraform
         run: |
@@ -58,6 +85,38 @@ jobs:
 
       - name: Validate Terraform
         run: terraform validate -no-color
+
+      - name: Ensure trade execution queue worker ECR repository exists
+        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
+        run: terraform apply -target=module.ecr -auto-approve
+
+      - name: Build and push trade execution queue worker image
+        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          repository_name="dev-trade-execution-queue-worker"
+          repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
+          image_uri="${repository_uri}:${GITHUB_SHA}"
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          docker build \
+            -f deployables/trade_execution_queue_worker/Dockerfile \
+            -t "$image_uri" \
+            -t "${repository_uri}:latest" \
+            .
+
+          docker push "$image_uri"
+          docker push "${repository_uri}:latest"
+
+          echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
       - name: Plan Terraform
         run: terraform plan -out=tfplan -no-color
