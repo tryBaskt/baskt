@@ -1,6 +1,6 @@
 data "archive_file" "model_portfolio_search_indexer" {
   type        = "zip"
-  source_file = "${path.module}/../../../infrastructure/dev/lambda/model_portfolio_search/handler.py"
+  source_file = "${path.module}/../../../../deployables/search_indexers/model_portfolio_search/handler.py"
   output_path = "${path.module}/model_portfolio_search_indexer.zip"
 }
 

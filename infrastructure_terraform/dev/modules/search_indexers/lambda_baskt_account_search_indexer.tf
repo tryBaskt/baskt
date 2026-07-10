@@ -1,6 +1,6 @@
 data "archive_file" "baskt_account_search_indexer" {
   type        = "zip"
-  source_file = "${path.module}/../../../infrastructure/dev/lambda/baskt_account_search/handler.py"
+  source_file = "${path.module}/../../../../deployables/search_indexers/baskt_account_search/handler.py"
   output_path = "${path.module}/baskt_account_search_indexer.zip"
 }
 
