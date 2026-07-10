@@ -1,0 +1,384 @@
+.baskt-page {
+	display: grid;
+	gap: 1rem;
+}
+
+.baskt-back {
+	justify-self: start;
+	border: 1px solid rgba(115, 127, 139, 0.35);
+	background: #ffffff;
+	border-radius: 10px;
+	padding: 8px 12px;
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.baskt-back:hover {
+	border-color: rgba(90, 46, 217, 0.55);
+}
+
+.baskt-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.baskt-header h1 {
+	margin: 0;
+}
+
+.baskt-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 0.6rem;
+}
+
+.baskt-invested-summary {
+	display: grid;
+	gap: 0.1rem;
+	min-width: 96px;
+}
+
+.baskt-invested-summary span {
+	color: rgba(0, 0, 0, 0.48);
+	font-size: 0.72rem;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.baskt-invested-summary strong {
+	color: #2a2f35;
+	font-size: 0.95rem;
+	white-space: nowrap;
+}
+
+.baskt-trade-button,
+.baskt-update-button {
+	min-height: 40px;
+	border: 1px solid #5a2ed9;
+	border-radius: 8px;
+	background: #5a2ed9;
+	color: #ffffff;
+	cursor: pointer;
+	font-weight: 800;
+	padding: 0 1rem;
+}
+
+.baskt-trade-button.is-secondary {
+	background: #ffffff;
+	color: #5a2ed9;
+}
+
+.baskt-trade-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
+}
+
+.baskt-trade-button:not(:disabled):hover,
+.baskt-update-button:hover {
+	filter: brightness(0.96);
+}
+
+.baskt-description {
+	margin: 0.4rem 0 0;
+	color: rgba(0, 0, 0, 0.68);
+}
+
+.baskt-main-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+	gap: 1rem;
+	align-items: start;
+}
+
+.baskt-performance {
+	display: grid;
+	gap: 1rem;
+	min-width: 0;
+}
+
+.baskt-performance .account-performance-panel {
+	padding: 0.85rem;
+}
+
+.baskt-performance .account-performance-header {
+	margin-bottom: 0.75rem;
+}
+
+.baskt-performance .account-performance-header h1 {
+	font-size: 1.25rem;
+}
+
+.baskt-performance .account-performance-header strong {
+	font-size: 1.05rem;
+}
+
+.baskt-performance .account-period-controls {
+	margin-bottom: 0.75rem;
+}
+
+.baskt-performance .account-performance-metrics {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0.55rem;
+}
+
+.baskt-performance .account-performance-metrics div {
+	padding: 0.6rem;
+}
+
+.baskt-performance .account-performance-metrics span {
+	font-size: 0.66rem;
+}
+
+.baskt-performance .account-performance-metrics strong {
+	font-size: 0.88rem;
+}
+
+.baskt-performance .account-equity-chart {
+	min-height: 180px;
+	max-height: 220px;
+}
+
+.baskt-positions-panel {
+	display: grid;
+	gap: 1rem;
+	min-width: 0;
+}
+
+.baskt-positions h2 {
+	margin: 0;
+	font-size: 1.05rem;
+}
+
+.baskt-transactions {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.baskt-transactions h2 {
+	margin: 0;
+	font-size: 1.05rem;
+}
+
+.baskt-table-wrap {
+	margin-top: 0.5rem;
+	border: 1px solid rgba(115, 127, 139, 0.26);
+	border-radius: 12px;
+	overflow: auto;
+	background: #ffffff;
+}
+
+.baskt-table-wrap table {
+	width: 100%;
+	border-collapse: collapse;
+	min-width: 320px;
+}
+
+.baskt-table-wrap th,
+.baskt-table-wrap td {
+	text-align: left;
+	padding: 9px 10px;
+	border-bottom: 1px solid rgba(115, 127, 139, 0.18);
+}
+
+.baskt-table-wrap th {
+	font-size: 0.78rem;
+	color: rgba(0, 0, 0, 0.72);
+	background: rgba(237, 239, 244, 0.6);
+}
+
+.baskt-table-wrap tr:last-child td {
+	border-bottom: none;
+}
+
+.baskt-previous-positions {
+	display: grid;
+	gap: 0.5rem;
+}
+
+.baskt-previous-positions label {
+	color: rgba(0, 0, 0, 0.72);
+	font-size: 0.86rem;
+	font-weight: 800;
+}
+
+.baskt-previous-positions select {
+	width: 100%;
+	min-height: 40px;
+	border: 1px solid rgba(115, 127, 139, 0.35);
+	border-radius: 10px;
+	background: #ffffff;
+	color: #2a2f35;
+	font: 600 0.9rem "Plus Jakarta Sans", sans-serif;
+	padding: 0 0.75rem;
+}
+
+.baskt-meta {
+	margin: 0;
+	color: rgba(0, 0, 0, 0.6);
+}
+
+.baskt-error {
+	margin: 0;
+	color: #8f1e1e;
+	background: rgba(176, 34, 34, 0.1);
+	border: 1px solid rgba(176, 34, 34, 0.24);
+	border-radius: 10px;
+	padding: 10px 12px;
+}
+
+.baskt-success {
+	margin: 0;
+	color: #176b43;
+	background: rgba(23, 131, 79, 0.1);
+	border: 1px solid rgba(23, 131, 79, 0.2);
+	border-radius: 10px;
+	font-weight: 700;
+	padding: 10px 12px;
+}
+
+.baskt-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: grid;
+	place-items: center;
+	background: rgba(22, 18, 38, 0.42);
+	padding: 1rem;
+}
+
+.baskt-trade-modal {
+	display: grid;
+	gap: 1rem;
+	width: min(100%, 460px);
+	border: 1px solid rgba(115, 127, 139, 0.22);
+	border-radius: 14px;
+	background: #ffffff;
+	box-shadow: 0 20px 60px rgba(31, 24, 54, 0.22);
+	padding: 1.2rem;
+}
+
+.baskt-modal-eyebrow {
+	margin: 0;
+	color: #5a2ed9;
+	font-size: 0.78rem;
+	font-weight: 900;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.baskt-trade-modal h2 {
+	margin: 0.15rem 0 0;
+	color: #2a2f35;
+}
+
+.baskt-sell-mode {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.6rem;
+}
+
+.baskt-sell-mode label {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	border: 1px solid rgba(115, 127, 139, 0.26);
+	border-radius: 10px;
+	cursor: pointer;
+	font-weight: 700;
+	padding: 0.75rem;
+}
+
+.baskt-trade-field {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.baskt-trade-field span {
+	color: rgba(0, 0, 0, 0.72);
+	font-size: 0.86rem;
+	font-weight: 800;
+}
+
+.baskt-trade-field input {
+	width: 100%;
+	min-height: 46px;
+	border: 1px solid rgba(115, 127, 139, 0.35);
+	border-radius: 10px;
+	font: 700 1rem "Plus Jakarta Sans", sans-serif;
+	padding: 0 0.8rem;
+}
+
+.baskt-modal-note {
+	margin: 0;
+	color: rgba(0, 0, 0, 0.62);
+	font-weight: 600;
+}
+
+.baskt-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.7rem;
+}
+
+.baskt-modal-cancel,
+.baskt-modal-submit {
+	min-height: 42px;
+	border-radius: 9px;
+	cursor: pointer;
+	font-weight: 800;
+	padding: 0 1rem;
+}
+
+.baskt-modal-cancel {
+	border: 1px solid rgba(115, 127, 139, 0.35);
+	background: #ffffff;
+	color: #2a2f35;
+}
+
+.baskt-modal-submit {
+	border: 1px solid #5a2ed9;
+	background: #5a2ed9;
+	color: #ffffff;
+}
+
+.baskt-modal-submit:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+@media (max-width: 980px) {
+	.baskt-main-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.baskt-performance .account-performance-metrics {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 620px) {
+	.baskt-header {
+		flex-direction: column;
+	}
+
+	.baskt-actions {
+		justify-content: flex-start;
+		width: 100%;
+	}
+
+	.baskt-performance .account-performance-metrics {
+		grid-template-columns: 1fr;
+	}
+
+	.baskt-sell-mode {
+		grid-template-columns: 1fr;
+	}
+
+	.baskt-modal-actions {
+		flex-direction: column-reverse;
+	}
+}

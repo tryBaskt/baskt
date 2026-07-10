@@ -1,7 +1,0 @@
-{
-  "app": "python app.py",
-  "context": {
-    "environment": "dev",
-    "region": "us-east-1"
-  }
-}

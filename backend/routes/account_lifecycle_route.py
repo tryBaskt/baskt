@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.status import (
 	HTTP_200_OK,
 	HTTP_201_CREATED,
-	HTTP_204_NO_CONTENT,
 	HTTP_409_CONFLICT,
 	HTTP_403_FORBIDDEN,
 	HTTP_422_UNPROCESSABLE_CONTENT,
@@ -181,7 +180,6 @@ def _to_transfer_response(alpaca_account_id: str, transfer: Transfer) -> BasktTr
 	Convert an Alpaca transfer model into the API response schema.
 	"""
 	return BasktTransferResponse(
-		transfer_id=str(transfer.id),
 		alpaca_account_id=alpaca_account_id,
 		created_at=transfer.created_at.isoformat(),
 		updated_at=transfer.updated_at.isoformat() if transfer.updated_at else None,
@@ -694,28 +692,6 @@ def create_transfer(
 		raise AccountLifecycleInternalServerError(
 			message=f"Unsupported funding source type '{request.funding_source_type}'",
 			code="ACCOUNT_LIFECYCLE_UNSUPPORTED_TRANSFER_SOURCE",
-		)
-	except Exception as err:
-		_raise_account_lifecycle_http_exception(err)
-
-
-@router.delete(
-	"/transfers/{transfer_id}",
-	response_model=None,
-	status_code=HTTP_204_NO_CONTENT,
-)
-def cancel_transfer(
-	transfer_id: str,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
-	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
-) -> None:
-	"""Cancel a transfer belonging to the authenticated account."""
-	try:
-		service.cancel_transfer(
-			cognito_user_id=user["sub"],
-			alpaca_account_id=user["custom:alpaca_acct_id"],
-			transfer_id=transfer_id,
 		)
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)

@@ -1,0 +1,101 @@
+.my-baskts-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.my-baskts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.my-baskts-count {
+  display: inline-block;
+  background: rgba(110, 63, 242, 0.1);
+  color: #5a2ed9;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.my-baskts-meta {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 0.92rem;
+}
+
+.my-baskts-error {
+  margin: 0;
+  color: #8f1e1e;
+  background: rgba(176, 34, 34, 0.1);
+  border: 1px solid rgba(176, 34, 34, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.my-baskts-empty {
+  margin: 0;
+  border: 1px dashed rgba(115, 127, 139, 0.35);
+  border-radius: 12px;
+  padding: 14px;
+  color: rgba(0, 0, 0, 0.58);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.my-baskts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 0.9rem;
+}
+
+.my-baskts-card {
+  border: 1px solid rgba(115, 127, 139, 0.26);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 12px;
+  display: grid;
+  gap: 0.5rem;
+  box-shadow: 0 8px 20px rgba(62, 33, 132, 0.08);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.my-baskts-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(90, 46, 217, 0.4);
+  box-shadow: 0 14px 28px rgba(62, 33, 132, 0.16);
+}
+
+.my-baskts-card:focus-visible {
+  outline: 2px solid #5a2ed9;
+  outline-offset: 2px;
+}
+
+.my-baskts-card h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  color: #2a2f35;
+}
+
+.my-baskts-card p {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.my-baskts-description-empty {
+  font-style: italic;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 560px) {
+  .my-baskts-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

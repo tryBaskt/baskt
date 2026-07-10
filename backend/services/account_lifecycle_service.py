@@ -81,10 +81,6 @@ class AccountLifecycleService:
 		self.cognito_client = cognito_client
 		self.baskt_account_repository = baskt_account_repository
 
-	#############################
-	####### BASKT ACCOUNT #######
-	#############################
-
 	def create_baskt_account(self, account_data: Dict[str, Any], password: Optional[str] = None) -> Dict[str, str]:
 		"""
 		Create matching Alpaca, Cognito, and persisted Baskt accounts.
@@ -188,16 +184,6 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_DISPLAY_NAME_CHECK_FAILED",
 			) from err
 
-	def permanently_close_baskt_account(
-		self,
-		*,
-		cognito_user_id: str,
-		alpaca_account_id: str
-	) -> None:
-		self.alpaca_broker_client.close_alpaca_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-		self.cognito_client.delete_cognito_user(cognito_user_id=cognito_user_id)
-
-
 	def update_display_name(
 		self,
 		cognito_user_id: str,
@@ -287,40 +273,6 @@ class AccountLifecycleService:
 				code="ACCOUNT_LIFECYCLE_GET_BASKT_ACCOUNT_FAILED",
 			) from err
 
-
-	def get_trade_account(
-		self,
-		alpaca_account_id: str,
-		cognito_user_id: str,
-	) -> TradeAccount:
-		"""
-		Get an Alpaca trade account for a broker account ID.
-
-		Args:
-			alpaca_account_id: Alpaca broker account ID.
-			cognito_user_id: Cognito user ID used for error context.
-
-		Returns:
-			TradeAccount: Alpaca trade account details.
-
-		Raises:
-			AccountLifecycleInternalServerError: If Alpaca fails to fetch the trade
-			account.
-		"""
-		try:
-			return self.alpaca_broker_client.get_trade_account(
-				account_id=alpaca_account_id,
-				cognito_user_id=cognito_user_id
-			)
-		except AlpacaBrokerClientError as e:
-			raise AccountLifecycleInternalServerError(
-				message=f"Failed to get trade account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
-				code="ACCOUNT_LIFECYCLE_GET_TRADE_ACCOUNT_FAILED"
-			) from e
-
-	#################################
-	########## ACH & BANK ###########
-	#################################
 
 	def create_direct_ach_relationship(
 		self,
@@ -467,6 +419,37 @@ class AccountLifecycleService:
 				message=f"Failed to delete ACH relationship '{ach_relationship_id}' for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_DELETE_ACH_RELATIONSHIP_FAILED"
 			) from err
+		
+	def get_trade_account(
+		self,
+		alpaca_account_id: str,
+		cognito_user_id: str,
+	) -> TradeAccount:
+		"""
+		Get an Alpaca trade account for a broker account ID.
+
+		Args:
+			alpaca_account_id: Alpaca broker account ID.
+			cognito_user_id: Cognito user ID used for error context.
+
+		Returns:
+			TradeAccount: Alpaca trade account details.
+
+		Raises:
+			AccountLifecycleInternalServerError: If Alpaca fails to fetch the trade
+			account.
+		"""
+		try:
+			return self.alpaca_broker_client.get_trade_account(
+				account_id=alpaca_account_id,
+				cognito_user_id=cognito_user_id
+			)
+		except AlpacaBrokerClientError as e:
+			raise AccountLifecycleInternalServerError(
+				message=f"Failed to get trade account for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {e}",
+				code="ACCOUNT_LIFECYCLE_GET_TRADE_ACCOUNT_FAILED"
+			) from e
+
 		
 		
 	def create_ach_transfer(
@@ -731,27 +714,6 @@ class AccountLifecycleService:
 			raise AccountLifecycleInternalServerError(
 				message=f"Failed to get transfers for Alpaca account '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}",
 				code="ACCOUNT_LIFECYCLE_GET_TRANSFERS_FAILED",
-			) from err
-
-
-	def cancel_transfer(
-		self,
-		*,
-		cognito_user_id: str,
-		alpaca_account_id: str,
-		transfer_id: str
-	) -> None:
-		"""Cancel an Alpaca transfer owned by the supplied broker account."""
-		try:
-			self.alpaca_broker_client.cancel_transfer(
-				cognito_user_id=cognito_user_id,
-				alpaca_account_id=alpaca_account_id,
-				transfer_id=transfer_id
-			)
-		except AlpacaBrokerClientError as err:
-			raise AccountLifecycleInternalServerError(
-				message=f"Failed to cancel transfer '{transfer_id}' for cognito user '{cognito_user_id}' and alpaca account '{alpaca_account_id}': {err}",
-				code="ACCOUNT_LIFECYCLE_CANCEL_TRANSFER_FAILED"
 			) from err
 			
 			
