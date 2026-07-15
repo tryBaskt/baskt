@@ -13,3 +13,19 @@ output "opensearch_endpoint" {
 output "dynamodb_table_names" {
   value = module.dynamodb.table_names
 }
+
+output "cognito_user_pool_id" {
+  value = module.cognito.user_pool_id
+}
+
+output "cognito_user_pool_arn" {
+  value = module.cognito.user_pool_arn
+}
+
+output "cognito_app_client_id" {
+  value = module.cognito.app_client_id
+}
+
+output "cognito_user_pool_domain" {
+  value = module.cognito.user_pool_domain
+}
