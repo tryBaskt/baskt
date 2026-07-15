@@ -23,10 +23,6 @@ resource "aws_cognito_user_pool" "baskt" {
     default_email_option = "CONFIRM_WITH_CODE"
   }
 
-  user_attribute_update_settings {
-    attributes_require_verification_before_update = []
-  }
-
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
@@ -48,39 +44,58 @@ resource "aws_cognito_user_pool" "baskt" {
   }
 
   schema {
-    name                = "alpaca_account_id"
-    attribute_data_type = "String"
-    mutable             = false
-    required            = false
+    name                     = "alpaca_account_id"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = false
+    required                 = false
+
+    string_attribute_constraints {}
   }
 
   schema {
-    name                = "alpaca_account_num"
-    attribute_data_type = "String"
-    mutable             = false
-    required            = false
+    name                     = "alpaca_account_num"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = false
+    required                 = false
+
+    string_attribute_constraints {}
   }
 
   schema {
-    name                = "alpaca_acct_id"
-    attribute_data_type = "String"
-    mutable             = true
-    required            = false
+    name                     = "alpaca_acct_id"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    required                 = false
+
+    string_attribute_constraints {}
   }
 
   schema {
-    name                = "alpaca_acct_num"
-    attribute_data_type = "String"
-    mutable             = true
-    required            = false
+    name                     = "alpaca_acct_num"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    required                 = false
+
+    string_attribute_constraints {}
   }
 
   schema {
-    name                = "username"
-    attribute_data_type = "String"
-    mutable             = true
-    required            = false
+    name                     = "username"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    required                 = false
+
+    string_attribute_constraints {}
   }
 
   tags = var.common_tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
