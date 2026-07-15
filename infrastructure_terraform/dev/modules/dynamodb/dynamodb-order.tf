@@ -1,5 +1,5 @@
 resource "aws_dynamodb_table" "order" {
-  name         = "${var.environment}_order_dynamodb"
+  name         = "${var.environment}-order-dynamodb"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "transaction_id"
   range_key    = "order_id"

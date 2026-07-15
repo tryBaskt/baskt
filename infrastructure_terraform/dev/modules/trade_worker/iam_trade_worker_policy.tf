@@ -20,6 +20,8 @@ resource "aws_iam_role_policy" "trade_worker_dynamodb" {
       Effect = "Allow"
       Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:BatchWriteItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"]
       Resource = [
+        "arn:${var.aws_partition}:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.environment}-*",
+        "arn:${var.aws_partition}:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.environment}-*/index/*",
         "arn:${var.aws_partition}:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.environment}_*",
         "arn:${var.aws_partition}:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.environment}_*/index/*"
       ]

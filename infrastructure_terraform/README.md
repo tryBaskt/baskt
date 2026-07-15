@@ -34,8 +34,8 @@ terraform init \
   -backend-config="encrypt=true" \
   -backend-config="use_lockfile=true"
 
-terraform import module.dynamodb.aws_dynamodb_table.baskt_account dev_baskt_account_dynamodb
-terraform import module.dynamodb.aws_dynamodb_table.model_portfolio dev_model_portfolio_dynamodb
+terraform import module.dynamodb.aws_dynamodb_table.baskt_account dev-baskt-account-dynamodb
+terraform import module.dynamodb.aws_dynamodb_table.model_portfolio dev-model-portfolio-dynamodb
 terraform import module.opensearch_domain.aws_opensearch_domain.model_portfolio_search dev-model-portfolio-search
 ```
 
