@@ -1,5 +1,5 @@
 resource "aws_dynamodb_table" "model_portfolio_update_lock" {
-  name         = "${var.environment}_model_portfolio_update_lock_dynamodb"
+  name         = "${var.environment}-model-portfolio-update-lock-dynamodb"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "portfolio_id"
 

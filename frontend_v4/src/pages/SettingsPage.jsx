@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
-import { LoadingState } from "../components/Status";
+import { ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { fundingSourceOptions } from "../data/options";
 
 const sectionFields = {
@@ -383,8 +383,8 @@ export default function SettingsPage() {
         </aside>
 
         <div className="settings-content">
-          {error && <div className="alert alert-error">{error}</div>}
-          {success && <div className="alert alert-success">{success}</div>}
+          <ErrorBanner message={error} />
+          <SuccessBanner message={success} />
           {account && (
             settingsSection === "profile" ? (
               <>

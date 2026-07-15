@@ -1,7 +1,8 @@
-resource "aws_dynamodb_table" "baskt_account" {
-  name         = "${var.environment}_baskt_account_dynamodb"
+resource "aws_dynamodb_table" "model_portfolio_follower" {
+  name         = "${var.environment}-model-portfolio-follower-dynamodb"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "cognito_user_id"
+  range_key    = "portfolio_id"
 
   attribute {
     name = "cognito_user_id"
@@ -9,18 +10,16 @@ resource "aws_dynamodb_table" "baskt_account" {
   }
 
   attribute {
-    name = "display_name"
+    name = "portfolio_id"
     type = "S"
   }
 
   global_secondary_index {
-    name            = "display_name_index"
-    hash_key        = "display_name"
+    name            = "portfolio_id_index"
+    hash_key        = "portfolio_id"
+    range_key       = "cognito_user_id"
     projection_type = "ALL"
   }
-
-  stream_enabled   = true
-  stream_view_type = "NEW_AND_OLD_IMAGES"
 
   point_in_time_recovery {
     enabled = true
