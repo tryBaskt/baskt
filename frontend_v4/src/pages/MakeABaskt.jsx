@@ -55,6 +55,15 @@ function normalizePosition(position) {
   };
 }
 
+function formatWeightInputValue(targetWeight) {
+  if (targetWeight === "") {
+    return "";
+  }
+
+  const percentValue = Number(targetWeight || 0) * 100;
+  return Number.isFinite(percentValue) ? String(percentValue) : "";
+}
+
 export default function MakeABaskt({ editingPortfolioId, onSaved }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -237,6 +246,10 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
         positionIndex === index ? { ...position, [field]: value } : position
       )
     );
+  }
+
+  function updatePositionWeight(index, value) {
+    updatePosition(index, "target_weight", value === "" ? "" : Number(value) / 100);
   }
 
   function getRemainingWeight(currentPositions = positions) {
@@ -438,10 +451,8 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
                     min="0"
                     max="100"
                     step="0.1"
-                    value={Number(position.target_weight) * 100}
-                    onChange={(event) =>
-                      updatePosition(index, "target_weight", Number(event.target.value) / 100)
-                    }
+                    value={formatWeightInputValue(position.target_weight)}
+                    onChange={(event) => updatePositionWeight(index, event.target.value)}
                     required
                   />
                   <strong>%</strong>
