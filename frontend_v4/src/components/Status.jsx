@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export function LoadingState({ title = "Loading", message = "Fetching the latest data." }) {
   return (
     <div className="state-panel" aria-live="polite">
@@ -19,17 +21,37 @@ export function EmptyState({ title, message, action }) {
 }
 
 export function ErrorBanner({ message }) {
-  if (!message) {
-    return null;
-  }
-
-  return <div className="alert alert-error">Error</div>;
+  return <Toast message={message} tone="error" />;
 }
 
 export function SuccessBanner({ message }) {
-  if (!message) {
+  return <Toast message={message} tone="success" />;
+}
+
+function Toast({ message, tone }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!message) {
+      setIsVisible(false);
+      return undefined;
+    }
+
+    setIsVisible(true);
+    const timeoutId = window.setTimeout(() => {
+      setIsVisible(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [message]);
+
+  if (!message || !isVisible) {
     return null;
   }
 
-  return <div className="alert alert-success">{message}</div>;
+  return (
+    <div className={`toast toast-${tone}`} role={tone === "error" ? "alert" : "status"} aria-live="polite">
+      {tone === "error" ? "Error" : message}
+    </div>
+  );
 }
