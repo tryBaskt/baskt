@@ -25,8 +25,8 @@ from backend.domain.baskt_account_domain import (
     IdentityData,
 )
 
-FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
-FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
+FUNDED_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
+FUNDED_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
 
 load_dotenv()
 os.environ["ENV"] = "dev"

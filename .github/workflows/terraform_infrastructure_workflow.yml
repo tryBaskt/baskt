@@ -1,4 +1,4 @@
-name: Test AWS OIDC and Terraform
+name: Deploy Dev Infrastructure with Terraform
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  test-aws-connection-and-terraform:
+  deploy-dev-infrastructure:
     if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     environment: dev
@@ -40,7 +40,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Verify AWS identity
+      - name: Verify AWS identity for infrastructure deployment
         run: aws sts get-caller-identity
 
       - name: Detect trade execution queue worker image changes
@@ -86,11 +86,7 @@ jobs:
       - name: Validate Terraform
         run: terraform validate -no-color
 
-      - name: Ensure trade execution queue worker ECR repository exists
-        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
-        run: terraform apply -target=module.ecr -auto-approve
-
-      - name: Build and push trade execution queue worker image
+      - name: Prepare trade execution queue worker image
         if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -98,6 +94,8 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           set -euo pipefail
+
+          terraform -chdir=infrastructure_terraform/dev apply -target=module.ecr -auto-approve
 
           account_id="$(aws sts get-caller-identity --query Account --output text)"
           repository_name="dev-trade-execution-queue-worker"
@@ -116,10 +114,10 @@ jobs:
 
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
-      - name: Plan Terraform
+      - name: Plan dev infrastructure changes
         run: terraform plan -out=tfplan -no-color
 
-      - name: Apply Terraform
+      - name: Apply dev infrastructure changes
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
         run: terraform apply -auto-approve tfplan
 

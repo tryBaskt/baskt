@@ -74,19 +74,19 @@ import_resource \
   dev-model-portfolio-search
 
 import_resource module.dynamodb.aws_dynamodb_table.baskt_account \
-  dev_baskt_account_dynamodb
+  dev-baskt-account-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.model_portfolio \
-  dev_model_portfolio_dynamodb
+  dev-model-portfolio-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.model_portfolio_follower \
-  dev_model_portfolio_follower_dynamodb
+  dev-model-portfolio-follower-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.model_portfolio_update_lock \
-  dev_model_portfolio_update_lock_dynamodb
+  dev-model-portfolio-update-lock-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.order \
-  dev_order_dynamodb
+  dev-order-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.portfolio_allocation \
-  dev_portfolio_allocation_dynamodb
+  dev-portfolio-allocation-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.user_trade_lock \
-  dev_user_trade_lock_dynamodb
+  dev-user-trade-lock-dynamodb
 
 import_resource module.ecr.aws_ecr_repository.trade_execution_worker \
   dev-trade-execution-queue-worker
@@ -110,7 +110,7 @@ import_resource module.search_indexers.aws_lambda_function.baskt_account_search_
 import_resource module.search_indexers.aws_lambda_event_source_mapping.baskt_account_search \
   "$(mapping_uuid \
     dev-baskt-account-search-indexer \
-    "$(stream_arn dev_baskt_account_dynamodb)")"
+    "$(stream_arn dev-baskt-account-dynamodb)")"
 
 import_resource module.search_indexers.aws_iam_role.model_portfolio_search \
   dev-model-portfolio-search-indexer-role
@@ -121,7 +121,7 @@ import_resource module.search_indexers.aws_lambda_function.model_portfolio_searc
 import_resource module.search_indexers.aws_lambda_event_source_mapping.model_portfolio_search \
   "$(mapping_uuid \
     dev-model-portfolio-search-indexer \
-    "$(stream_arn dev_model_portfolio_dynamodb)")"
+    "$(stream_arn dev-model-portfolio-dynamodb)")"
 
 import_resource module.trade_worker.aws_iam_role.trade_worker \
   dev-trade-execution-queue-worker-role

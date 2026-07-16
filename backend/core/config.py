@@ -43,31 +43,31 @@ class Settings(BaseSettings):
     # Table name suffixes - will be prefixed with environment automatically
     # e.g., if env=dev and suffix=model-portfolios -> dev-model-portfolios
     model_portfolios_dynamodb_suffix: str = Field(
-        default="_model_portfolio_dynamodb",
+        default="-model-portfolio-dynamodb",
         alias="MODEL_PORTFOLIO_DYNAMODB"
     )
     portfolio_allocation_dynamodb_suffix: str = Field(
-        default="_portfolio_allocation_dynamodb",
+        default="-portfolio-allocation-dynamodb",
         alias="PORTFOLIO_ALLOCATION_DYNAMODB"
     )
     order_dynamodb_suffix: str = Field(
-        default="_order_dynamodb",
+        default="-order-dynamodb",
         alias="ORDER_DYNAMODB"
     )
     model_portfolio_follower_dynamodb_suffix: str = Field(
-        default="_model_portfolio_follower_dynamodb",
+        default="-model-portfolio-follower-dynamodb",
         alias="MODEL_PORTFOLIO_FOLLOWER_DYNAMODB"
     )
     user_trade_lock_dynamodb_suffix: str = Field(
-        default="_user_trade_lock_dynamodb",
+        default="-user-trade-lock-dynamodb",
         alias="USER_TRADE_LOCK_DYNAMODB"
     )
     model_portfolio_update_lock_suffix: str = Field(
-        default="_model_portfolio_update_lock_dynamodb",
+        default="-model-portfolio-update-lock-dynamodb",
         alias="MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB"
     )
     baskt_account_dynamodb_suffix: str = Field(
-        default="_baskt_account_dynamodb",
+        default="-baskt-account-dynamodb",
         alias="BASKT_ACCOUNT_DYNAMODB",
     )
     opensearch_domain_suffix: str = Field(
