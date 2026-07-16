@@ -7,7 +7,7 @@ from typing import List, Dict
 
 from alpaca.trading.models import Order
 
-from .conftest import MockSQSClient, TestEngine
+from .conftest import MockSQSClient, TestEngine #, FUNDED_ALPACA_ACCOUNT_ID, FUNDED_COGNITO_USER_ID
 
 FUNDED_ALPACA_ACCOUNT_ID = "0bc4fb65-515c-41f7-a2ea-392ba5626c1e"
 FUNDED_COGNITO_USER_ID = "f408a4e8-60f1-70d0-4c17-2377bf12babf"
