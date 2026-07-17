@@ -39,7 +39,7 @@ variable "trade_worker_environment" {
 }
 
 variable "backend_image_uri" {
-  description = "Immutable ECR image URI for the backend App Runner service. Leave empty until the first backend image has been pushed."
+  description = "Immutable ECR image URI for the backend ECS service. Leave empty until the first backend image has been pushed."
   type        = string
   default     = ""
 }

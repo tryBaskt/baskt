@@ -1,5 +1,5 @@
-resource "aws_iam_role" "apprunner_ecr_access" {
-  name = "${var.environment}-backend-apprunner-ecr-access"
+resource "aws_iam_role" "backend_execution" {
+  name = "${var.environment}-backend-ecs-execution"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -7,7 +7,7 @@ resource "aws_iam_role" "apprunner_ecr_access" {
       {
         Effect = "Allow"
         Principal = {
-          Service = "build.apprunner.amazonaws.com"
+          Service = "ecs-tasks.amazonaws.com"
         }
         Action = "sts:AssumeRole"
       }
@@ -15,13 +15,35 @@ resource "aws_iam_role" "apprunner_ecr_access" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "apprunner_ecr_access" {
-  role       = aws_iam_role.apprunner_ecr_access.name
-  policy_arn = "arn:${var.aws_partition}:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
+resource "aws_iam_role_policy_attachment" "backend_execution" {
+  role       = aws_iam_role.backend_execution.name
+  policy_arn = "arn:${var.aws_partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_iam_role" "backend_instance" {
-  name = "${var.environment}-backend-apprunner-instance"
+resource "aws_iam_role_policy" "backend_execution_secrets" {
+  name = "${var.environment}-backend-ecs-execution-secrets"
+  role = aws_iam_role.backend_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadBackendSecretsForInjection"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.sandbox_alpaca_broker_api_key.arn,
+          aws_secretsmanager_secret.sandbox_alpaca_broker_api_secret.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "backend_task" {
+  name = "${var.environment}-backend-ecs-task"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -29,7 +51,7 @@ resource "aws_iam_role" "backend_instance" {
       {
         Effect = "Allow"
         Principal = {
-          Service = "tasks.apprunner.amazonaws.com"
+          Service = "ecs-tasks.amazonaws.com"
         }
         Action = "sts:AssumeRole"
       }
@@ -39,7 +61,7 @@ resource "aws_iam_role" "backend_instance" {
 
 resource "aws_iam_role_policy" "backend_runtime" {
   name = "${var.environment}-backend-runtime"
-  role = aws_iam_role.backend_instance.id
+  role = aws_iam_role.backend_task.id
 
   policy = jsonencode({
     Version = "2012-10-17"
