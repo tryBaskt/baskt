@@ -2,16 +2,20 @@ output "backend_ecr_repository_url" {
   value = aws_ecr_repository.backend.repository_url
 }
 
-output "backend_apprunner_service_arn" {
-  value = try(aws_apprunner_service.backend[0].arn, null)
+output "backend_ecs_cluster_name" {
+  value = aws_ecs_cluster.backend.name
 }
 
-output "backend_apprunner_service_url" {
-  value = try(aws_apprunner_service.backend[0].service_url, null)
+output "backend_ecs_service_name" {
+  value = try(aws_ecs_service.backend[0].name, null)
+}
+
+output "backend_alb_dns_name" {
+  value = aws_lb.backend.dns_name
 }
 
 output "backend_custom_domain" {
-  value = var.api_domain_name
+  value = "https://${var.api_domain_name}"
 }
 
 output "sandbox_alpaca_broker_api_key_secret_arn" {
