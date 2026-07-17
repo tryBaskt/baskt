@@ -198,7 +198,7 @@ jobs:
       - name: Publish test infrastructure outputs for downstream deployments
         if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_VARIABLES_TOKEN: ${{ secrets.GH_VARIABLES_TOKEN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           set -euo pipefail
@@ -209,6 +209,30 @@ jobs:
           trade_execution_queue_url="$(jq -r '.trade_execution_queue_url.value' <<< "$outputs")"
           cognito_domain_prefix="$(jq -r '.cognito_user_pool_domain.value' <<< "$outputs")"
           cognito_domain="${cognito_domain_prefix}.auth.${AWS_REGION}.amazoncognito.com"
+          backend_custom_domain="$(jq -r '.backend_custom_domain.value' <<< "$outputs")"
+
+          {
+            echo "## Test infrastructure outputs"
+            echo
+            echo "| Name | Value |"
+            echo "| --- | --- |"
+            echo "| TEST_COGNITO_REGION | ${AWS_REGION} |"
+            echo "| TEST_COGNITO_USER_POOL_ID | ${cognito_user_pool_id} |"
+            echo "| TEST_COGNITO_APP_CLIENT_ID | ${cognito_app_client_id} |"
+            echo "| TEST_TRADE_EXECUTION_QUEUE_URL | ${trade_execution_queue_url} |"
+            echo "| VITE_COGNITO_REGION | ${AWS_REGION} |"
+            echo "| VITE_COGNITO_USER_POOL_ID | ${cognito_user_pool_id} |"
+            echo "| VITE_COGNITO_APP_CLIENT_ID | ${cognito_app_client_id} |"
+            echo "| VITE_COGNITO_DOMAIN | ${cognito_domain} |"
+            echo "| VITE_API_BASE_URL | ${backend_custom_domain} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -z "$GH_VARIABLES_TOKEN" ]]; then
+            echo "GH_VARIABLES_TOKEN is not configured; wrote outputs to the job summary instead."
+            exit 0
+          fi
+
+          export GH_TOKEN="$GH_VARIABLES_TOKEN"
 
           gh variable set TEST_COGNITO_REGION --env test --body "$AWS_REGION"
           gh variable set TEST_COGNITO_USER_POOL_ID --env test --body "$cognito_user_pool_id"
@@ -219,6 +243,7 @@ jobs:
           gh variable set VITE_COGNITO_USER_POOL_ID --env test --body "$cognito_user_pool_id"
           gh variable set VITE_COGNITO_APP_CLIENT_ID --env test --body "$cognito_app_client_id"
           gh variable set VITE_COGNITO_DOMAIN --env test --body "$cognito_domain"
+          gh variable set VITE_API_BASE_URL --env test --body "$backend_custom_domain"
 
       - name: Sync trade execution queue worker market-hours state
         if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch')
