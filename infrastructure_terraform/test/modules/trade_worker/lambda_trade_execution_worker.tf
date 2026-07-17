@@ -11,19 +11,19 @@ resource "aws_lambda_function" "trade_execution_worker" {
     variables = merge(
       var.trade_worker_environment,
       {
-        ENV                                                   = var.environment
-        ALPACA_ENV                                            = "sandbox"
-        "${upper(var.environment)}_COGNITO_REGION"            = var.cognito_region
-        "${upper(var.environment)}_COGNITO_USER_POOL_ID"      = var.cognito_user_pool_id
-        "${upper(var.environment)}_COGNITO_APP_CLIENT_ID"     = var.cognito_app_client_id
-        "${upper(var.environment)}_TRADE_EXECUTION_QUEUE_URL" = var.queue_url
-        MODEL_PORTFOLIO_DYNAMODB                              = "-model-portfolio-dynamodb"
-        PORTFOLIO_ALLOCATION_DYNAMODB                         = "-portfolio-allocation-dynamodb"
-        ORDER_DYNAMODB                                        = "-order-dynamodb"
-        MODEL_PORTFOLIO_FOLLOWER_DYNAMODB                     = "-model-portfolio-follower-dynamodb"
-        USER_TRADE_LOCK_DYNAMODB                              = "-user-trade-lock-dynamodb"
-        MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB                  = "-model-portfolio-update-lock-dynamodb"
-        BASKT_ACCOUNT_DYNAMODB                                = "-baskt-account-dynamodb"
+        ENV                                                              = var.environment
+        ALPACA_ENV                                                       = "sandbox"
+        (format("%s_COGNITO_REGION", upper(var.environment)))            = var.cognito_region
+        (format("%s_COGNITO_USER_POOL_ID", upper(var.environment)))      = var.cognito_user_pool_id
+        (format("%s_COGNITO_APP_CLIENT_ID", upper(var.environment)))     = var.cognito_app_client_id
+        (format("%s_TRADE_EXECUTION_QUEUE_URL", upper(var.environment))) = var.queue_url
+        MODEL_PORTFOLIO_DYNAMODB                                         = "-model-portfolio-dynamodb"
+        PORTFOLIO_ALLOCATION_DYNAMODB                                    = "-portfolio-allocation-dynamodb"
+        ORDER_DYNAMODB                                                   = "-order-dynamodb"
+        MODEL_PORTFOLIO_FOLLOWER_DYNAMODB                                = "-model-portfolio-follower-dynamodb"
+        USER_TRADE_LOCK_DYNAMODB                                         = "-user-trade-lock-dynamodb"
+        MODEL_PORTFOLIO_UPDATE_LOCK_DYNAMODB                             = "-model-portfolio-update-lock-dynamodb"
+        BASKT_ACCOUNT_DYNAMODB                                           = "-baskt-account-dynamodb"
       },
     )
   }
