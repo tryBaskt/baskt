@@ -29,3 +29,27 @@ output "cognito_app_client_id" {
 output "cognito_user_pool_domain" {
   value = module.cognito.user_pool_domain
 }
+
+output "backend_ecr_repository_url" {
+  value = module.backend_app_runner.backend_ecr_repository_url
+}
+
+output "backend_apprunner_service_arn" {
+  value = module.backend_app_runner.backend_apprunner_service_arn
+}
+
+output "backend_apprunner_service_url" {
+  value = module.backend_app_runner.backend_apprunner_service_url
+}
+
+output "backend_custom_domain" {
+  value = module.backend_app_runner.backend_custom_domain
+}
+
+output "backend_sandbox_alpaca_broker_api_key_secret_arn" {
+  value = module.backend_app_runner.sandbox_alpaca_broker_api_key_secret_arn
+}
+
+output "backend_sandbox_alpaca_broker_api_secret_secret_arn" {
+  value = module.backend_app_runner.sandbox_alpaca_broker_api_secret_secret_arn
+}
