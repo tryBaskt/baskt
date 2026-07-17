@@ -1,0 +1,17 @@
+variable "environment" { type = string }
+variable "aws_region" { type = string }
+variable "aws_account_id" { type = string }
+variable "aws_partition" { type = string }
+variable "backend_image_uri" { type = string }
+variable "api_domain_name" { type = string }
+variable "hosted_zone_name" { type = string }
+variable "cors_origins" { type = string }
+variable "cognito_region" { type = string }
+variable "cognito_user_pool_id" { type = string }
+variable "cognito_app_client_id" { type = string }
+variable "cognito_user_pool_arn" { type = string }
+variable "trade_execution_queue_url" { type = string }
+variable "trade_execution_queue_arn" { type = string }
+variable "dynamodb_table_arns" { type = list(string) }
+variable "opensearch_domain_arn" { type = string }
+variable "common_tags" { type = map(string) }

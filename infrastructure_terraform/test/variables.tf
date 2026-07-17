@@ -37,3 +37,27 @@ variable "trade_worker_environment" {
   default     = {}
   sensitive   = true
 }
+
+variable "backend_image_uri" {
+  description = "Immutable ECR image URI for the backend App Runner service. Leave empty until the first backend image has been pushed."
+  type        = string
+  default     = ""
+}
+
+variable "backend_api_domain_name" {
+  description = "Custom domain name for the test backend API."
+  type        = string
+  default     = "api-test.trybaskt.com"
+}
+
+variable "hosted_zone_name" {
+  description = "Route 53 public hosted zone name for Baskt DNS records."
+  type        = string
+  default     = "trybaskt.com"
+}
+
+variable "backend_cors_origins" {
+  description = "Allowed CORS origins for the test backend."
+  type        = string
+  default     = "https://test.trybaskt.com"
+}

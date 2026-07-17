@@ -102,6 +102,15 @@ jobs:
           repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
           image_uri="${repository_uri}:${GITHUB_SHA}"
 
+          if aws ecr describe-images \
+            --repository-name "$repository_name" \
+            --image-ids imageTag="$GITHUB_SHA" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Image $image_uri already exists; reusing it."
+            echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
           aws ecr get-login-password --region "$AWS_REGION" \
             | docker login --username AWS --password-stdin "${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
