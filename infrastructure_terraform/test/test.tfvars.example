@@ -1,0 +1,9 @@
+aws_region             = "us-east-1"
+environment            = "test"
+trade_worker_image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/test-trade-execution-queue-worker:COMMIT_SHA"
+opensearch_endpoint_override = "search-test-model-portfolio-search-EXAMPLE.us-east-1.es.amazonaws.com"
+
+trade_worker_environment = {
+  SANDBOX_ALPACA_BROKER_API_KEY    = "replace-me"
+  SANDBOX_ALPACA_BROKER_API_SECRET = "replace-me"
+}

@@ -1,14 +1,24 @@
-# Baskt dev Terraform infrastructure
+# Baskt Terraform infrastructure
 
-This project manages only the existing Baskt development environment. Related
-resources live in child modules inside the deployable dev root at `dev`.
+This project manages separate Baskt environments from environment-specific
+Terraform roots. Shared module structure is duplicated under each root for now
+so new environments can be introduced conservatively.
 
 Each AWS resource still has its own Terraform file. Terraform automatically
 combines all `.tf` files within each module folder.
 
 ```text
 infrastructure_terraform/
-└── dev/                    # Backend, providers, inputs, module composition
+├── dev/                    # Existing dev environment
+│   └── modules/
+│       ├── dynamodb/
+│       ├── ecr/
+│       ├── opensearch_domain/
+│       ├── opensearch_indices/
+│       ├── queues/
+│       ├── search_indexers/
+│       └── trade_worker/
+└── test/                   # New test environment, test-* resources
     └── modules/
         ├── dynamodb/
         ├── ecr/
@@ -47,6 +57,20 @@ Continue importing the queues, Lambdas, IAM roles, schedules, event-source
 mappings, ECR repository, and remaining tables. Then run `terraform plan` and
 resolve all unexpected drift before allowing GitHub to apply anything.
 
+The test environment is intended to create new `test-*` resources. Initialize it
+with a separate state key:
+
+```bash
+cd infrastructure_terraform/test
+
+terraform init \
+  -backend-config="bucket=YOUR_TERRAFORM_STATE_BUCKET" \
+  -backend-config="key=baskt/test/terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="encrypt=true" \
+  -backend-config="use_lockfile=true"
+```
+
 ## GitHub workflow
 
 Pushes to `develop` or `feature/**` run formatting, validation, `terraform plan`,
@@ -66,7 +90,7 @@ then pass that immutable URI as `trade_worker_image_uri`.
 Stateful resources use `prevent_destroy`. An intentional replacement requires a
 reviewed code change removing that protection, followed by a separate apply.
 
-Do not commit `dev.tfvars` if it contains secrets. Sensitive Terraform input is
-still stored in Terraform state, so the state bucket must use encryption,
-versioning, strict IAM access, and locking. Migrating runtime secrets to AWS
-Secrets Manager is recommended before production.
+Do not commit real `.tfvars` files if they contain secrets. Sensitive Terraform
+input is still stored in Terraform state, so the state bucket must use
+encryption, versioning, strict IAM access, and locking. Migrating runtime
+secrets to AWS Secrets Manager is recommended before production.

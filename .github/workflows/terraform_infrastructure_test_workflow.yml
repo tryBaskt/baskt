@@ -1,0 +1,174 @@
+name: Deploy Test Infrastructure with Terraform
+
+on:
+  push:
+    branches:
+      - test
+  workflow_dispatch:
+
+concurrency:
+  group: test-aws-environment
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  deploy-test-infrastructure:
+    if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: test
+    env:
+      TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
+      TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
+    defaults:
+      run:
+        working-directory: infrastructure_terraform/test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS identity for infrastructure deployment
+        run: aws sts get-caller-identity
+
+      - name: Detect trade execution queue worker image changes
+        id: trade-execution-queue-worker-changes
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before="${{ github.event.before }}"
+          if [[ -z "$before" || "$before" == "0000000000000000000000000000000000000000" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+          if echo "$changed_files" | grep -E '^(backend/|deployables/trade_execution_queue_worker/)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure sensitive Terraform variables
+        env:
+          SANDBOX_ALPACA_BROKER_API_KEY: ${{ secrets.SANDBOX_ALPACA_BROKER_API_KEY }}
+          SANDBOX_ALPACA_BROKER_API_SECRET: ${{ secrets.SANDBOX_ALPACA_BROKER_API_SECRET }}
+        run: |
+          {
+            echo "TF_VAR_trade_worker_environment<<EOF"
+            jq -n \
+              --arg sandbox_alpaca_broker_api_key "$SANDBOX_ALPACA_BROKER_API_KEY" \
+              --arg sandbox_alpaca_broker_api_secret "$SANDBOX_ALPACA_BROKER_API_SECRET" \
+              '{
+                SANDBOX_ALPACA_BROKER_API_KEY: $sandbox_alpaca_broker_api_key,
+                SANDBOX_ALPACA_BROKER_API_SECRET: $sandbox_alpaca_broker_api_secret
+              }'
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive .
+
+      - name: Initialize Terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=trybaskt-terraform-state-499133675835" \
+            -backend-config="key=baskt/test/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Validate Terraform
+        run: terraform validate -no-color
+
+      - name: Prepare trade execution queue worker image
+        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          terraform -chdir=infrastructure_terraform/test apply -target=module.ecr -auto-approve
+
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          repository_name="test-trade-execution-queue-worker"
+          repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
+          image_uri="${repository_uri}:${GITHUB_SHA}"
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          docker build \
+            -f deployables/trade_execution_queue_worker/Dockerfile \
+            -t "$image_uri" \
+            .
+
+          docker push "$image_uri"
+
+          echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Plan test infrastructure changes
+        run: terraform plan -out=tfplan -no-color
+
+      - name: Apply test infrastructure changes
+        if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Publish test infrastructure outputs for downstream deployments
+        if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          outputs="$(terraform output -json)"
+          cognito_user_pool_id="$(jq -r '.cognito_user_pool_id.value' <<< "$outputs")"
+          cognito_app_client_id="$(jq -r '.cognito_app_client_id.value' <<< "$outputs")"
+          trade_execution_queue_url="$(jq -r '.trade_execution_queue_url.value' <<< "$outputs")"
+          cognito_domain_prefix="$(jq -r '.cognito_user_pool_domain.value' <<< "$outputs")"
+          cognito_domain="${cognito_domain_prefix}.auth.${AWS_REGION}.amazoncognito.com"
+
+          gh variable set TEST_COGNITO_REGION --env test --body "$AWS_REGION"
+          gh variable set TEST_COGNITO_USER_POOL_ID --env test --body "$cognito_user_pool_id"
+          gh variable set TEST_COGNITO_APP_CLIENT_ID --env test --body "$cognito_app_client_id"
+          gh variable set TEST_TRADE_EXECUTION_QUEUE_URL --env test --body "$trade_execution_queue_url"
+
+          gh variable set VITE_COGNITO_REGION --env test --body "$AWS_REGION"
+          gh variable set VITE_COGNITO_USER_POOL_ID --env test --body "$cognito_user_pool_id"
+          gh variable set VITE_COGNITO_APP_CLIENT_ID --env test --body "$cognito_app_client_id"
+          gh variable set VITE_COGNITO_DOMAIN --env test --body "$cognito_domain"
+
+      - name: Sync trade execution queue worker market-hours state
+        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch')
+        run: |
+          aws lambda invoke \
+            --function-name test-trade-execution-market-hours-controller \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"action":"sync"}' \
+            market-hours-sync-response.json
+
+          cat market-hours-sync-response.json
