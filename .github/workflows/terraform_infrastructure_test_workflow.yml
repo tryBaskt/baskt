@@ -22,6 +22,7 @@ jobs:
     environment: test
     env:
       TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
+      TF_VAR_backend_image_uri: ${{ vars.TF_VAR_backend_image_uri }}
       TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
     defaults:
       run:
@@ -187,6 +188,46 @@ jobs:
           image_uri="${repository_uri}:${latest_tag}"
           echo "Reusing latest ECR image: $image_uri"
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Resolve current backend image URI
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${TF_VAR_backend_image_uri:-}" ]]; then
+            echo "Using configured backend image: $TF_VAR_backend_image_uri"
+            exit 0
+          fi
+
+          task_definition="$(
+            aws ecs describe-services \
+              --cluster test-backend \
+              --services test-backend \
+              --region "$AWS_REGION" \
+              --query 'services[0].taskDefinition' \
+              --output text 2>/dev/null || true
+          )"
+
+          if [[ -n "$task_definition" && "$task_definition" != "None" ]]; then
+            image_uri="$(
+              aws ecs describe-task-definition \
+                --task-definition "$task_definition" \
+                --region "$AWS_REGION" \
+                --query 'taskDefinition.containerDefinitions[?name==`backend`].image | [0]' \
+                --output text
+            )"
+
+            if [[ -n "$image_uri" && "$image_uri" != "None" ]]; then
+              echo "Reusing current backend image: $image_uri"
+              echo "TF_VAR_backend_image_uri=$image_uri" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          fi
+
+          echo "No current backend ECS service image found; backend service will remain absent until backend deployment runs."
 
       - name: Plan test infrastructure changes
         run: terraform plan -out=tfplan -no-color
