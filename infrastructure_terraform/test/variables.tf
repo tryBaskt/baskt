@@ -61,3 +61,15 @@ variable "backend_cors_origins" {
   type        = string
   default     = "https://test.trybaskt.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 }
+
+variable "frontend_bucket_name" {
+  description = "S3 bucket used to host the test frontend build artifacts."
+  type        = string
+  default     = "test-frontend-v4"
+}
+
+variable "frontend_domain_name" {
+  description = "Custom domain name for the test frontend."
+  type        = string
+  default     = "test.trybaskt.com"
+}
