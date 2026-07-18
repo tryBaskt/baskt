@@ -4,9 +4,18 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "vite --mode dev",
+    "dev:dev": "vite --mode dev",
+    "dev:test": "vite --mode test",
+    "dev:stage": "vite --mode stage",
+    "dev:prod": "vite --mode prod",
+    "build": "vite build --mode dev",
+    "build:dev": "vite build --mode dev",
+    "build:test": "vite build --mode test",
+    "build:stage": "vite build --mode stage",
+    "build:prod": "vite build --mode prod",
+    "preview": "vite preview",
+    "preview:test": "vite preview --mode test"
   },
   "dependencies": {
     "amazon-cognito-identity-js": "^6.3.16",

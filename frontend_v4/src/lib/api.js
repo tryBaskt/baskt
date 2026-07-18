@@ -1,6 +1,7 @@
 import { getIdToken } from "./session";
+import { requiredEnv } from "../config/env";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+export const API_BASE_URL = requiredEnv("VITE_API_BASE_URL").replace(/\/$/, "");
 
 function formatErrorPayload(payload, fallback) {
   if (!payload) {
