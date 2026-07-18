@@ -100,6 +100,13 @@ function Field({ label, children }) {
   );
 }
 
+function requireValue(value, message) {
+  if (String(value ?? "").trim() === "") {
+    return message;
+  }
+  return "";
+}
+
 export default function SignupPage({ onBackToLogin }) {
   const [step, setStep] = useState(0);
   const [contact, setContact] = useState(initialContact);
@@ -181,9 +188,50 @@ export default function SignupPage({ onBackToLogin }) {
   }
 
   async function submitSignup(event) {
-    event.preventDefault();
+    event?.preventDefault();
     setError("");
     setSuccess("");
+
+    const requiredFieldError =
+      requireValue(contact.email_address, "Email is required.")
+      || requireValue(contact.phone_number, "Phone is required.")
+      || requireValue(contact.street_address, "Street address is required.")
+      || requireValue(contact.city, "City is required.")
+      || requireValue(contact.state, "State is required.")
+      || requireValue(contact.postal_code, "Postal code is required.")
+      || requireValue(identity.given_name, "First name is required.")
+      || requireValue(identity.family_name, "Last name is required.")
+      || requireValue(identity.date_of_birth, "Date of birth is required.")
+      || requireValue(identity.tax_id, "Tax ID is required.")
+      || requireValue(identity.annual_income_min, "Annual income minimum is required.")
+      || requireValue(identity.annual_income_max, "Annual income maximum is required.")
+      || requireValue(identity.liquid_net_worth_min, "Liquid net worth minimum is required.")
+      || requireValue(identity.liquid_net_worth_max, "Liquid net worth maximum is required.")
+      || requireValue(identity.total_net_worth_min, "Total net worth minimum is required.")
+      || requireValue(identity.total_net_worth_max, "Total net worth maximum is required.")
+      || requireValue(disclosures.employment_status, "Employment status is required.")
+      || (
+        disclosures.employment_status === "EMPLOYED"
+          ? (
+            requireValue(disclosures.employer_name, "Employer is required.")
+            || requireValue(disclosures.employer_address, "Employer address is required.")
+            || requireValue(disclosures.employment_position, "Employment position is required.")
+          )
+          : ""
+      )
+      || (shouldAskVisa ? (
+        requireValue(identity.visa_type, "Visa type is required.")
+        || requireValue(identity.visa_expiration_date, "Visa expiration date is required.")
+        || requireValue(identity.date_of_departure_from_usa, "Departure date is required.")
+      ) : "")
+      || requireValue(displayName, "Please choose a display name.")
+      || requireValue(password, "Password is required.")
+      || requireValue(confirmPassword, "Confirm password is required.");
+
+    if (requiredFieldError) {
+      setError(requiredFieldError);
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
@@ -197,6 +245,7 @@ export default function SignupPage({ onBackToLogin }) {
     }
 
     try {
+      setIsSubmitting(true);
       setDisplayNameAvailability({ status: "checking", checkedName: "" });
       const availability = await apiRequest(
         `/accounts/is-exists-display-name?display_name=${encodeURIComponent(normalizedDisplayName)}`,
@@ -210,11 +259,13 @@ export default function SignupPage({ onBackToLogin }) {
     } catch (availabilityError) {
       setDisplayNameAvailability({ status: "error", checkedName: normalizedDisplayName });
       setError("Could not verify the display name. Please try again.");
+      setIsSubmitting(false);
       return;
     }
 
     if (!visibleAgreementOptions.every((agreement) => accepted[agreement.value])) {
       setError("Please accept every required agreement.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -232,7 +283,6 @@ export default function SignupPage({ onBackToLogin }) {
     }
 
     try {
-      setIsSubmitting(true);
       await apiRequest("/accounts/create-baskt-account", {
         method: "POST",
         body: JSON.stringify({
@@ -285,7 +335,7 @@ export default function SignupPage({ onBackToLogin }) {
         <ErrorBanner message={error} />
         <SuccessBanner message={success} />
 
-        <form className="signup-form" onSubmit={submitSignup}>
+        <form className="signup-form" onSubmit={submitSignup} noValidate>
           {step === 0 ? (
             <div className="form-grid">
               <Field label="Email">
@@ -460,12 +510,9 @@ export default function SignupPage({ onBackToLogin }) {
             ) : (
               <button
                 className="primary-button"
-                type="submit"
-                disabled={
-                  isSubmitting
-                  || displayNameAvailability.status !== "available"
-                  || displayNameAvailability.checkedName !== displayName.trim()
-                }
+                type="button"
+                disabled={isSubmitting}
+                onClick={submitSignup}
               >
                 {isSubmitting ? "Submitting..." : "Create account"}
               </button>

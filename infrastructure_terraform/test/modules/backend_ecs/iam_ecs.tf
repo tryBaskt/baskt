@@ -101,9 +101,10 @@ resource "aws_iam_role_policy" "backend_runtime" {
         Action = [
           "cognito-idp:AdminCreateUser",
           "cognito-idp:AdminDeleteUser",
+          "cognito-idp:AdminEnableUser",
           "cognito-idp:AdminGetUser",
-          "cognito-idp:AdminUpdateUserAttributes",
           "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminUpdateUserAttributes",
           "cognito-idp:ListUsers"
         ]
         Resource = var.cognito_user_pool_arn
