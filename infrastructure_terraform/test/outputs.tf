@@ -57,3 +57,19 @@ output "backend_sandbox_alpaca_broker_api_key_secret_arn" {
 output "backend_sandbox_alpaca_broker_api_secret_secret_arn" {
   value = module.backend_ecs.sandbox_alpaca_broker_api_secret_secret_arn
 }
+
+output "frontend_bucket_name" {
+  value = module.frontend_hosting.bucket_name
+}
+
+output "frontend_cloudfront_distribution_id" {
+  value = module.frontend_hosting.cloudfront_distribution_id
+}
+
+output "frontend_cloudfront_domain_name" {
+  value = module.frontend_hosting.cloudfront_domain_name
+}
+
+output "frontend_url" {
+  value = module.frontend_hosting.frontend_url
+}

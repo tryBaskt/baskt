@@ -5,6 +5,8 @@ backend_image_uri      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/test-back
 opensearch_endpoint_override = "search-test-model-portfolio-search-EXAMPLE.us-east-1.es.amazonaws.com"
 backend_api_domain_name      = "api-test.trybaskt.com"
 backend_cors_origins         = "https://test.trybaskt.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+frontend_bucket_name         = "test-frontend-v4"
+frontend_domain_name         = "test.trybaskt.com"
 
 trade_worker_environment = {
   SANDBOX_ALPACA_BROKER_API_KEY    = "replace-me"
