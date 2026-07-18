@@ -59,5 +59,5 @@ variable "hosted_zone_name" {
 variable "backend_cors_origins" {
   description = "Allowed CORS origins for the test backend."
   type        = string
-  default     = "https://test.trybaskt.com"
+  default     = "https://test.trybaskt.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 }
