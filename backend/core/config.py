@@ -86,6 +86,10 @@ class Settings(BaseSettings):
         default="-model-portfolios",
         alias="MODEL_PORTFOLIO_SEARCH_INDEX_SUFFIX",
     )
+    baskt_account_search_index_suffix: str = Field(
+        default="-baskt-accounts",
+        alias="BASKT_ACCOUNT_SEARCH_INDEX_SUFFIX",
+    )
     trade_execution_queue_suffix: str = Field(
         default="-trade-execution-queue",
         alias="TRADE_EXECUTION_QUEUE_SUFFIX",
@@ -226,6 +230,11 @@ class Settings(BaseSettings):
     def model_portfolio_search_index(self) -> str:
         """Return the environment-specific Baskt search index name."""
         return f"{self.env}{self.model_portfolio_search_index_suffix}"
+
+    @property
+    def baskt_account_search_index(self) -> str:
+        """Return the environment-specific Baskt account search index name."""
+        return f"{self.env}{self.baskt_account_search_index_suffix}"
 
     @property
     def trade_execution_queue_name(self) -> str:
