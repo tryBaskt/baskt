@@ -2160,6 +2160,8 @@ label, .field { color: #c9c4ce; font-size: 12px; }
 .primary-button, .ghost-button, .danger-button, .text-button, .icon-button { min-height: 40px; border-radius: 4px; font-size: 12px; letter-spacing: .01em; }
 .primary-button { background: var(--purple-600); color: #fff; }
 .primary-button:hover { background: #9e75ff; }
+.primary-button:disabled { cursor: not-allowed; opacity: .58; }
+.primary-button:disabled:hover { background: var(--purple-600); }
 .ghost-button, .icon-button { border-color: #393640; background: #111115; color: #ded9e4; }
 .ghost-button:hover, .icon-button:hover { border-color: #61566f; background: #17141b; }
 .danger-button { border-color: #69323b; background: #1c1013; color: #ff8c96; }
