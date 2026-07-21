@@ -106,9 +106,15 @@ def _to_trade_account_response(trade_account: TradeAccount) -> BasktTradeAccount
 	Convert an Alpaca trade account model into the API response schema.
 	"""
 	return BasktTradeAccountResponse(
+		equity=_to_optional_str(getattr(trade_account, "equity", None)),
 		cash_withdrawable=_to_optional_str(getattr(trade_account, "cash_withdrawable", None)),
 		cash_transferable=_to_optional_str(getattr(trade_account, "cash_transferable", None)),
 		previous_close=_to_optional_str(getattr(trade_account, "previous_close", None)),
+		multiplier=_to_optional_str(getattr(trade_account, "multiplier", None)),
+		shorting_enabled=getattr(trade_account, "shorting_enabled", None),
+		trading_blocked=getattr(trade_account, "trading_blocked", None),
+		account_blocked=getattr(trade_account, "account_blocked", None),
+		status=_to_enum_name(trade_account.status) if getattr(trade_account, "status", None) else None,
 		last_long_market_value=_to_optional_str(getattr(trade_account, "last_long_market_value", None)),
 		last_short_market_value=_to_optional_str(getattr(trade_account, "last_short_market_value", None)),
 		last_cash=_to_optional_str(getattr(trade_account, "last_cash", None)),
@@ -422,6 +428,7 @@ def get_trade_account(
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 	try:
 		trade_account = service.get_trade_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+		print(trade_account)
 		return _to_trade_account_response(trade_account)
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
