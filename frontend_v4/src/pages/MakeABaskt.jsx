@@ -7,6 +7,8 @@ import { formatMetricNumber, percent } from "../lib/format";
 
 const defaultPosition = { symbol: "", target_weight: 1, direction: 1, leverage: 1, shortable: false };
 const MIN_BACKTEST_DATE = "1970-01-01";
+const TARGET_ALLOCATION = 1;
+const TARGET_ALLOCATION_TOLERANCE = 0.0001;
 
 function formatDateInput(date) {
   const year = date.getFullYear();
@@ -22,11 +24,11 @@ function getDefaultBacktestStartDate() {
 }
 
 function getAllocationTone(totalWeight) {
-  if (Math.abs(totalWeight - 1) < 0.0001) {
+  if (isTargetAllocation(totalWeight)) {
     return "ready";
   }
 
-  if (totalWeight > 1) {
+  if (totalWeight > TARGET_ALLOCATION) {
     return "over";
   }
 
@@ -34,15 +36,19 @@ function getAllocationTone(totalWeight) {
 }
 
 function getAllocationMessage(totalWeight) {
-  if (Math.abs(totalWeight - 1) < 0.0001) {
+  if (isTargetAllocation(totalWeight)) {
     return "Fully allocated";
   }
 
-  if (totalWeight > 1) {
-    return `${percent((totalWeight - 1) * 100)} over target`;
+  if (totalWeight > TARGET_ALLOCATION) {
+    return `${percent((totalWeight - TARGET_ALLOCATION) * 100)} over target`;
   }
 
-  return `${percent((1 - totalWeight) * 100)} left to allocate`;
+  return `${percent((TARGET_ALLOCATION - totalWeight) * 100)} left to allocate`;
+}
+
+function isTargetAllocation(totalWeight) {
+  return Math.abs(totalWeight - TARGET_ALLOCATION) <= TARGET_ALLOCATION_TOLERANCE;
 }
 
 function normalizePosition(position) {
@@ -103,7 +109,8 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
   const allocationTone = getAllocationTone(totalWeight);
   const todayDate = useMemo(() => formatDateInput(new Date()), []);
   const isBacktestDateRangeValid = backtestStartDate && backtestEndDate && backtestEndDate >= backtestStartDate;
-  const isFullyAllocated = Math.abs(totalWeight - 1) < 0.0001;
+  const isFullyAllocated = isTargetAllocation(totalWeight);
+  const canSaveBaskt = validPositions.length > 0 && isFullyAllocated && !isSaving;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -316,6 +323,11 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
       return;
     }
 
+    if (!isFullyAllocated) {
+      setError(`Target weights must total 100% before saving. ${getAllocationMessage(totalWeight)}.`);
+      return;
+    }
+
     try {
       setIsSaving(true);
       const payload = editingPortfolioId
@@ -486,10 +498,15 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
 
         <div className="builder-actions">
           <div>
-            <strong>{validPositions.length}</strong>
-            <span>valid position{validPositions.length === 1 ? "" : "s"} ready to save</span>
+            <strong>{percent(totalWeight * 100)}</strong>
+            <span>{isFullyAllocated ? `${validPositions.length} valid position${validPositions.length === 1 ? "" : "s"} ready to save` : "target weights must total 100%"}</span>
           </div>
-          <button className="primary-button" type="submit" disabled={isSaving}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={!canSaveBaskt}
+            title={!isFullyAllocated ? "Target weights must total 100% before saving." : undefined}
+          >
             {isSaving ? "Saving..." : editingPortfolioId ? "Update Baskt" : "Save Baskt"}
           </button>
         </div>

@@ -159,9 +159,15 @@ class CreateBasktTransferRequest(BaseModel):
 
 
 class BasktTradeAccountResponse(BaseModel):
+    equity: Optional[str]
     cash_withdrawable: Optional[str]
     cash_transferable: Optional[str]
     previous_close: Optional[str]
+    multiplier: Optional[str]
+    shorting_enabled: Optional[bool]
+    trading_blocked: Optional[bool]
+    account_blocked: Optional[bool]
+    status: Optional[str]
     last_long_market_value: Optional[str]
     last_short_market_value: Optional[str]
     last_cash: Optional[str]

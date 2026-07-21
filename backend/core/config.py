@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    # Prefer a deterministic env file location (repo root/.env) if present.
-    # Falls back to ".env" in the current working directory.
-    _repo_root_env = Path(__file__).resolve().parents[2] / ".env"
-    _default_env = Path(".env")
+_REPO_ROOT_DOTENV = Path(__file__).resolve().parents[2] / ".env"
 
+
+def _settings_env_file() -> str | None:
+    runtime_env = os.getenv("ENV", "").strip().lower()
+    if runtime_env and runtime_env != "dev":
+        return None
+    return str(_REPO_ROOT_DOTENV)
+
+
+class Settings(BaseSettings):
+    # .env is a local-dev convenience. Deployed envs should set ENV and all
+    # environment-specific values through the runtime environment.
     model_config = SettingsConfigDict(
-        env_file=str(_repo_root_env if _repo_root_env.exists() else _default_env),
+        env_file=_settings_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -27,8 +35,8 @@ class Settings(BaseSettings):
 
     # ---------- App ----------
     app_name: str = "portfolio-backend"
-    env: str = Field(default="dev", description="dev|test|stage|prod")
-    alpaca_env: str = "live" if env in ("stage", "prod") else "sandbox"
+    env: str = Field(default="dev", alias="ENV", description="dev|test|stage|prod")
+    alpaca_env: Optional[str] = Field(default=None, alias="ALPACA_ENV")
 
     # Read as a string to avoid JSON parsing edge-cases for list fields in env vars.
     # Accepts:
@@ -78,23 +86,36 @@ class Settings(BaseSettings):
         default="-model-portfolios",
         alias="MODEL_PORTFOLIO_SEARCH_INDEX_SUFFIX",
     )
+    baskt_account_search_index_suffix: str = Field(
+        default="-baskt-accounts",
+        alias="BASKT_ACCOUNT_SEARCH_INDEX_SUFFIX",
+    )
     trade_execution_queue_suffix: str = Field(
         default="-trade-execution-queue",
         alias="TRADE_EXECUTION_QUEUE_SUFFIX",
     )
-    dev_trade_execution_queue_url: Optional[str] = Field(
-        default=None,
-        alias="DEV_TRADE_EXECUTION_QUEUE_URL",
-    )
+    dev_trade_execution_queue_url: Optional[str] = Field(default=None, alias="DEV_TRADE_EXECUTION_QUEUE_URL")
+    test_trade_execution_queue_url: Optional[str] = Field(default=None, alias="TEST_TRADE_EXECUTION_QUEUE_URL")
+    stage_trade_execution_queue_url: Optional[str] = Field(default=None, alias="STAGE_TRADE_EXECUTION_QUEUE_URL")
+    prod_trade_execution_queue_url: Optional[str] = Field(default=None, alias="PROD_TRADE_EXECUTION_QUEUE_URL")
 
     # Local-only credentials (on AWS, rely on IAM roles; these can be unset)
-    aws_access_key_id: Optional[str] = Field(alias="AWS_ACCESS_KEY_ID")
-    aws_secret_access_key: Optional[str] = Field(alias="AWS_SECRET_ACCESS_KEY")
+    aws_access_key_id: Optional[str] = Field(default=None, alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: Optional[str] = Field(default=None, alias="AWS_SECRET_ACCESS_KEY")
 
     # ---------- Cognito ----------
-    dev_cognito_region: str = Field(alias="DEV_COGNITO_REGION")
-    dev_cognito_user_pool_id: str = Field(alias="DEV_COGNITO_USER_POOL_ID")
-    dev_cognito_app_client_id: str = Field(alias="DEV_COGNITO_APP_CLIENT_ID")
+    dev_cognito_region: Optional[str] = Field(default=None, alias="DEV_COGNITO_REGION")
+    dev_cognito_user_pool_id: Optional[str] = Field(default=None, alias="DEV_COGNITO_USER_POOL_ID")
+    dev_cognito_app_client_id: Optional[str] = Field(default=None, alias="DEV_COGNITO_APP_CLIENT_ID")
+    test_cognito_region: Optional[str] = Field(default=None, alias="TEST_COGNITO_REGION")
+    test_cognito_user_pool_id: Optional[str] = Field(default=None, alias="TEST_COGNITO_USER_POOL_ID")
+    test_cognito_app_client_id: Optional[str] = Field(default=None, alias="TEST_COGNITO_APP_CLIENT_ID")
+    stage_cognito_region: Optional[str] = Field(default=None, alias="STAGE_COGNITO_REGION")
+    stage_cognito_user_pool_id: Optional[str] = Field(default=None, alias="STAGE_COGNITO_USER_POOL_ID")
+    stage_cognito_app_client_id: Optional[str] = Field(default=None, alias="STAGE_COGNITO_APP_CLIENT_ID")
+    prod_cognito_region: Optional[str] = Field(default=None, alias="PROD_COGNITO_REGION")
+    prod_cognito_user_pool_id: Optional[str] = Field(default=None, alias="PROD_COGNITO_USER_POOL_ID")
+    prod_cognito_app_client_id: Optional[str] = Field(default=None, alias="PROD_COGNITO_APP_CLIENT_ID")
 
     # ----------- Alpaca Broker -------------
     sandbox_alpaca_broker_api_key: Optional[str] = Field(default=None, alias="SANDBOX_ALPACA_BROKER_API_KEY")
@@ -103,6 +124,14 @@ class Settings(BaseSettings):
     live_alpaca_broker_api_secret: Optional[str] = Field(default=None, alias="LIVE_ALPACA_BROKER_API_SECRET")
 
     # ---------- Validators / derived values ----------
+    @field_validator("env", mode="before")
+    @classmethod
+    def _validate_env(cls, v: Any) -> str:
+        env = str(v or "dev").strip().lower()
+        if env not in {"dev", "test", "stage", "prod"}:
+            raise ValueError("ENV must be one of: dev, test, stage, prod")
+        return env
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _coerce_cors_origins(cls, v: Any) -> str:
@@ -120,11 +149,19 @@ class Settings(BaseSettings):
 
     @field_validator("alpaca_env", mode="before")
     @classmethod
-    def _validate_alpaca_env(cls, v: Any) -> str:
-        alpaca_env = str(v or "sandbox").strip().lower()
+    def _validate_alpaca_env(cls, v: Any) -> Optional[str]:
+        if v is None or str(v).strip() == "":
+            return None
+        alpaca_env = str(v).strip().lower()
         if alpaca_env not in {"sandbox", "live"}:
             raise ValueError("ALPACA_ENV must be either 'sandbox' or 'live'")
         return alpaca_env
+
+    @model_validator(mode="after")
+    def _default_alpaca_env(self) -> "Settings":
+        if self.alpaca_env is None:
+            self.alpaca_env = "live" if self.env in {"stage", "prod"} else "sandbox"
+        return self
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -195,14 +232,20 @@ class Settings(BaseSettings):
         return f"{self.env}{self.model_portfolio_search_index_suffix}"
 
     @property
+    def baskt_account_search_index(self) -> str:
+        """Return the environment-specific Baskt account search index name."""
+        return f"{self.env}{self.baskt_account_search_index_suffix}"
+
+    @property
     def trade_execution_queue_name(self) -> str:
         """Return the environment-specific trade execution queue name."""
         return f"{self.env}{self.trade_execution_queue_suffix}"
 
     @property
     def trade_execution_queue_url(self) -> Optional[str]:
-        """Return the dev trade execution queue URL when configured."""
-        return self.dev_trade_execution_queue_url
+        """Return the configured trade execution queue URL for the current environment."""
+        queue_url = getattr(self, f"{self.env}_trade_execution_queue_url", None)
+        return queue_url or None
 
     @property
     def alpaca_api_key(self) -> str:
@@ -274,7 +317,7 @@ class Settings(BaseSettings):
             return env_specific_cognito_region
         raise ValueError(
             f"Cognito not configured for environment '{self.env}'. "
-            f"Set {self.env.upper()}_COGNTIO_REGION in your .env file"
+            f"Set {self.env.upper()}_COGNITO_REGION in your .env file"
         )
     
     @property

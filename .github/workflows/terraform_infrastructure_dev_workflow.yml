@@ -1,10 +1,6 @@
 name: Deploy Dev Infrastructure with Terraform
 
 on:
-  push:
-    branches:
-      - develop
-      - "feature/**"
   workflow_dispatch:
 
 concurrency:
@@ -102,6 +98,15 @@ jobs:
           repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
           image_uri="${repository_uri}:${GITHUB_SHA}"
 
+          if aws ecr describe-images \
+            --repository-name "$repository_name" \
+            --image-ids imageTag="$GITHUB_SHA" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Image $image_uri already exists; reusing it."
+            echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
           aws ecr get-login-password --region "$AWS_REGION" \
             | docker login --username AWS --password-stdin "${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
@@ -112,6 +117,55 @@ jobs:
 
           docker push "$image_uri"
 
+          echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Resolve trade execution queue worker image URI
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${TF_VAR_trade_worker_image_uri:-}" ]]; then
+            echo "Using configured trade worker image: $TF_VAR_trade_worker_image_uri"
+            exit 0
+          fi
+
+          function_name="dev-trade-execution-queue-worker"
+          image_uri="$(
+            aws lambda get-function \
+              --function-name "$function_name" \
+              --region "$AWS_REGION" \
+              --query 'Code.ImageUri' \
+              --output text 2>/dev/null || true
+          )"
+
+          if [[ -n "$image_uri" && "$image_uri" != "None" ]]; then
+            echo "Reusing current Lambda image: $image_uri"
+            echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          repository_name="dev-trade-execution-queue-worker"
+          repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
+          latest_tag="$(
+            aws ecr describe-images \
+              --repository-name "$repository_name" \
+              --region "$AWS_REGION" \
+              --filter tagStatus=TAGGED \
+              --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+              --output text 2>/dev/null || true
+          )"
+
+          if [[ -z "$latest_tag" || "$latest_tag" == "None" ]]; then
+            echo "Unable to resolve a trade worker image URI. Build the worker image or set TF_VAR_trade_worker_image_uri." >&2
+            exit 1
+          fi
+
+          image_uri="${repository_uri}:${latest_tag}"
+          echo "Reusing latest ECR image: $image_uri"
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
       - name: Plan dev infrastructure changes

@@ -2026,6 +2026,8 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible { outline: 2
 .account-details-list > div { display: grid; grid-template-columns: minmax(180px, 40%) minmax(0, 1fr); gap: 24px; padding: 11px 0; }
 .account-details-list dt { color: #8f8997; font-size: 13px; }
 .account-details-list dd { margin: 0; color: #e9e5ed; font-size: 13px; overflow-wrap: anywhere; }
+.account-details-empty { display: grid; justify-items: start; gap: 12px; }
+.account-details-empty p { margin: 0; color: var(--muted); font-size: 13px; }
 .field-label-with-help { position: relative; display: inline-flex; align-items: center; gap: 7px; width: fit-content; }
 .field-label-with-help > button { display: grid; place-items: center; width: 17px; height: 17px; min-height: 0; border: 1px solid #4a4450; border-radius: 50%; padding: 0; background: transparent; color: #918a98; font-size: 10px; font-weight: 800; line-height: 1; }
 .field-label-with-help > button:hover, .field-label-with-help > button:focus-visible { border-color: #8b72ad; color: #d8c8ed; }
@@ -2160,6 +2162,8 @@ label, .field { color: #c9c4ce; font-size: 12px; }
 .primary-button, .ghost-button, .danger-button, .text-button, .icon-button { min-height: 40px; border-radius: 4px; font-size: 12px; letter-spacing: .01em; }
 .primary-button { background: var(--purple-600); color: #fff; }
 .primary-button:hover { background: #9e75ff; }
+.primary-button:disabled { cursor: not-allowed; opacity: .58; }
+.primary-button:disabled:hover { background: var(--purple-600); }
 .ghost-button, .icon-button { border-color: #393640; background: #111115; color: #ded9e4; }
 .ghost-button:hover, .icon-button:hover { border-color: #61566f; background: #17141b; }
 .danger-button { border-color: #69323b; background: #1c1013; color: #ff8c96; }

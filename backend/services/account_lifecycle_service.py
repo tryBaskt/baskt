@@ -18,7 +18,6 @@ from domain.baskt_account_domain import (
 	IdentityData,
 	AgreementData
 )
-# from domain.baskt_domain import BasktAccount
 
 class AccountLifecycleInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "ACCOUNT_LIFECYCLE_SERVICE_ERROR") -> None:

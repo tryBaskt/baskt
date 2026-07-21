@@ -41,6 +41,7 @@ class ModelPortfoliosStocksSearchService:
         opensearch_client: OpenSearchClient,
         alpaca_broker_client: AlpacaBrokerClient,
         baskt_account_repository: BasktAccountRepository,
+        baskt_account_search_index: str,
     ) -> None:
         """Initialize the search service.
 
@@ -54,6 +55,7 @@ class ModelPortfoliosStocksSearchService:
         self.opensearch_client = opensearch_client
         self.alpaca_broker_client = alpaca_broker_client
         self.baskt_account_repository = baskt_account_repository
+        self.baskt_account_search_index = baskt_account_search_index
 
 
     def search_model_portfolios_and_stocks(
@@ -164,7 +166,7 @@ class ModelPortfoliosStocksSearchService:
             }
             response = self.opensearch_client._request(
                 method="POST",
-                path="dev-baskt-accounts/_search",
+                path=f"{self.baskt_account_search_index}/_search",
                 body=search_body,
             )
             hits_data = response["hits"]

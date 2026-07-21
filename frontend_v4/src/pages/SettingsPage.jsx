@@ -47,6 +47,28 @@ const sectionFields = {
   ],
 };
 
+const tradeAccountFields = [
+  ["status", "Status", "text"],
+  ["equity", "Equity", "currency"],
+  ["cash_withdrawable", "Cash withdrawable", "currency"],
+  ["cash_transferable", "Cash transferable", "currency"],
+  ["previous_close", "Previous close", "datetime"],
+  ["multiplier", "Multiplier", "text"],
+  ["shorting_enabled", "Shorting enabled", "boolean"],
+  ["trading_blocked", "Trading blocked", "boolean"],
+  ["account_blocked", "Account blocked", "boolean"],
+  ["last_cash", "Cash", "currency"],
+  ["last_buying_power", "Buying power", "currency"],
+  ["last_regt_buying_power", "Reg T buying power", "currency"],
+  ["last_daytrading_buying_power", "Day trading buying power", "currency"],
+  ["last_long_market_value", "Long market value", "currency"],
+  ["last_short_market_value", "Short market value", "currency"],
+  ["last_initial_margin", "Initial margin", "currency"],
+  ["last_daytrade_count", "Day trade count", "number"],
+  ["clearing_broker", "Clearing broker", "text"],
+];
+const TRADE_ACCOUNT_REQUEST_TIMEOUT_MS = 15000;
+
 function FieldLabel({ label, description }) {
   if (!description) return label;
   const tooltipId = `tooltip-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
@@ -86,6 +108,37 @@ function displayDate(value) {
     day: "numeric",
     timeZone: "UTC",
   }).format(parsedDate);
+}
+
+function displayDateTime(value) {
+  if (!value) return "—";
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return displayValue(value);
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(parsedDate);
+}
+
+function displayCurrency(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return displayValue(value);
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(numeric);
+}
+
+function displayTradeAccountValue(value, type) {
+  if (type === "currency") return displayCurrency(value);
+  if (type === "datetime") return displayDateTime(value);
+  return displayValue(value);
 }
 
 function editableFields(section, data) {
@@ -232,8 +285,47 @@ function AccountSection({ title, section, data, editingSection, onEdit, form, se
   );
 }
 
+function TradeAccountSection({ tradeAccount, status, onRetry }) {
+  if (status === "loading") {
+    return (
+      <section className="account-details-section">
+        <LoadingState title="Loading account details" message="Fetching your trading account data." />
+      </section>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <section className="account-details-section account-details-empty">
+        <p>Account details could not be loaded.</p>
+        <button className="settings-secondary-button" type="button" onClick={onRetry}>
+          Retry
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="account-details-section">
+      <div className="account-details-section-heading">
+        <h2>Trading Account</h2>
+        <span>Read only</span>
+      </div>
+      <dl className="account-details-list">
+        {tradeAccountFields.map(([key, label, type]) => (
+          <div key={key}>
+            <dt>{label}</dt>
+            <dd>{displayTradeAccountValue(tradeAccount?.[key], type)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const [account, setAccount] = useState(null);
+  const [tradeAccount, setTradeAccount] = useState(null);
   const [settingsSection, setSettingsSection] = useState("profile");
   const [editingSection, setEditingSection] = useState(null);
   const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
@@ -242,6 +334,8 @@ export default function SettingsPage() {
   const [description, setDescription] = useState("");
   const [form, setForm] = useState({});
   const [isLoading, setIsLoading] = useState(true);
+  const [tradeAccountStatus, setTradeAccountStatus] = useState("idle");
+  const [tradeAccountReloadToken, setTradeAccountReloadToken] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -260,6 +354,44 @@ export default function SettingsPage() {
       });
     return () => { isActive = false; };
   }, []);
+
+  useEffect(() => {
+    if (settingsSection !== "trade-account" || tradeAccount) {
+      return undefined;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, TRADE_ACCOUNT_REQUEST_TIMEOUT_MS);
+    setTradeAccountStatus("loading");
+    setError("");
+    apiRequest("/accounts/trade-account", { signal: controller.signal })
+      .then((payload) => {
+        if (!isActive) return;
+        setTradeAccount(payload);
+        setTradeAccountStatus("loaded");
+      })
+      .catch((requestError) => {
+        if (!isActive) return;
+        setError(
+          requestError.name === "AbortError"
+            ? "Account details took too long to load. Please try again."
+            : requestError.message
+        );
+        setTradeAccountStatus("error");
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+      });
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [settingsSection, tradeAccount, tradeAccountReloadToken]);
 
   function beginEditing(section, data) {
     setError("");
@@ -345,7 +477,7 @@ export default function SettingsPage() {
   }
 
   if (isLoading) {
-    return <LoadingState title="Loading account details" message="Fetching your account information." />;
+    return <LoadingState title="Loading personal info" message="Fetching your account information." />;
   }
 
   return (
@@ -374,6 +506,18 @@ export default function SettingsPage() {
             type="button"
             onClick={() => {
               setSettingsSection("account-details");
+              setIsEditingDisplayName(false);
+              setIsEditingDescription(false);
+            }}
+          >
+            Personal Info
+          </button>
+          <button
+            className={settingsSection === "trade-account" ? "active" : ""}
+            type="button"
+            onClick={() => {
+              setSettingsSection("trade-account");
+              setEditingSection(null);
               setIsEditingDisplayName(false);
               setIsEditingDescription(false);
             }}
@@ -469,12 +613,12 @@ export default function SettingsPage() {
                   )}
                 </section>
               </>
-            ) : (
+            ) : settingsSection === "account-details" ? (
             <>
               <div className="account-details-title">
                 <div>
                   <p className="eyebrow">Account</p>
-                  <h2>Account Details</h2>
+                  <h2>Personal Info</h2>
                 </div>
                 <p>Information used to maintain and service your account.</p>
               </div>
@@ -496,6 +640,25 @@ export default function SettingsPage() {
                 </div>
               </section>
             </>
+            ) : (
+              <>
+                <div className="account-details-title">
+                  <div>
+                    <p className="eyebrow">Account</p>
+                    <h2>Account Details</h2>
+                  </div>
+                  <p>Trading account balances and buying power from your brokerage account.</p>
+                </div>
+
+                <TradeAccountSection
+                  tradeAccount={tradeAccount}
+                  status={tradeAccountStatus}
+                  onRetry={() => {
+                    setTradeAccount(null);
+                    setTradeAccountReloadToken((current) => current + 1);
+                  }}
+                />
+              </>
             )
           )}
         </div>

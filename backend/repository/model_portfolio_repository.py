@@ -3,6 +3,7 @@
 # Python imports
 from __future__ import annotations
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Dict, Optional, Tuple
 from uuid import uuid4
 import time
@@ -164,6 +165,20 @@ class ModelPortfolioUnprocessableEntityError(ModelPortfolioInternalServerError):
             code="MODEL_PORTFOLIO_ENTITY_UNPROCESSABLE_ERROR",
         )
 
+
+class ModelPortfolioInvalidWeightError(ModelPortfolioUnprocessableEntityError):
+    def __init__(self, total_weight: Decimal) -> None:
+        formatted_total = format(total_weight * Decimal("100"), "f").rstrip("0").rstrip(".") or "0"
+        ModelPortfolioInternalServerError.__init__(
+            self,
+            message=(
+                "Model portfolio position target weights must total 100%. "
+                f"Current total is {formatted_total}%."
+            ),
+            code="MODEL_PORTFOLIO_INVALID_TARGET_WEIGHT_TOTAL",
+        )
+
+
 class ModelPortfolioTooManyRequestsError(ModelPortfolioInternalServerError):
     def __init__(self, retry_after_seconds: int) -> None:
         """
@@ -251,6 +266,17 @@ class ModelPortfolioRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+
+    @staticmethod
+    def _validate_target_weight_total(
+        positions_request: List[ModelPortfolioPositionRequest],
+    ) -> None:
+        total_weight = sum(
+            Decimal(str(position.target_weight))
+            for position in positions_request
+        )
+        if abs(total_weight - Decimal("1")) > Decimal("0.0001"):
+            raise ModelPortfolioInvalidWeightError(total_weight=total_weight)
 
     def _wait_until_portfolio_update_lock_is_released(self, portfolio_id: str) -> None:
         """
@@ -500,6 +526,8 @@ class ModelPortfolioRepository:
             snapshot or DynamoDB item cannot be created.
         """
 
+        self._validate_target_weight_total(positions_request)
+
         # Generate new portfolio id
         portfolio_id = str(uuid4())
 
@@ -589,6 +617,8 @@ class ModelPortfolioRepository:
 
         Raises:
             ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If target weights do not
+            total 100%.
             ModelPortfolioLockedError: If the portfolio lock cannot be acquired,
             is already held, or cannot be released.
             ModelPortfolioTooManyRequestsError: If the portfolio was updated
@@ -598,6 +628,8 @@ class ModelPortfolioRepository:
             ModelPortfolioUnprocessableEntityError: If the updated portfolio
             snapshot or DynamoDB item cannot be created.
         """
+        self._validate_target_weight_total(positions_request)
+
         # Ensure portfolio does exist
         existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
         if not existing:

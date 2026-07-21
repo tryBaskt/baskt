@@ -14,6 +14,12 @@
 .DS_Store
 .env
 .env.*
+!.env.dev
+!.env.test
+!.env.stage.example
+!.env.prod.example
+.env.local
+.env.*.local
 
 # logs
 npm-debug.log*

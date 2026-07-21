@@ -346,10 +346,12 @@ def get_model_portfolios_stocks_search_service(
         get_baskt_account_repository
     ),
 ) -> ModelPortfoliosStocksSearchService:
+    s = get_settings()
     return ModelPortfoliosStocksSearchService(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
         baskt_account_repository=baskt_account_repository,
+        baskt_account_search_index=s.baskt_account_search_index,
     )
 
 

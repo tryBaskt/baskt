@@ -165,8 +165,8 @@ class CognitoClient:
                 custom attribute.
             alpaca_account_number: Alpaca broker account number to store as a
                 Cognito custom attribute.
-            password: Password used when creating a dev Cognito user and
-                setting the user's permanent password.
+            password: Password used when creating a Cognito user and setting
+                the user's permanent password.
 
         Returns:
             str: Cognito user ID/sub.
@@ -198,58 +198,59 @@ class CognitoClient:
                 code="COGNITO_CREATE_USER_INVALID_ACCOUNT_DATA",
             ) from err
 
-        if self.env.lower() == "dev":
-            try:
-                self.cognito_client.admin_create_user(
-                    UserPoolId=self.user_pool_id,
-                    Username=email_address,
-                    UserAttributes=user_attributes,
-                    MessageAction="SUPPRESS",
-                    TemporaryPassword=password,
-                )
+        # supported_creation_envs = {"dev", "test"}
+        # if self.env.lower() not in supported_creation_envs:
+        #     raise CognitoClientError(
+        #         message=f"Cognito user creation is not supported for environment '{self.env}'",
+        #         code="COGNITO_CREATE_USER_UNSUPPORTED_ENV",
+        #     )
 
-                self.cognito_client.admin_set_user_password(
-                    UserPoolId=self.user_pool_id,
-                    Username=email_address,
-                    Password=password,
-                    Permanent=True,
-                )
+        try:
+            self.cognito_client.admin_create_user(
+                UserPoolId=self.user_pool_id,
+                Username=email_address,
+                UserAttributes=user_attributes,
+                MessageAction="SUPPRESS",
+                TemporaryPassword=password,
+            )
 
-                self.cognito_client.admin_update_user_attributes(
-                    UserPoolId=self.user_pool_id,
-                    Username=email_address,
-                    UserAttributes=user_attributes,
-                )
+            self.cognito_client.admin_set_user_password(
+                UserPoolId=self.user_pool_id,
+                Username=email_address,
+                Password=password,
+                Permanent=True,
+            )
 
-                self.cognito_client.admin_enable_user(
-                    UserPoolId=self.user_pool_id,
-                    Username=email_address,
-                )
+            self.cognito_client.admin_update_user_attributes(
+                UserPoolId=self.user_pool_id,
+                Username=email_address,
+                UserAttributes=user_attributes,
+            )
 
-                created_user = self.get_cognito_user_by_email_address(email_address=email_address)
-                return created_user["cognito_user_id"]
+            self.cognito_client.admin_enable_user(
+                UserPoolId=self.user_pool_id,
+                Username=email_address,
+            )
 
-            except ClientError as err:
-                if err.response.get("Error", {}).get("Code") == "UsernameExistsException":
-                    raise CognitoClientUserAlreadyExists(
-                        identifier=email_address,
-                        identifier_type="email_address",
-                    ) from err
+            created_user = self.get_cognito_user_by_email_address(email_address=email_address)
+            return created_user["cognito_user_id"]
 
-                raise CognitoClientError(
-                    message=f"Failed to create cognito user: {err}",
-                    code="COGNITO_CREATE_USER_FAILED",
-                ) from err
-            except (BotoCoreError, ParamValidationError) as err:
-                raise CognitoClientError(
-                    message=f"Failed to create cognito user: {err}",
-                    code="COGNITO_CREATE_USER_FAILED",
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") == "UsernameExistsException":
+                raise CognitoClientUserAlreadyExists(
+                    identifier=email_address,
+                    identifier_type="email_address",
                 ) from err
 
-        raise CognitoClientError(
-            message=f"Cognito user creation is not supported for environment '{self.env}'",
-            code="COGNITO_CREATE_USER_UNSUPPORTED_ENV",
-        )
+            raise CognitoClientError(
+                message=f"Failed to create cognito user: {err}",
+                code="COGNITO_CREATE_USER_FAILED",
+            ) from err
+        except (BotoCoreError, ParamValidationError) as err:
+            raise CognitoClientError(
+                message=f"Failed to create cognito user: {err}",
+                code="COGNITO_CREATE_USER_FAILED",
+            ) from err
 
     def delete_cognito_user(
         self,
