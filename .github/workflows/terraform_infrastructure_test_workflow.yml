@@ -1,9 +1,6 @@
 name: Deploy Test Infrastructure with Terraform
 
 on:
-  push:
-    branches:
-      - test
   workflow_dispatch:
 
 concurrency:
