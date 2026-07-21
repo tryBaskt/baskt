@@ -1,17 +1,7 @@
 name: Deploy Test Frontend to S3 and CloudFront
 
 on:
-  push:
-    branches:
-      - test
-    paths:
-      - "frontend_v4/**"
-      - ".github/workflows/deploy_frontend_test_workflow.yml"
   workflow_dispatch:
-
-concurrency:
-  group: test-aws-environment
-  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -19,7 +9,7 @@ permissions:
 
 jobs:
   deploy-test-frontend:
-    if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: test
     env:

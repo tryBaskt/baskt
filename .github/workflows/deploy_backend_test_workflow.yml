@@ -1,18 +1,7 @@
 name: Deploy Test Backend to ECS
 
 on:
-  push:
-    branches:
-      - test
-    paths:
-      - "backend/**"
-      - "infrastructure_terraform/test/**"
-      - ".github/workflows/deploy_backend_test_workflow.yml"
   workflow_dispatch:
-
-concurrency:
-  group: test-aws-environment
-  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -20,7 +9,7 @@ permissions:
 
 jobs:
   deploy-test-backend:
-    if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: test
     env:
