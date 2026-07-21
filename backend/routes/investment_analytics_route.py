@@ -14,7 +14,8 @@ from core.deps import (
 	get_current_user,
 	get_current_active_alpaca_account,
 	get_trade_execution_service,
-	get_order_repository
+	get_order_repository,
+	get_current_alpaca_account
 )
 from repository.order_repository import OrderRepository
 from schema.investment_analytics_schema import (
@@ -69,13 +70,21 @@ def _raise_investment_analytics_http_exception(err: Exception) -> None:
 @router.get("", response_model= AccountAnalyticsResponse, status_code=HTTP_200_OK)
 def get_account_analytics(
 	user: Dict[str, Any] = Depends(get_current_user),
-	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 	order_repository: OrderRepository = Depends(get_order_repository)
 ) -> AccountAnalyticsResponse:
 	cognito_user_id = user["sub"]
 	alpaca_account_id = user["custom:alpaca_acct_id"]
+
+	if alpaca_account.status.name.upper() not in ('ACTIVE','APPROVED'):
+		return AccountAnalyticsResponse(
+			cash=0.0,
+			equity=0.0,
+			equity_graph={},
+			portfolio_allocations={}
+		)
 
 	try:
 		portfolio_ids_owner_ids = order_repository.get_portfolio_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
