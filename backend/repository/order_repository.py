@@ -377,29 +377,15 @@ class OrderRepository:
                 operation=f"loading unfilled orders for Cognito user '{cognito_user_id}'",
                 cause=error,
             ) from error
-
-        portfolios: List[Tuple[str,str]] = []
-        portfolio_index: Dict[str, int] = {}
+        
+        portfolio_ids_owner_ids = set()
         for order in orders:
-            if str(order.get("status", "")).upper() == "FILLED":
+            if str(order.get("status","")).upper() == "FILLED":
                 continue
-            portfolio_id = order.get("portfolio_id")
-            if portfolio_id is None:
-                continue
-            normalized_portfolio_id = str(portfolio_id)
-            owner_id = order.get("portfolio_owner_cognito_user_id")
-            normalized_owner_id = str(owner_id) if owner_id is not None else None
-            if normalized_portfolio_id in portfolio_index:
-                existing = portfolios[portfolio_index[normalized_portfolio_id]]
-                if existing["portfolio_owner_cognito_user_id"] is None:
-                    existing["portfolio_owner_cognito_user_id"] = normalized_owner_id
-                continue
-            portfolio_index[normalized_portfolio_id] = len(portfolios)
-            portfolios.append(
-                (normalized_portfolio_id, normalized_owner_id)
-            )
+            portfolio_ids_owner_ids.add((order.get("portfolio_id"), order.get("portfolio_owner_cognito_user_id")))
 
-        return portfolios
+        return list(portfolio_ids_owner_ids)
+
 
 
     def get_unfilled_orders_by_cognito_user_id(
