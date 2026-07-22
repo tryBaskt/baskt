@@ -548,3 +548,101 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.cloudfront.outputs.distribution_id }}" \
             --paths "/*"
+
+  run-backend-tests:
+    needs: deploy-test-frontend
+    runs-on: ubuntu-latest
+    environment: test
+    env:
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ALPACA_ENV: sandbox
+      SANDBOX_ALPACA_BROKER_API_KEY: ${{ secrets.SANDBOX_ALPACA_BROKER_API_KEY }}
+      SANDBOX_ALPACA_BROKER_API_SECRET: ${{ secrets.SANDBOX_ALPACA_BROKER_API_SECRET }}
+      TEST_COGNITO_REGION: ${{ vars.TEST_COGNITO_REGION }}
+      TEST_COGNITO_USER_POOL_ID: ${{ vars.TEST_COGNITO_USER_POOL_ID }}
+      TEST_COGNITO_APP_CLIENT_ID: ${{ vars.TEST_COGNITO_APP_CLIENT_ID }}
+      TEST_TRADE_EXECUTION_QUEUE_URL: ${{ vars.TEST_TRADE_EXECUTION_QUEUE_URL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: python -m pytest backend/tests --junitxml=backend-test-results.xml
+
+      - name: Publish backend test results
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import html
+          import xml.etree.ElementTree as ET
+
+          def markdown_cell(value):
+              return html.escape(value).replace("|", "\\|")
+
+          report_path = Path("backend-test-results.xml")
+          summary_path = Path(__import__("os").environ["GITHUB_STEP_SUMMARY"])
+
+          with summary_path.open("a", encoding="utf-8") as summary:
+              summary.write("\n## Backend test results\n\n")
+
+              if not report_path.exists():
+                  summary.write("No backend test report was generated.\n")
+                  raise SystemExit(0)
+
+              root = ET.parse(report_path).getroot()
+              test_cases = root.findall(".//testcase")
+
+              summary.write("| Test case | Result | Error message |\n")
+              summary.write("| --- | --- | --- |\n")
+
+              for test_case in test_cases:
+                  class_name = test_case.attrib.get("classname", "")
+                  test_name = test_case.attrib.get("name", "")
+                  full_name = f"{class_name}.{test_name}" if class_name else test_name
+
+                  failure = test_case.find("failure")
+                  error = test_case.find("error")
+                  skipped = test_case.find("skipped")
+
+                  if failure is not None:
+                      result = "failed"
+                      message = failure.attrib.get("message") or failure.text or ""
+                  elif error is not None:
+                      result = "error"
+                      message = error.attrib.get("message") or error.text or ""
+                  elif skipped is not None:
+                      result = "skipped"
+                      message = skipped.attrib.get("message") or skipped.text or ""
+                  else:
+                      result = "passed"
+                      message = ""
+
+                  message = " ".join(message.split())
+                  if len(message) > 500:
+                      message = f"{message[:497]}..."
+
+                  summary.write(
+                      f"| {markdown_cell(full_name)} "
+                      f"| {markdown_cell(result)} "
+                      f"| {markdown_cell(message)} |\n"
+                  )
+          PY
