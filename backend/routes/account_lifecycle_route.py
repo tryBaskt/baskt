@@ -428,7 +428,6 @@ def get_trade_account(
 	alpaca_account_id = user["custom:alpaca_acct_id"]
 	try:
 		trade_account = service.get_trade_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
-		print(trade_account)
 		return _to_trade_account_response(trade_account)
 	except Exception as err:
 		_raise_account_lifecycle_http_exception(err)
