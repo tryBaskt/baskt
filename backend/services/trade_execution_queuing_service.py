@@ -19,12 +19,12 @@ from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
-
+from math import floor
 MINIMUM_PORTFOLIO_BALANCE = 1.0
 MINIMUM_STOCK_BALANCE = 1.0
 TRADE_AMOUNT_MIN = 10.0
 QUEUE_LOCK_LEASE_SECONDS = 30
-
+MARGIN = 0.000
 
 def _with_user_trade_lock(method: Any) -> Any:
     """Serialize one public queue operation for its Cognito user."""
@@ -249,6 +249,19 @@ class TradeExecutionQueuingService:
                 message=f"Trade amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
+        
+    def _validate_user_short_enabled(self, alpaca_account_id: str,  cognito_user_id: str) -> None:
+        trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        try:
+            multiplier = int(trade_account.multiplier)
+        except (TypeError, ValueError):
+            multiplier = 0
+
+        if not (multiplier > 1 and trade_account.shorting_enabled is True):
+            raise TradeExecutionQueuingInternalServerError(
+                message=f"Cognito user '{cognito_user_id}' and alpaca account '{alpaca_account_id}' is not short enabled",
+                code="TRADE_EXECUTION_QUEUE_USER_NOT_SHORT_ENABLED",
+            )
 
     def queue_portfolio_update(
         self,
@@ -354,6 +367,7 @@ class TradeExecutionQueuingService:
                 "portfolio_owner_cognito_user_id", portfolio_owner_cognito_user_id
             )
             self._validate_amount(amount)
+            self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(
                 portfolio_id=portfolio_id
@@ -688,6 +702,28 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue a stock sell, including opening a short position."""
         try:
+            impending_sell_amount = float(amount)
+            quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
+
+            if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=asset_id):
+                transaction_snapshots = self.portfolio_allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+                for snapshot in transaction_snapshots:
+                    if (
+                        snapshot.status.upper() in {"QUEUED", "PROCESSING", "ORDERED", "PARTIALLY_FILLED"}
+                        and snapshot.transaction_type.upper() == "SELL"
+                    ):
+                        impending_sell_amount += (
+                            float(snapshot.requested_amount or 0.0)
+                            - float(snapshot.cost_basis or 0.0)
+                        )
+            
+            price = quotes[symbol]
+            margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
+            impending_sell_qty = impending_sell_amount / margin_bid
+            position = self.alpaca_broker_client.get_position_by_asset_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, asset_id=asset_id)
+            if not position or position.direction != 1 or position.filled_quantity - impending_sell_qty < 0:
+                self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+
             return self._queue_stock_trade(
                 symbol=symbol,
                 asset_id=asset_id,

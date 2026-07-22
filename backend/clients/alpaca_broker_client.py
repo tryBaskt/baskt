@@ -1302,6 +1302,34 @@ class AlpacaBrokerClient:
                 message=f"Failed to get order by id for alpaca account id '{alpaca_account_id}', cognito_user_id '{cognito_user_id}', and order id '{order_id}': {e}",
                 code = "ALPACA_BROKER_GET_ORDER_BY_ID_FAILED"
             )
+        
+    def get_position_by_asset_id(self, alpaca_account_id: str, cognito_user_id: str, asset_id: str, error_if_no_position: bool = False) -> BasktPosition | None:
+        try:
+            position = self.client.get_open_position_for_account(
+                account_id=alpaca_account_id,
+                symbol_or_asset_id=asset_id,
+            )
+        except APIError as e:
+            if e.status_code == 404 and not error_if_no_position:
+                return None
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get Alpaca position for asset id '{asset_id}', alpaca account id '{alpaca_account_id}', and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_GET_POSITION_BY_ASSET_ID_FAILED",
+            ) from e
+
+        except Exception as e:
+            raise AlpacaBrokerClientError(
+                message=f"Failed to get Alpaca position for asset id '{asset_id}', alpaca account id '{alpaca_account_id}', and cognito user id '{cognito_user_id}': {e}",
+                code="ALPACA_BROKER_GET_POSITION_BY_ASSET_ID_FAILED",
+            ) from e
+
+        side = getattr(position.side, "name", str(position.side)).upper()
+        return BasktPosition(
+            symbol=position.symbol,
+            filled_avg_price=float(position.avg_entry_price),
+            filled_quantity=abs(float(position.qty)),
+            direction=1 if side == "LONG" else -1,
+        )
 
     #############################   
     #### ACCOUNT ANALYTICS ####

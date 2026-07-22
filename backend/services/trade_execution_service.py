@@ -72,6 +72,19 @@ class TradeExecutionService:
                 message=f"Trade execution amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_AMOUNT_INVALID",
             )
+        
+    def _validate_user_short_enabled(self, alpaca_account_id: str,  cognito_user_id: str) -> None:
+        trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        try:
+            multiplier = int(trade_account.multiplier)
+        except (TypeError, ValueError):
+            multiplier = 0
+
+        if not (multiplier > 1 and trade_account.shorting_enabled is True):
+            raise TradeExecutionInternalServerError(
+                message=f"Cognito user '{cognito_user_id}' and alpaca account '{alpaca_account_id}' is not short enabled",
+                code="TRADE_EXECUTION_USER_NOT_SHORT_ENABLED",
+            )
 
     @staticmethod
     def _find_transaction(
@@ -1111,6 +1124,7 @@ class TradeExecutionService:
         owner_token = str(uuid.uuid4())
         try:
             self._validate_amount(deposit_amount)
+            self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             acquired = self.user_trade_lock_repository.acquire_lock(
                 cognito_user_id=cognito_user_id,
                 owner_token=owner_token,
@@ -1412,6 +1426,10 @@ class TradeExecutionService:
             margin_bid = float(floor(price * (1 - MARGIN) * 100) / 100)
             order_qty = withdraw_amount / margin_bid
             delta_positions = [DeltaPosition(symbol=symbol, quantity=order_qty, direction=-1)]
+
+            position = self.alpaca_broker_client.get_position_by_asset_id(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, asset_id=asset_id)
+            if not position or position.direction != 1 or position.filled_quantity - order_qty < 0:
+                self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
             # Execute trades via helper
             return self._execute_trades_helper(
