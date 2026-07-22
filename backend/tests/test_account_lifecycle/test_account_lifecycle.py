@@ -7,8 +7,6 @@ import uuid
 import pytest
 
 from .conftest import (
-    FUNDED_ALPACA_ACCOUNT_ID,
-    FUNDED_COGNITO_USER_ID,
     TestEngine,
 )
 from backend.domain.baskt_account_domain import (
@@ -346,14 +344,14 @@ def test_create_and_cancel_ach_transfer_for_funded_account(
 ):
     """Create an ACH transfer and verify that Alpaca marks it canceled."""
     relationships = test_engine.test_get_ach_relationships(
-        alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-        cognito_user_id=FUNDED_COGNITO_USER_ID,
+        alpaca_account_id=test_engine.funded_50000_alpaca_account_id,
+        cognito_user_id=test_engine.funded_50000_cognito_user_id,
     )
     assert relationships, "The funded test account must have an ACH relationship"
 
     transfer = test_engine.test_create_ach_transfer(
-        alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
-        cognito_user_id=FUNDED_COGNITO_USER_ID,
+        alpaca_account_id=test_engine.funded_50000_alpaca_account_id,
+        cognito_user_id=test_engine.funded_50000_cognito_user_id,
         amount="1.00",
         direction="INCOMING",
         timing="IMMEDIATE",
@@ -363,8 +361,8 @@ def test_create_and_cancel_ach_transfer_for_funded_account(
     transfer_id = str(transfer.id)
 
     test_engine.account_lifecycle_service.cancel_transfer(
-        cognito_user_id=FUNDED_COGNITO_USER_ID,
-        alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+        cognito_user_id=test_engine.funded_50000_cognito_user_id,
+        alpaca_account_id=test_engine.funded_50000_alpaca_account_id,
         transfer_id=transfer_id,
     )
 
@@ -372,8 +370,8 @@ def test_create_and_cancel_ach_transfer_for_funded_account(
     canceled_transfer = None
     while monotonic() < deadline:
         transfers = test_engine.account_lifecycle_service.get_transfers(
-            cognito_user_id=FUNDED_COGNITO_USER_ID,
-            alpaca_account_id=FUNDED_ALPACA_ACCOUNT_ID,
+            cognito_user_id=test_engine.funded_50000_cognito_user_id,
+            alpaca_account_id=test_engine.funded_50000_alpaca_account_id,
         )
         canceled_transfer = next(
             (item for item in transfers if str(item.id) == transfer_id),
