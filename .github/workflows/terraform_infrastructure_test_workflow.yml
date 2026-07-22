@@ -26,6 +26,11 @@ jobs:
     if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: test
+    outputs:
+      test_cognito_region: ${{ steps.test-infrastructure-outputs.outputs.test_cognito_region }}
+      test_cognito_user_pool_id: ${{ steps.test-infrastructure-outputs.outputs.test_cognito_user_pool_id }}
+      test_cognito_app_client_id: ${{ steps.test-infrastructure-outputs.outputs.test_cognito_app_client_id }}
+      test_trade_execution_queue_url: ${{ steps.test-infrastructure-outputs.outputs.test_trade_execution_queue_url }}
     env:
       TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
       TF_VAR_backend_image_uri: ${{ vars.TF_VAR_backend_image_uri }}
@@ -243,6 +248,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Publish test infrastructure outputs for downstream deployments
+        id: test-infrastructure-outputs
         if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
         env:
           GH_VARIABLES_TOKEN: ${{ secrets.GH_VARIABLES_TOKEN }}
@@ -257,6 +263,13 @@ jobs:
           cognito_domain_prefix="$(jq -r '.cognito_user_pool_domain.value' <<< "$outputs")"
           cognito_domain="${cognito_domain_prefix}.auth.${AWS_REGION}.amazoncognito.com"
           backend_custom_domain="$(jq -r '.backend_custom_domain.value' <<< "$outputs")"
+
+          {
+            echo "test_cognito_region=${AWS_REGION}"
+            echo "test_cognito_user_pool_id=${cognito_user_pool_id}"
+            echo "test_cognito_app_client_id=${cognito_app_client_id}"
+            echo "test_trade_execution_queue_url=${trade_execution_queue_url}"
+          } >> "$GITHUB_OUTPUT"
 
           {
             echo "## Test infrastructure outputs"
@@ -560,7 +573,9 @@ jobs:
 
   run-backend-tests-live-alpaca:
     if: github.event.inputs.backend_test_mode == 'live_alpaca'
-    needs: deploy-test-frontend
+    needs:
+      - deploy-test-infrastructure
+      - deploy-test-frontend
     runs-on: ubuntu-latest
     environment: test
     env:
@@ -570,10 +585,10 @@ jobs:
       ALPACA_ENV: sandbox
       SANDBOX_ALPACA_BROKER_API_KEY: ${{ secrets.SANDBOX_ALPACA_BROKER_API_KEY }}
       SANDBOX_ALPACA_BROKER_API_SECRET: ${{ secrets.SANDBOX_ALPACA_BROKER_API_SECRET }}
-      TEST_COGNITO_REGION: ${{ vars.TEST_COGNITO_REGION }}
-      TEST_COGNITO_USER_POOL_ID: ${{ vars.TEST_COGNITO_USER_POOL_ID }}
-      TEST_COGNITO_APP_CLIENT_ID: ${{ vars.TEST_COGNITO_APP_CLIENT_ID }}
-      TEST_TRADE_EXECUTION_QUEUE_URL: ${{ vars.TEST_TRADE_EXECUTION_QUEUE_URL }}
+      TEST_COGNITO_REGION: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_region }}
+      TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
+      TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
+      TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
       TEST_FUNDED_50000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_50000_ALPACA_ACCOUNT_ID }}
       TEST_FUNDED_50000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_50000_COGNITO_USER_ID }}
       TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID: ${{ vars.TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID }}
@@ -666,7 +681,9 @@ jobs:
 
   run-backend-tests-mock-alpaca:
     if: github.event.inputs.backend_test_mode == 'mock_alpaca'
-    needs: deploy-test-frontend
+    needs:
+      - deploy-test-infrastructure
+      - deploy-test-frontend
     runs-on: ubuntu-latest
     environment: test
     env:
@@ -676,10 +693,10 @@ jobs:
       ALPACA_ENV: sandbox
       SANDBOX_ALPACA_BROKER_API_KEY: ${{ secrets.SANDBOX_ALPACA_BROKER_API_KEY }}
       SANDBOX_ALPACA_BROKER_API_SECRET: ${{ secrets.SANDBOX_ALPACA_BROKER_API_SECRET }}
-      TEST_COGNITO_REGION: ${{ vars.TEST_COGNITO_REGION }}
-      TEST_COGNITO_USER_POOL_ID: ${{ vars.TEST_COGNITO_USER_POOL_ID }}
-      TEST_COGNITO_APP_CLIENT_ID: ${{ vars.TEST_COGNITO_APP_CLIENT_ID }}
-      TEST_TRADE_EXECUTION_QUEUE_URL: ${{ vars.TEST_TRADE_EXECUTION_QUEUE_URL }}
+      TEST_COGNITO_REGION: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_region }}
+      TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
+      TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
+      TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
       TEST_FUNDED_50000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_50000_ALPACA_ACCOUNT_ID }}
       TEST_FUNDED_50000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_50000_COGNITO_USER_ID }}
       TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID: ${{ vars.TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID }}
