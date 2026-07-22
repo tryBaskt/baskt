@@ -4,6 +4,7 @@ import json
 import threading
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from dotenv import load_dotenv
 from typing import List, Dict, Any
@@ -43,8 +44,15 @@ MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
 MOCK_MARGIN = 0.000
 EPS = 1e-6
-FUNDED_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-FUNDED_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
+
+FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
+FUNDED_50000_COGNITO_USER_ID = "f04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
+
+PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
+PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
+
+FUNDED_1000_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
+FUNDED_1000_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
 
 load_dotenv()
 os.environ["ENV"] = "dev"
@@ -483,6 +491,22 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
 
     def get_baskt_positions_dict(alpaca_account_id: str, cognito_user_id: str) -> Dict[str, BasktPosition]:
         return state["positions"][alpaca_account_id]
+
+    def get_position_by_asset_id(
+        alpaca_account_id: str,
+        cognito_user_id: str,
+        asset_id: str,
+        error_if_no_position: bool = False,
+    ) -> BasktPosition | None:
+        position = state["positions"][alpaca_account_id].get("AAPL")
+        if position is None and error_if_no_position:
+            raise Exception(f"No position found for asset id '{asset_id}'")
+        return position
+
+    def get_trade_account(account_id: str, cognito_user_id: str):
+        if account_id == FUNDED_1000_ALPACA_ACCOUNT_ID:
+            return SimpleNamespace(multiplier="1", shorting_enabled=False)
+        return SimpleNamespace(multiplier="2", shorting_enabled=True)
     
 
     def get_order_by_id(alpaca_account_id: str, cognito_user_id: str, order_id: str):
@@ -532,6 +556,8 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.execute_long_to_short_sell.side_effect = execute_long_to_short_sell
     mock.execute_short_to_long_buy.side_effect = execute_short_to_long_buy
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
+    mock.get_position_by_asset_id.side_effect = get_position_by_asset_id
+    mock.get_trade_account.side_effect = get_trade_account
     mock.get_latest_price.side_effect = get_latest_price
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position

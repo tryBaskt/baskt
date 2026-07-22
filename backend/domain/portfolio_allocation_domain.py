@@ -14,7 +14,7 @@ class PortfolioAllocationTransactionSnapshot:
     updated_at: datetime
     requested_amount: Optional[float]
     transaction_type: str
-    status: str
+    status: str # QUEUED | ORDERED | PROCESSING | PARTIALLY_FILLED | FULLY_FILLED | FAILED 
     model_portfolio_snapshot_id: Optional[str] = None # only for model portfolios and when transaction is DEPOSIT or UPDATE
     filled_at: Optional[datetime] = None
     number_orders: Optional[int] = None
