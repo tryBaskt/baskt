@@ -1,34 +1,36 @@
 import os
 import sys
 from pathlib import Path
-from typing import List
-from datetime import datetime, timezone
-
 import pytest
 from dotenv import load_dotenv
 
 
 repo_root = Path(__file__).resolve().parents[3]
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
+backend_dir = Path(__file__).resolve().parents[2]
+for import_path in (str(backend_dir), str(repo_root)):
+    if import_path not in sys.path:
+        sys.path.insert(0, import_path)
 
 load_dotenv(repo_root / ".env")
-os.environ["ENV"] = "dev"
 
-from backend.core import deps as app_deps
-from backend.core.config import get_settings
-from backend.clients.opensearch_client import OpenSearchClient
-from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.clients.cognito_client import CognitoClient
-from backend.services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
-from backend.services.account_lifecycle_service import AccountLifecycleService
-from backend.repository.baskt_account_repository import BasktAccountRepository
-from backend.repository.model_portfolio_repository import ModelPortfolioRepository
+from core import deps as app_deps
+from core.config import get_settings
+from clients.opensearch_client import OpenSearchClient
+from clients.alpaca_broker_client import AlpacaBrokerClient
+from clients.cognito_client import CognitoClient
+from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
+from services.account_lifecycle_service import AccountLifecycleService
+from repository.baskt_account_repository import BasktAccountRepository
+from repository.model_portfolio_repository import ModelPortfolioRepository
 
 
 
 
 get_settings.cache_clear()
+
+
+def _test_settings():
+    return get_settings()
 
 
 #######################################
@@ -131,6 +133,14 @@ class TestEngine:
         self.account_lifecycle_service = account_lifecycle_service
         self.baskt_account_repository = baskt_account_repository
         self.model_portfolio_repository = model_portfolio_repository
+
+    @property
+    def env(self) -> str:
+        return _test_settings().env
+
+    @property
+    def alpaca_env(self) -> str:
+        return _test_settings().alpaca_env
 
     def test_search_model_portfolios(self,*,query: str,limit: int = 20,offset: int = 0):
         return self.model_portfolios_stocks_search_service.search_model_portfolios(query=query, limit=limit, offset=offset)

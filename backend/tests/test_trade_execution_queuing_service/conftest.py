@@ -8,56 +8,113 @@ from types import SimpleNamespace
 import pytest
 from dotenv import load_dotenv
 from typing import List, Dict, Any
+backend_dir = Path(__file__).resolve().parents[2]
 repo_root = Path(__file__).resolve().parents[3]
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
+for import_path in (str(backend_dir), str(repo_root)):
+    if import_path not in sys.path:
+        sys.path.insert(0, import_path)
 import uuid
-from backend.core import deps as app_deps
-from backend.core.config import get_settings
-from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.clients.cognito_client import CognitoClient
-from backend.services.account_lifecycle_service import AccountLifecycleService
-from backend.repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
-from backend.repository.model_portfolio_repository import ModelPortfolioRepository
-from backend.repository.portfolio_allocation_repository import PortfolioAllocationRepository
-from backend.repository.order_repository import OrderRepository
-from backend.repository.user_trade_lock_repository import UserTradeLockRepository
-from backend.repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
-from backend.services.trade_execution_service import TradeExecutionService
-from backend.services.trade_execution_queuing_service import TradeExecutionQueuingService
-from backend.clients.alpaca_broker_client import AlpacaBrokerClient
-from backend.domain.baskt_domain import BasktPosition
-from backend.domain.stock_domain import Stock
+from core import deps as app_deps
+from core.config import get_settings
+from clients.alpaca_broker_client import AlpacaBrokerClient
+from clients.cognito_client import CognitoClient
+from services.account_lifecycle_service import AccountLifecycleService
+from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
+from repository.model_portfolio_repository import ModelPortfolioRepository
+from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.order_repository import OrderRepository
+from repository.user_trade_lock_repository import UserTradeLockRepository
+from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
+from services.trade_execution_service import TradeExecutionService
+from services.trade_execution_queuing_service import TradeExecutionQueuingService
+from clients.alpaca_broker_client import AlpacaBrokerClient
+from domain.baskt_domain import BasktPosition
+from domain.stock_domain import Stock
 from time import monotonic, sleep
 from datetime import datetime, timezone, timedelta
-from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
+from schema.model_portfolio_schema import ModelPortfolioPositionRequest
 from collections import defaultdict
 from alpaca.broker.models import Order
 from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, OrderType, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest
 from unittest.mock import MagicMock
-from backend.domain.baskt_domain import BasktPosition
+from domain.baskt_domain import BasktPosition
 from math import ceil, floor
 from collections import deque
 from typing import Deque
+
+# PARAMETERS
 MARGIN_ERROR = 0.01
 FLOAT_ERROR = 1e-6
 MOCK_MARGIN = 0.000
 EPS = 1e-6
 
-FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-FUNDED_50000_COGNITO_USER_ID = "f04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
+DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
+DEV_FUNDED_50000_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
+DEV_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
+DEV_PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
+DEV_FUNDED_1000_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
+DEV_FUNDED_1000_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
 
-PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
-PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
+TEST_FUNDED_50000_ALPACA_ACCOUNT_ID = "c83885b1-e24a-4d3e-bbd6-1de518837938"
+TEST_FUNDED_50000_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
+TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "1c7b2c9a-78f4-4b80-992f-b3ceac8ddfe8"
+TEST_PORTFOLIO_OWNER_COGNITO_USER_ID = "74c834b8-d0a1-707d-e14b-40f2e1be176b"
+TEST_FUNDED_1000_ALPACA_ACCOUNT_ID = "1c7b2c9a-78f4-4b80-992f-b3ceac8ddfe8"
+TEST_FUNDED_1000_COGNITO_USER_ID = "74c834b8-d0a1-707d-e14b-40f2e1be176b"
 
-FUNDED_1000_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
-FUNDED_1000_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
 
-load_dotenv()
-os.environ["ENV"] = "dev"
-os.environ["ALPACA_ENV"] = "sandbox"
+
+load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _test_settings():
+    return get_settings()
+
+
+class TradeExecutionTestAccountIds:
+    @property
+    def env(self) -> str:
+        return _test_settings().env
+
+    @property
+    def alpaca_env(self) -> str:
+        return _test_settings().alpaca_env
+
+    def _get(self, name: str) -> str:
+        env_prefix = self.env.upper()
+        variable_name = f"{env_prefix}_{name}"
+        value = os.getenv(variable_name, globals().get(variable_name, ""))
+        if not value:
+            raise RuntimeError(
+                f"{variable_name} is required for trade execution queue tests."
+            )
+        return value
+
+    @property
+    def funded_50000_alpaca_account_id(self) -> str:
+        return self._get("FUNDED_50000_ALPACA_ACCOUNT_ID")
+
+    @property
+    def funded_50000_cognito_user_id(self) -> str:
+        return self._get("FUNDED_50000_COGNITO_USER_ID")
+
+    @property
+    def portfolio_owner_alpaca_account_id(self) -> str:
+        return self._get("PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID")
+
+    @property
+    def portfolio_owner_cognito_user_id(self) -> str:
+        return self._get("PORTFOLIO_OWNER_COGNITO_USER_ID")
+
+    @property
+    def funded_1000_alpaca_account_id(self) -> str:
+        return self._get("FUNDED_1000_ALPACA_ACCOUNT_ID")
+
+    @property
+    def funded_1000_cognito_user_id(self) -> str:
+        return self._get("FUNDED_1000_COGNITO_USER_ID")
 
 #######################################
 ############### CLIENTS ###############
@@ -282,18 +339,6 @@ def sqs_client(request) -> Any:
 def cognito_client() -> CognitoClient:
     return app_deps.get_cognito_client()
 
-"""
-Create a mock alpaca client that i can use to test off market hours
-
-"""
-def pytest_addoption(parser):
-    parser.addoption(
-        "--mock_alpaca",
-        action="store_true",
-        default=False,
-        help="Use in-memory mock Alpaca client for integration tests",
-    )
-
 def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerClient:
     real_client = app_deps.get_alpaca_broker_client()
     mock = MagicMock(spec=AlpacaBrokerClient, wraps=real_client)
@@ -504,7 +549,7 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
         return position
 
     def get_trade_account(account_id: str, cognito_user_id: str):
-        if account_id == FUNDED_1000_ALPACA_ACCOUNT_ID:
+        if account_id == TradeExecutionTestAccountIds().funded_1000_alpaca_account_id:
             return SimpleNamespace(multiplier="1", shorting_enabled=False)
         return SimpleNamespace(multiplier="2", shorting_enabled=True)
     
@@ -764,9 +809,42 @@ class TestEngine:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_repository = portfolio_allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.accounts = TradeExecutionTestAccountIds()
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
         self.portfolio_allocation_history_size = 0
+
+    @property
+    def env(self) -> str:
+        return self.accounts.env
+
+    @property
+    def alpaca_env(self) -> str:
+        return self.accounts.alpaca_env
+
+    @property
+    def funded_50000_alpaca_account_id(self) -> str:
+        return self.accounts.funded_50000_alpaca_account_id
+
+    @property
+    def funded_50000_cognito_user_id(self) -> str:
+        return self.accounts.funded_50000_cognito_user_id
+
+    @property
+    def portfolio_owner_alpaca_account_id(self) -> str:
+        return self.accounts.portfolio_owner_alpaca_account_id
+
+    @property
+    def portfolio_owner_cognito_user_id(self) -> str:
+        return self.accounts.portfolio_owner_cognito_user_id
+
+    @property
+    def funded_1000_alpaca_account_id(self) -> str:
+        return self.accounts.funded_1000_alpaca_account_id
+
+    @property
+    def funded_1000_cognito_user_id(self) -> str:
+        return self.accounts.funded_1000_cognito_user_id
 
     def test_queue_stock_buy(
         self,

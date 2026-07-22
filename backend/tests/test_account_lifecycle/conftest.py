@@ -9,8 +9,10 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Mapping, List
 repo_root = Path(__file__).resolve().parents[3]
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
+backend_dir = Path(__file__).resolve().parents[2]
+for import_path in (str(backend_dir), str(repo_root)):
+    if import_path not in sys.path:
+        sys.path.insert(0, import_path)
 
 from backend.core import deps as app_deps
 from backend.core.config import get_settings
@@ -25,12 +27,46 @@ from backend.domain.baskt_account_domain import (
     IdentityData,
 )
 
-FUNDED_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-FUNDED_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
+DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
+DEV_FUNDED_50000_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
 
-load_dotenv()
-os.environ["ENV"] = "dev"
+TEST_FUNDED_50000_ALPACA_ACCOUNT_ID = "c83885b1-e24a-4d3e-bbd6-1de518837938"
+TEST_FUNDED_50000_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
+
+load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _test_settings():
+    return get_settings()
+
+
+class AccountLifecycleTestAccountIds:
+    @property
+    def env(self) -> str:
+        return _test_settings().env
+
+    @property
+    def alpaca_env(self) -> str:
+        return _test_settings().alpaca_env
+
+    def _get(self, name: str) -> str:
+        env_prefix = self.env.upper()
+        variable_name = f"{env_prefix}_{name}"
+        value = os.getenv(variable_name, globals().get(variable_name, ""))
+        if not value:
+            raise RuntimeError(
+                f"{variable_name} is required for account lifecycle tests."
+            )
+        return value
+
+    @property
+    def funded_50000_alpaca_account_id(self) -> str:
+        return self._get("FUNDED_50000_ALPACA_ACCOUNT_ID")
+
+    @property
+    def funded_50000_cognito_user_id(self) -> str:
+        return self._get("FUNDED_50000_COGNITO_USER_ID")
 
 
 def _assert_expected_fields(
@@ -199,6 +235,23 @@ class TestEngine:
         self.account_lifecycle_service = account_lifecycle_service
         self.alpaca_broker_client = alpaca_broker_client
         self.baskt_account_repository = baskt_account_repository
+        self.accounts = AccountLifecycleTestAccountIds()
+
+    @property
+    def env(self) -> str:
+        return self.accounts.env
+
+    @property
+    def alpaca_env(self) -> str:
+        return self.accounts.alpaca_env
+
+    @property
+    def funded_50000_alpaca_account_id(self) -> str:
+        return self.accounts.funded_50000_alpaca_account_id
+
+    @property
+    def funded_50000_cognito_user_id(self) -> str:
+        return self.accounts.funded_50000_cognito_user_id
 
     def test_create_baskt_account(
         self,
