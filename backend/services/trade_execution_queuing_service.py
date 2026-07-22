@@ -10,7 +10,6 @@ from functools import wraps
 from inspect import signature
 from typing import Any, Dict, Optional
 from botocore.exceptions import BotoCoreError, ClientError
-
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from domain.portfolio_allocation_domain import (
     PortfolioAllocation,
