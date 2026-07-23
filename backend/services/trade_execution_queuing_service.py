@@ -146,7 +146,7 @@ class TradeExecutionQueuingService:
         )
         if not acquired:
             raise TradeExecutionQueuingInternalServerError(
-                message="Another queue operation is currently writing trades for this user.",
+                message="Another trade operation is in progress for this user",
                 code="TRADE_EXECUTION_QUEUE_LOCKED",
             )
         try:
