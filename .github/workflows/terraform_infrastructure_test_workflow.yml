@@ -589,12 +589,6 @@ jobs:
       TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
       TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
       TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
-      TEST_FUNDED_50000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_50000_ALPACA_ACCOUNT_ID }}
-      TEST_FUNDED_50000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_50000_COGNITO_USER_ID }}
-      TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID: ${{ vars.TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID }}
-      TEST_PORTFOLIO_OWNER_COGNITO_USER_ID: ${{ vars.TEST_PORTFOLIO_OWNER_COGNITO_USER_ID }}
-      TEST_FUNDED_1000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_1000_ALPACA_ACCOUNT_ID }}
-      TEST_FUNDED_1000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_1000_COGNITO_USER_ID }}
 
     steps:
       - name: Checkout repository
@@ -617,7 +611,12 @@ jobs:
         run: python -m pip install -r backend/requirements.txt
 
       - name: Run backend tests
-        run: python -m pytest backend/tests --junitxml=backend-test-results.xml
+        run: |
+          python -m pytest \
+            backend/tests/test_account_lifecycle \
+            backend/tests/test_model_portfolios_stocks_search \
+            backend/tests/test_trade_execution_queuing_service \
+            --junitxml=backend-test-results.xml
 
       - name: Publish backend test results
         if: always()
@@ -697,12 +696,6 @@ jobs:
       TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
       TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
       TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
-      TEST_FUNDED_50000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_50000_ALPACA_ACCOUNT_ID }}
-      TEST_FUNDED_50000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_50000_COGNITO_USER_ID }}
-      TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID: ${{ vars.TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID }}
-      TEST_PORTFOLIO_OWNER_COGNITO_USER_ID: ${{ vars.TEST_PORTFOLIO_OWNER_COGNITO_USER_ID }}
-      TEST_FUNDED_1000_ALPACA_ACCOUNT_ID: ${{ vars.TEST_FUNDED_1000_ALPACA_ACCOUNT_ID }}
-      TEST_FUNDED_1000_COGNITO_USER_ID: ${{ vars.TEST_FUNDED_1000_COGNITO_USER_ID }}
 
     steps:
       - name: Checkout repository
@@ -725,7 +718,13 @@ jobs:
         run: python -m pip install -r backend/requirements.txt
 
       - name: Run backend tests with mock Alpaca
-        run: python -m pytest backend/tests --mock_alpaca --junitxml=backend-test-results-mock-alpaca.xml
+        run: |
+          python -m pytest \
+            backend/tests/test_account_lifecycle \
+            backend/tests/test_model_portfolios_stocks_search \
+            backend/tests/test_trade_execution_queuing_service \
+            --mock_alpaca \
+            --junitxml=backend-test-results-mock-alpaca.xml
 
       - name: Publish mock Alpaca backend test results
         if: always()

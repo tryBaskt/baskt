@@ -85,7 +85,7 @@ class TradeExecutionTestAccountIds:
     def _get(self, name: str) -> str:
         env_prefix = self.env.upper()
         variable_name = f"{env_prefix}_{name}"
-        value = os.getenv(variable_name, globals().get(variable_name, ""))
+        value = globals().get(variable_name, "")
         if not value:
             raise RuntimeError(
                 f"{variable_name} is required for trade execution queue tests."

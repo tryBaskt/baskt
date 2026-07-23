@@ -99,9 +99,11 @@ class Settings(BaseSettings):
     stage_trade_execution_queue_url: Optional[str] = Field(default=None, alias="STAGE_TRADE_EXECUTION_QUEUE_URL")
     prod_trade_execution_queue_url: Optional[str] = Field(default=None, alias="PROD_TRADE_EXECUTION_QUEUE_URL")
 
-    # Local-only credentials (on AWS, rely on IAM roles; these can be unset)
+    # Explicit credentials are optional. GitHub Actions OIDC credentials include
+    # AWS_SESSION_TOKEN, so keep it with the access key and secret when present.
     aws_access_key_id: Optional[str] = Field(default=None, alias="AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = Field(default=None, alias="AWS_SECRET_ACCESS_KEY")
+    aws_session_token: Optional[str] = Field(default=None, alias="AWS_SESSION_TOKEN")
 
     # ---------- Cognito ----------
     dev_cognito_region: Optional[str] = Field(default=None, alias="DEV_COGNITO_REGION")
