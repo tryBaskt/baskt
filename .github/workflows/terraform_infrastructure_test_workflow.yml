@@ -616,6 +616,7 @@ jobs:
             backend/tests/test_account_lifecycle \
             backend/tests/test_model_portfolios_stocks_search \
             backend/tests/test_trade_execution_queuing_service \
+            --tb=long \
             --junitxml=backend-test-results.xml
 
       - name: Publish backend test results
@@ -645,6 +646,8 @@ jobs:
               summary.write("| Test case | Result | Error message |\n")
               summary.write("| --- | --- | --- |\n")
 
+              failed_details = []
+
               for test_case in test_cases:
                   class_name = test_case.attrib.get("classname", "")
                   test_name = test_case.attrib.get("name", "")
@@ -653,13 +656,16 @@ jobs:
                   failure = test_case.find("failure")
                   error = test_case.find("error")
                   skipped = test_case.find("skipped")
+                  detail = ""
 
                   if failure is not None:
                       result = "failed"
-                      message = failure.attrib.get("message") or failure.text or ""
+                      detail = failure.text or failure.attrib.get("message") or ""
+                      message = failure.attrib.get("message") or detail
                   elif error is not None:
                       result = "error"
-                      message = error.attrib.get("message") or error.text or ""
+                      detail = error.text or error.attrib.get("message") or ""
+                      message = error.attrib.get("message") or detail
                   elif skipped is not None:
                       result = "skipped"
                       message = skipped.attrib.get("message") or skipped.text or ""
@@ -667,7 +673,7 @@ jobs:
                       result = "passed"
                       message = ""
 
-                  message = " ".join(message.split())
+                  message = " ".join((message or "").split())
                   if len(message) > 500:
                       message = f"{message[:497]}..."
 
@@ -676,6 +682,17 @@ jobs:
                       f"| {markdown_cell(result)} "
                       f"| {markdown_cell(message)} |\n"
                   )
+
+                  if detail:
+                      failed_details.append((full_name, detail.rstrip()))
+
+              if failed_details:
+                  summary.write("\n### Backend failure tracebacks\n\n")
+                  for full_name, detail in failed_details:
+                      summary.write(f"<details><summary>{html.escape(full_name)}</summary>\n\n")
+                      summary.write("```text\n")
+                      summary.write(detail)
+                      summary.write("\n```\n\n</details>\n\n")
           PY
 
   run-backend-tests-mock-alpaca:
@@ -724,6 +741,7 @@ jobs:
             backend/tests/test_model_portfolios_stocks_search \
             backend/tests/test_trade_execution_queuing_service \
             --mock_alpaca \
+            --tb=long \
             --junitxml=backend-test-results-mock-alpaca.xml
 
       - name: Publish mock Alpaca backend test results
@@ -753,6 +771,8 @@ jobs:
               summary.write("| Test case | Result | Error message |\n")
               summary.write("| --- | --- | --- |\n")
 
+              failed_details = []
+
               for test_case in test_cases:
                   class_name = test_case.attrib.get("classname", "")
                   test_name = test_case.attrib.get("name", "")
@@ -761,13 +781,16 @@ jobs:
                   failure = test_case.find("failure")
                   error = test_case.find("error")
                   skipped = test_case.find("skipped")
+                  detail = ""
 
                   if failure is not None:
                       result = "failed"
-                      message = failure.attrib.get("message") or failure.text or ""
+                      detail = failure.text or failure.attrib.get("message") or ""
+                      message = failure.attrib.get("message") or detail
                   elif error is not None:
                       result = "error"
-                      message = error.attrib.get("message") or error.text or ""
+                      detail = error.text or error.attrib.get("message") or ""
+                      message = error.attrib.get("message") or detail
                   elif skipped is not None:
                       result = "skipped"
                       message = skipped.attrib.get("message") or skipped.text or ""
@@ -775,7 +798,7 @@ jobs:
                       result = "passed"
                       message = ""
 
-                  message = " ".join(message.split())
+                  message = " ".join((message or "").split())
                   if len(message) > 500:
                       message = f"{message[:497]}..."
 
@@ -784,4 +807,15 @@ jobs:
                       f"| {markdown_cell(result)} "
                       f"| {markdown_cell(message)} |\n"
                   )
+
+                  if detail:
+                      failed_details.append((full_name, detail.rstrip()))
+
+              if failed_details:
+                  summary.write("\n### Backend failure tracebacks - mock Alpaca\n\n")
+                  for full_name, detail in failed_details:
+                      summary.write(f"<details><summary>{html.escape(full_name)}</summary>\n\n")
+                      summary.write("```text\n")
+                      summary.write(detail)
+                      summary.write("\n```\n\n</details>\n\n")
           PY

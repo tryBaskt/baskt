@@ -131,7 +131,13 @@ class UserTradeLockRepository:
 				cause=e,
 			) from e
 
-	def acquire_lock(self, cognito_user_id: str, owner_token: str, lease_seconds: int = 30) -> bool:
+	def acquire_lock(
+		self,
+		cognito_user_id: str,
+		owner_token: str,
+		lease_seconds: int = 30,
+		wait_seconds: int = 30,
+	) -> bool:
 		"""
 		Acquire lock for a user if absent or expired.
 
@@ -139,36 +145,45 @@ class UserTradeLockRepository:
 			cognito_user_id: Cognito user ID whose lock should be acquired.
 			owner_token: Opaque token representing lock ownership.
 			lease_seconds: Lease duration in seconds.
+			wait_seconds: Maximum time to wait for an active lock to be released.
 
 		Returns:
-			bool: True if acquired, False if another active owner holds the lock.
+			bool: True if acquired, False if another active owner still holds the
+			lock after wait_seconds.
 
 		Raises:
 			UserTradeLockBadGatewayError: If DynamoDB fails while acquiring the
 			lock.
 			UserTradeLockInternalServerError: If an unexpected error occurs.
 		"""
-		now = int(time.time())
-		expires_at = now + int(lease_seconds)
-
-		item = to_dynamodb_value({
-			"cognito_user_id": str(cognito_user_id),
-			"owner_token": str(owner_token),
-			"created_at": now,
-			"updated_at": now,
-			"expires_at": expires_at,
-		})
+		deadline = time.monotonic() + max(0, int(wait_seconds))
 
 		try:
-			self.lock_table_client.table.put_item(
-				Item=item,
-				ConditionExpression="attribute_not_exists(cognito_user_id) OR expires_at < :now",
-				ExpressionAttributeValues={":now": now},
-			)
-			return True
+			while True:
+				now = int(time.time())
+				expires_at = now + int(lease_seconds)
+				item = to_dynamodb_value({
+					"cognito_user_id": str(cognito_user_id),
+					"owner_token": str(owner_token),
+					"created_at": now,
+					"updated_at": now,
+					"expires_at": expires_at,
+				})
+
+				try:
+					self.lock_table_client.table.put_item(
+						Item=item,
+						ConditionExpression="attribute_not_exists(cognito_user_id) OR expires_at < :now",
+						ExpressionAttributeValues={":now": now},
+					)
+					return True
+				except ClientError as e:
+					if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+						raise
+					if time.monotonic() >= deadline:
+						return False
+					time.sleep(0.25)
 		except ClientError as e:
-			if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-				return False
 			raise UserTradeLockBadGatewayError(
 				operation="acquiring lock",
 				cognito_user_id=cognito_user_id,
