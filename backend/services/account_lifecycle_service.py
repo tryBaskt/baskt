@@ -195,6 +195,7 @@ class AccountLifecycleService:
 	) -> None:
 		self.alpaca_broker_client.close_alpaca_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 		self.cognito_client.delete_cognito_user(cognito_user_id=cognito_user_id)
+		self.baskt_account_repository.delete_baskt_account(cognito_user_id=cognito_user_id)
 
 
 	def update_display_name(
