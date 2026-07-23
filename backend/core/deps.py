@@ -61,6 +61,8 @@ def get_boto3_session() -> boto3.Session:
             aws_access_key_id=s.aws_access_key_id,
             aws_secret_access_key=s.aws_secret_access_key,
         )
+        if s.aws_session_token:
+            kwargs["aws_session_token"] = s.aws_session_token
 
     return boto3.Session(**kwargs)
 
