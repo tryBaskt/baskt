@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 import pytest
@@ -14,8 +13,8 @@ for import_path in (str(backend_dir), str(repo_root)):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
 
-from backend.core import deps as app_deps
-from backend.core.config import get_settings
+from core import deps as app_deps
+from core.config import get_settings
 from backend.clients.alpaca_broker_client import AlpacaBrokerClient
 from backend.clients.cognito_client import CognitoClient
 from backend.services.account_lifecycle_service import AccountLifecycleService
@@ -53,7 +52,7 @@ class AccountLifecycleTestAccountIds:
     def _get(self, name: str) -> str:
         env_prefix = self.env.upper()
         variable_name = f"{env_prefix}_{name}"
-        value = os.getenv(variable_name, globals().get(variable_name, ""))
+        value = globals().get(variable_name, "")
         if not value:
             raise RuntimeError(
                 f"{variable_name} is required for account lifecycle tests."
