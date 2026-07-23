@@ -116,6 +116,19 @@ class BasktAccountRepository:
                 cause=error,
             ) from error
 
+    def delete_baskt_account(self,cognito_user_id: str) -> None:
+
+        try:
+            self.dynamodb.delete_item(key={"cognito_user_id": cognito_user_id})
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="deleting account",
+                cognito_user_id=cognito_user_id,
+                cause=error,
+            ) from error
+
+
+
     def is_exists_display_name(self, display_name: str) -> bool:
         """Return whether an account already uses the given display name.
 
