@@ -363,8 +363,8 @@ class TradeExecutionService:
                             "status": "FILLED",
                             "symbol": str(order.symbol),
                             "side": str(order.side.name),
-                            "filled_avg_price": order.filled_avg_price,
-                            "filled_qty": order.filled_qty,
+                            "filled_avg_price": float(order.filled_avg_price),
+                            "filled_qty": float(order.filled_qty),
                         }
                     )
                     newly_filled_orders.append(order)
