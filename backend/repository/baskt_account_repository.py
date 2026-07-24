@@ -116,6 +116,7 @@ class BasktAccountRepository:
                 cause=error,
             ) from error
 
+
     def delete_baskt_account(self,cognito_user_id: str) -> None:
 
         try:
@@ -126,7 +127,6 @@ class BasktAccountRepository:
                 cognito_user_id=cognito_user_id,
                 cause=error,
             ) from error
-
 
 
     def is_exists_display_name(self, display_name: str) -> bool:
