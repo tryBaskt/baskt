@@ -1098,7 +1098,7 @@ class TestEngine:
             )
             self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1214,7 +1214,7 @@ class TestEngine:
                 )
                 self.portfolio_allocation_history_size+=1
 
-                baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+                baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
                 for baskt_order_dict in baskt_orders_dict:
                     if baskt_order_dict["status"] != "FILLED":
                         all_orders_fully_filled = False
@@ -1431,7 +1431,7 @@ class TestEngine:
                 portfolio_id=portfolio_id,
             )
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1551,7 +1551,7 @@ class TestEngine:
             )
             self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1644,7 +1644,7 @@ class TestEngine:
             )
             self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1771,7 +1771,7 @@ class TestEngine:
             )
             self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1885,7 +1885,7 @@ class TestEngine:
             )
             self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_transaction(transaction_id=transaction_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
