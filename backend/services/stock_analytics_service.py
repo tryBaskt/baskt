@@ -162,6 +162,32 @@ class StockAnalyticsService:
                 timeframe=timeframe,
                 source=("yfinance" if period.upper() == "ALL" else "alpaca"),
             )
+            if period.upper() != "ALL":
+                should_seed_period_start = (
+                    period_start_datetime not in segment_prices_df.index
+                    or any(
+                        symbol not in segment_prices_df.columns
+                        or pd.isna(
+                            segment_prices_df.loc[
+                                period_start_datetime,
+                                symbol,
+                            ]
+                        )
+                        for symbol in market_data_symbols
+                    )
+                )
+                if should_seed_period_start:
+                    period_start_prices = (
+                        self.asset_analytics_service.get_prices_at_time(
+                            symbols=market_data_symbols,
+                            timestamp=period_start_datetime,
+                        )
+                    )
+                    for seeded_symbol, price in period_start_prices.items():
+                        segment_prices_df.loc[
+                            period_start_datetime,
+                            seeded_symbol,
+                        ] = price
         except AssetAnalyticsInternalServerError as error:
             raise StockAnalyticsInternalServerError(
                 message=(

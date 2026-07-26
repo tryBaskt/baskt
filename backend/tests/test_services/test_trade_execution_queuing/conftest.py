@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 from dotenv import load_dotenv
 from typing import List, Dict, Any
-backend_dir = Path(__file__).resolve().parents[2]
-repo_root = Path(__file__).resolve().parents[3]
+backend_dir = Path(__file__).resolve().parents[3]
+repo_root = Path(__file__).resolve().parents[4]
 for import_path in (str(backend_dir), str(repo_root)):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
@@ -1198,11 +1198,19 @@ class TestEngine:
             for follower_alpaca_account_id_cognito_user_id in followers_alpaca_account_id_cognito_user_id
             )
         for follower_alpaca_account_id_cognito_user_id in followers_alpaca_account_id_cognito_user_id:
-            previous_position_history_size = self.portfolio_allocation_history_size
             cognito_user_id = follower_alpaca_account_id_cognito_user_id["cognito_user_id"]
             alpaca_account_id = follower_alpaca_account_id_cognito_user_id["alpaca_account_id"]
             ud_orders = ud_orders_dict[cognito_user_id]["orders"]
             transaction_id = ud_orders_dict[cognito_user_id]["transaction_id"]
+            previous_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                cognito_user_id=cognito_user_id,
+                portfolio_id=portfolio_id,
+            )
+            previous_position_history_size = (
+                0
+                if previous_allocation is None
+                else len(previous_allocation.position_history)
+            )
 
             while True:
                 all_orders_fully_filled = True
