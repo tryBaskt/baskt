@@ -6,6 +6,16 @@ import pytest
 
 from .conftest import TestEngine
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
+from services.model_portfolios_stocks_search_service import (
+    ModelPortfoliosStocksSearchInternalServerError,
+)
+
+DEV_PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
+TEST_PORTFOLIO_OWNER_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
+
+
+def _owner_cognito_user_id(test_engine: TestEngine) -> str:
+    return globals()[f"{test_engine.env.upper()}_PORTFOLIO_OWNER_COGNITO_USER_ID"]
 
 
 def _account_data(*, display_name: str, email_address: str) -> dict:
@@ -207,3 +217,132 @@ def test_created_accounts_and_model_portfolios_are_searchable(
                 test_engine.baskt_account_repository.dynamodb.delete_item(
                     key={"cognito_user_id": account["cognito_user_id"]}
                 )
+
+
+def test_search_service_error_class_sets_code() -> None:
+    error = ModelPortfoliosStocksSearchInternalServerError(
+        "failed",
+        code="SEARCH_CUSTOM_CODE",
+    )
+
+    assert str(error) == "failed"
+    assert error.code == "SEARCH_CUSTOM_CODE"
+
+
+def test_search_service_validation_and_blank_query_paths(
+    test_engine: TestEngine,
+) -> None:
+    service = test_engine.model_portfolios_stocks_search_service
+
+    assert service.search_stocks(query="   ") == []
+
+    empty_model_portfolios = service.search_model_portfolios(query="   ")
+    assert empty_model_portfolios.model_portfolios == []
+    assert empty_model_portfolios.total == 0
+
+    empty_baskt_accounts = service.search_baskt_accounts(query="   ")
+    assert empty_baskt_accounts.baskt_accounts == []
+    assert empty_baskt_accounts.total == 0
+
+    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as mp_limit:
+        service.search_model_portfolios(query="aapl", limit=0)
+    assert mp_limit.value.code == "MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT"
+
+    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as mp_offset:
+        service.search_model_portfolios(query="aapl", offset=-1)
+    assert mp_offset.value.code == "MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET"
+
+    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as acct_limit:
+        service.search_baskt_accounts(query="john_doe_3", limit=0)
+    assert acct_limit.value.code == "BASKT_ACCOUNT_SEARCH_INVALID_LIMIT"
+
+    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as acct_offset:
+        service.search_baskt_accounts(query="john_doe_3", offset=-1)
+    assert acct_offset.value.code == "BASKT_ACCOUNT_SEARCH_INVALID_OFFSET"
+
+
+@pytest.mark.integration
+def test_search_service_finds_stock_existing_account_and_created_model_portfolio(
+    test_engine: TestEngine,
+) -> None:
+    owner_cognito_user_id = _owner_cognito_user_id(test_engine)
+    test_run_id = uuid.uuid4().hex[:10]
+    portfolio_name = f"Search Coverage Portfolio {test_run_id}"
+    portfolio_description = f"Search coverage description {test_run_id}"
+    portfolio_id = None
+
+    try:
+        portfolio_id = test_engine.model_portfolio_repository.create_model_portfolio(
+            portfolio_owner_cognito_user_id=owner_cognito_user_id,
+            portfolio_name=portfolio_name,
+            positions_request=[
+                ModelPortfolioPositionRequest(
+                    symbol="AAPL",
+                    target_weight=1.0,
+                    direction=1,
+                    leverage=1.0,
+                )
+            ],
+            creation_time=datetime.now(timezone.utc),
+            description=portfolio_description,
+        )
+
+        stock_results = test_engine.test_search_stocks(query="aapl")
+        assert len(stock_results) == 1
+        assert stock_results[0].symbol == "AAPL"
+        assert stock_results[0].stock_id
+
+        account_results = test_engine.test_search_baskt_accounts(
+            query="john_doe_3",
+        )
+        assert account_results.limit == 20
+        assert account_results.offset == 0
+        assert account_results.total >= len(account_results.baskt_accounts)
+
+        portfolio_result = None
+
+        def portfolio_is_searchable() -> bool:
+            nonlocal portfolio_result
+            response = test_engine.test_search_model_portfolios(
+                query=portfolio_name,
+            )
+            portfolio_result = next(
+                (
+                    item
+                    for item in response.model_portfolios
+                    if item.portfolio_id == portfolio_id
+                ),
+                None,
+            )
+            return portfolio_result is not None
+
+        _wait_until(
+            portfolio_is_searchable,
+            description=f"portfolio '{portfolio_name}' to be indexed",
+        )
+
+        assert portfolio_result.portfolio_name == portfolio_name
+        assert portfolio_result.description == portfolio_description
+        assert portfolio_result.portfolio_owner_cognito_user_id == owner_cognito_user_id
+
+        combined_results = test_engine.test_search_model_portfolios_and_stocks(
+            query=portfolio_name,
+        )
+        assert any(
+            item.portfolio_id == portfolio_id
+            for item in combined_results[
+                "model_portfolios_opensearch_result"
+            ].model_portfolios
+        )
+        assert combined_results["stocks_search_result"] == []
+        assert combined_results["baskt_accounts_opensearch_result"].total >= 0
+
+        combined_stock_results = test_engine.test_search_model_portfolios_and_stocks(
+            query="AAPL",
+        )
+        assert combined_stock_results["stocks_search_result"][0].symbol == "AAPL"
+    finally:
+        if portfolio_id is not None:
+            test_engine.model_portfolio_repository.dynamodb.delete_item(
+                key={"portfolio_id": portfolio_id}
+            )

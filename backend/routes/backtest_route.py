@@ -14,11 +14,13 @@ from pydantic import ValidationError
 from core.deps import get_backtest_service, get_current_user
 from schema.backtest_schema import BacktestAnalyticsResponse, BacktestPositionRequest
 from schema.stock_schema import StockResponse, StocksResponse
-from services.backtest_service import (BacktestService, 
-                                       BacktestServiceCalculationError,
-                                       BacktestInternalServerError,
-                                       BacktestServiceDataError,
-                                       BacktestServiceValidationError)
+from services.backtest_analytics_service import (
+    BacktestInternalServerError,
+    BacktestService,
+    BacktestServiceCalculationError,
+    BacktestServiceDataError,
+    BacktestServiceValidationError,
+)
                                         
 
 
