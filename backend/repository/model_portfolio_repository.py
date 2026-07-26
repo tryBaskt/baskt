@@ -278,13 +278,19 @@ class ModelPortfolioRepository:
         if abs(total_weight - Decimal("1")) > Decimal("0.0001"):
             raise ModelPortfolioInvalidWeightError(total_weight=total_weight)
 
-    def _wait_until_portfolio_update_lock_is_released(self, portfolio_id: str) -> None:
+    def _wait_until_portfolio_update_lock_is_released(
+        self,
+        portfolio_id: str,
+        wait_seconds: float = LOCK_LEASE_SECONDS,
+    ) -> None:
         """
         Block reads while an active update lock exists for the portfolio.
 
         Args:
             portfolio_id: Model portfolio ID to wait on before reading or
                 writing.
+            wait_seconds: Maximum number of seconds to wait for the active lock
+                to be released or expire.
 
         Returns:
             None.
@@ -293,8 +299,10 @@ class ModelPortfolioRepository:
             ModelPortfolioBadGatewayError: If DynamoDB fails while checking
             the portfolio lock.
             ModelPortfolioLockedError: If another update lock repository error
-            occurs while checking the portfolio lock.
+            occurs while checking the portfolio lock, or if the active lock is
+            still held after wait_seconds.
         """
+        deadline = time.monotonic() + max(0.0, float(wait_seconds))
         while True:
             try:
                 lock = self.model_portfolio_update_lock_repository.get_lock(portfolio_id=portfolio_id)
@@ -316,10 +324,21 @@ class ModelPortfolioRepository:
 
             expires_at = int(lock.get("expires_at"))
             now = int(time.time())
-            if expires_at < now:
+            if expires_at <= now:
                 return
 
-            sleep_seconds = min(READ_LOCK_POLL_SECONDS, max(0.0, float(expires_at - now)))
+            remaining_wait_seconds = deadline - time.monotonic()
+            if remaining_wait_seconds <= 0:
+                raise ModelPortfolioLockedError(
+                    portfolio_id=portfolio_id,
+                    operation="wait for update lock because portfolio is locked",
+                )
+
+            sleep_seconds = min(
+                READ_LOCK_POLL_SECONDS,
+                remaining_wait_seconds,
+                max(0.0, float(expires_at - now)),
+            )
             time.sleep(sleep_seconds)
 
     def get_position_history(self, portfolio_id: str) -> List[ModelPortfolioSnapshot]:
@@ -349,7 +368,7 @@ class ModelPortfolioRepository:
         try:
             item = self.dynamodb.get_item(
                 key={"portfolio_id": portfolio_id},
-                projection_expression="position_history"
+                projection_expression="portfolio_id, position_history"
             )
         except DynamoDBClientError as e:
             raise ModelPortfolioBadGatewayError(
@@ -631,7 +650,7 @@ class ModelPortfolioRepository:
         self._validate_target_weight_total(positions_request)
 
         # Ensure portfolio does exist
-        existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id)
+        existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id, wait_seconds=0)
         if not existing:
             return False, None
         
@@ -795,7 +814,11 @@ class ModelPortfolioRepository:
                 ) from e
 
 
-    def get_model_portfolio(self, portfolio_id: str) -> ModelPortfolio:
+    def get_model_portfolio(
+        self,
+        portfolio_id: str,
+        wait_seconds: float = LOCK_LEASE_SECONDS,
+    ) -> ModelPortfolio:
         """
         Load a model portfolio by portfolio ID.
 
@@ -815,7 +838,7 @@ class ModelPortfolioRepository:
         """
 
         # Wait for update (if applicable)
-        self._wait_until_portfolio_update_lock_is_released(portfolio_id=portfolio_id)
+        self._wait_until_portfolio_update_lock_is_released(portfolio_id=portfolio_id, wait_seconds=wait_seconds)
 
         # Get model portfolio
         try:

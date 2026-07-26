@@ -429,20 +429,39 @@ class ModelPortfolioAnalyticsService:
             timeframe=timeframe,
         )
 
-        # A newly created portfolio may have only its synthetic snapshot-boundary
-        # price, particularly outside market hours. Alpaca returns no bars when
-        # the requested interval starts and ends between trading sessions, so
-        # seed the benchmark at the same boundary just as portfolio symbols are.
-        benchmark_start_prices = self.asset_analytics_service.get_prices_at_time(
-            symbols=[benchmark_symbol],
-            timestamp=benchmark_start,
-        )
-        benchmark_start_price = benchmark_start_prices.get(benchmark_symbol)
-        if benchmark_start_price is not None:
-            benchmark_prices_df.loc[
-                benchmark_start,
-                benchmark_symbol,
-            ] = benchmark_start_price
+        # Snapshot boundaries are synthetic rows in simulation_prices. Seed the
+        # benchmark at those same timestamps, then align to exact shared
+        # timestamps so standalone asset bars without benchmark bars do not
+        # change volatility/alpha/beta relative to stock analytics.
+        for analytics_snapshot in analytics_snapshots:
+            snapshot_timestamp = analytics_snapshot.timestamp
+            if snapshot_timestamp not in simulation_prices.index:
+                continue
+            if (
+                snapshot_timestamp in benchmark_prices_df.index
+                and benchmark_symbol in benchmark_prices_df.columns
+                and pd.notna(
+                    benchmark_prices_df.loc[
+                        snapshot_timestamp,
+                        benchmark_symbol,
+                    ]
+                )
+            ):
+                continue
+            benchmark_snapshot_prices = (
+                self.asset_analytics_service.get_prices_at_time(
+                    symbols=[benchmark_symbol],
+                    timestamp=snapshot_timestamp,
+                )
+            )
+            benchmark_snapshot_price = benchmark_snapshot_prices.get(
+                benchmark_symbol
+            )
+            if benchmark_snapshot_price is not None:
+                benchmark_prices_df.loc[
+                    snapshot_timestamp,
+                    benchmark_symbol,
+                ] = benchmark_snapshot_price
 
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
             raise ModelPortfolioAnalyticsInternalServerError(
@@ -456,15 +475,21 @@ class ModelPortfolioAnalyticsService:
             benchmark_prices_df[benchmark_symbol]
             .sort_index()
             .loc[lambda series: ~series.index.duplicated(keep="last")]
+            .dropna()
         )
-        benchmark_prices = (
-            benchmark_prices
-            .reindex(benchmark_prices.index.union(simulation_prices.index))
-            .sort_index()
-            .ffill()
-            .bfill()
-            .reindex(simulation_prices.index)
+        common_price_index = simulation_prices.index.intersection(
+            benchmark_prices.index
         )
+        simulation_prices = simulation_prices.loc[common_price_index]
+        benchmark_prices = benchmark_prices.loc[common_price_index]
+        if simulation_prices.empty or benchmark_prices.empty:
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message=(
+                    "No benchmark-aligned price data available for model "
+                    f"portfolio '{portfolio_id}' during period '{period}'"
+                ),
+                code="MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_ALIGNED_PRICE_DATA_MISSING",
+            )
         benchmark_returns = benchmark_prices.pct_change()
 
         target_exposure = pd.DataFrame(

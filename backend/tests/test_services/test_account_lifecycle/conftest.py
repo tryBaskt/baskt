@@ -7,8 +7,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from typing import Any, Mapping, List
-repo_root = Path(__file__).resolve().parents[3]
-backend_dir = Path(__file__).resolve().parents[2]
+repo_root = Path(__file__).resolve().parents[4]
+backend_dir = Path(__file__).resolve().parents[3]
 for import_path in (str(backend_dir), str(repo_root)):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
