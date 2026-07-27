@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from core.config import Settings, get_settings
 from core.security import CognitoTokenVerifier
 from clients.yfinance_client import YFinanceClient
-from services.backtest_service import BacktestService
+from services.backtest_analytics_service import BacktestService
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
@@ -61,6 +61,8 @@ def get_boto3_session() -> boto3.Session:
             aws_access_key_id=s.aws_access_key_id,
             aws_secret_access_key=s.aws_secret_access_key,
         )
+        if s.aws_session_token:
+            kwargs["aws_session_token"] = s.aws_session_token
 
     return boto3.Session(**kwargs)
 
