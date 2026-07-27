@@ -26,6 +26,7 @@ resource "aws_lambda_function" "trade_execution_worker" {
   }
 
   depends_on = [
+    aws_cloudwatch_log_group.trade_execution_worker,
     aws_iam_role_policy.trade_worker_sqs,
     aws_iam_role_policy.trade_worker_dynamodb,
     aws_iam_role_policy_attachment.trade_worker_basic_execution,

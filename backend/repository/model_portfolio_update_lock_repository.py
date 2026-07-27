@@ -116,7 +116,10 @@ class ModelPortfolioUpdateLockRepository:
 			loading the lock.
 		"""
 		try:
-			return self.lock_table_client.get_item(key={"portfolio_id": str(portfolio_id)})
+			return self.lock_table_client.get_item(
+				key={"portfolio_id": str(portfolio_id)},
+				consistent_read=True,
+			)
 		except DynamoDBClientError as e:
 			raise ModelPortfolioUpdateLockBadGatewayError(
 				operation="loading lock",

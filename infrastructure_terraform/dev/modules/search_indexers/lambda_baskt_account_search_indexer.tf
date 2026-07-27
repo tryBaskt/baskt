@@ -22,5 +22,8 @@ resource "aws_lambda_function" "baskt_account_search_indexer" {
     }
   }
 
-  depends_on = [aws_iam_role_policy.baskt_account_search]
+  depends_on = [
+    aws_cloudwatch_log_group.baskt_account_search_indexer,
+    aws_iam_role_policy.baskt_account_search,
+  ]
 }

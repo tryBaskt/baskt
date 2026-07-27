@@ -21,8 +21,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.deps import (
     get_current_active_alpaca_account,
     get_current_user,
+    get_model_portfolio_repository,
+    get_portfolio_allocation_repository,
     get_trade_execution_queuing_service,
 )
+from core.authorization import (
+    require_alpaca_account_owner,
+    require_cognito_user_id,
+    require_current_user_alpaca_account_id,
+    require_model_portfolio_owner_match,
+    require_portfolio_allocation_owner,
+)
+from repository.model_portfolio_repository import ModelPortfolioRepository
+from repository.portfolio_allocation_repository import PortfolioAllocationRepository
 from schema.trade_execution_schema import (
     BuyStockRequest,
     BuyStockResponse,
@@ -89,12 +100,23 @@ def deposit_into_portfolio(
     portfolio_id: str,
     request: DepositIntoPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     user: Dict[str, Any] = Depends(get_current_user),
     _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
 ) -> DepositIntoPortfolioResponse:
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
+        require_model_portfolio_owner_match(
+            portfolio_id=portfolio_id,
+            portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
+            model_portfolio_repository=model_portfolio_repository,
+            cognito_user_id=cognito_user_id,
+        )
 
         queuing_service.queue_portfolio_deposit(
             portfolio_id=portfolio_id,
@@ -114,13 +136,23 @@ def withdraw_from_portfolio(
     portfolio_id: str,
     request: WithdrawFromPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
     user: Dict[str, Any] = Depends(get_current_user),
     _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
 ) -> WithdrawFromPortfolioResponse:
     """Withdraw funds from a portfolio proportional to latest snapshot allocations."""
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
+        require_portfolio_allocation_owner(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            portfolio_allocation_repository=portfolio_allocation_repository,
+        )
 
         queuing_service.queue_portfolio_withdrawal(
             portfolio_id=portfolio_id,
@@ -140,12 +172,22 @@ def sell_all_from_portfolio(
     portfolio_id: str,
     request: WithdrawAllPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
     user: Dict[str, Any] = Depends(get_current_user),
     _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
 ) -> WithdrawAllPortfolioResponse:
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
+        require_portfolio_allocation_owner(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            portfolio_allocation_repository=portfolio_allocation_repository,
+        )
 
         queuing_service.queue_portfolio_withdraw_all(
             portfolio_id=portfolio_id,
@@ -168,12 +210,18 @@ def buy_stock(
     _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
 ) -> BuyStockResponse:
     try:
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
         queuing_service.queue_stock_buy(
             symbol=request.symbol.upper(),
             asset_id=asset_id,
             amount=request.amount,
-            cognito_user_id=user["sub"],
-            alpaca_account_id=user["custom:alpaca_acct_id"],
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
         )
         return BuyStockResponse(success=True)
     except Exception as error:
@@ -185,16 +233,28 @@ def sell_stock(
     asset_id: str,
     request: SellStockRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
     user: Dict[str, Any] = Depends(get_current_user),
     _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
 ) -> SellStockResponse:
     try:
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
+        require_portfolio_allocation_owner(
+            portfolio_id=asset_id,
+            cognito_user_id=cognito_user_id,
+            portfolio_allocation_repository=portfolio_allocation_repository,
+        )
         queuing_service.queue_stock_sell(
             symbol=request.symbol.upper(),
             asset_id=asset_id,
             amount=request.amount,
-            alpaca_account_id=user["custom:alpaca_acct_id"],
-            cognito_user_id=user["sub"],
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
         )
         return SellStockResponse(success=True)
     except Exception as error:
@@ -206,15 +266,27 @@ def close_stock(
     asset_id: str,
     request: CloseStockRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
+    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
     user: Dict[str, Any] = Depends(get_current_user),
     _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
 ) -> CloseStockResponse:
     try:
+        cognito_user_id = require_cognito_user_id(user)
+        alpaca_account_id = require_current_user_alpaca_account_id(user)
+        require_alpaca_account_owner(
+            user=user,
+            alpaca_account_id=alpaca_account_id,
+        )
+        require_portfolio_allocation_owner(
+            portfolio_id=asset_id,
+            cognito_user_id=cognito_user_id,
+            portfolio_allocation_repository=portfolio_allocation_repository,
+        )
         queuing_service.queue_stock_close(
             symbol=request.symbol.upper(),
             asset_id=asset_id,
-            alpaca_account_id=user["custom:alpaca_acct_id"],
-            cognito_user_id=user["sub"],
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
         )
         return CloseStockResponse(success=True)
     except Exception as error:

@@ -7,6 +7,10 @@ from typing import Any, Dict, Type
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
+from core.authorization import (
+    require_cognito_user_id,
+    require_model_portfolio_owner,
+)
 from core.deps import (
     get_baskt_account_repository,
     get_current_user,
@@ -14,7 +18,7 @@ from core.deps import (
     get_model_portfolio_repository,
     get_trade_execution_queuing_service,
 )
-from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
+from domain.model_portfolio_domain import ModelPortfolioSnapshot
 from repository.baskt_account_repository import (
     BasktAccountRepository,
     BasktAccountRepositoryError,
@@ -121,6 +125,7 @@ def get_model_portfolio(
         position history, and current weights for the latest snapshot.
     """
     try:
+        require_cognito_user_id(user)
         model_portfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
         model_portfolio_current_snapshot: ModelPortfolioSnapshot = model_portfolio.position_history[-1]
         positions_current_weight,_,_ = service.calculate_positions_current_weight(model_portfolio_snapshot=model_portfolio_current_snapshot)
@@ -180,7 +185,7 @@ def create_model_portfolio(
         None.
     """
 
-    cognito_user_id = user["sub"]
+    cognito_user_id = require_cognito_user_id(user)
 
     try:
         service.create_model_portfolio(
@@ -216,15 +221,12 @@ def update_model_portfolio(
     Returns:
         None.
     """
-    # Check ownership
-    cognito_user_id = user["sub"]
-    try:
-        portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
-    except Exception as e:
-        _raise_model_portfolio_http_exception(e)
-    
-    if portfolio.portfolio_owner_cognito_user_id != cognito_user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    cognito_user_id = require_cognito_user_id(user)
+    require_model_portfolio_owner(
+        portfolio_id=portfolio_id,
+        cognito_user_id=cognito_user_id,
+        model_portfolio_repository=service,
+    )
 
     try:
         updated, new_snapshot_id = service.update_model_portfolio(
@@ -262,7 +264,7 @@ def get_model_portfolio_metadata_by_owner(
         ModelPortfoliosMetadataResponse: Collection of user portfolio
         summaries.
     """
-    cognito_user_id = user["sub"]
+    cognito_user_id = require_cognito_user_id(user)
     try:
         portfolios_meta_data = service.get_model_portfolio_metadata_by_owner(portfolio_owner_cognito_user_id=cognito_user_id)
         return ModelPortfoliosMetadataResponse(
@@ -300,6 +302,7 @@ def get_model_portfolio_analytics(
         ModelPortfolioAnalyticsResponse: Return series keyed by period.
     """
     try:
+        require_cognito_user_id(user)
         return ModelPortfolioAnalyticsResponse(
             root=service.get_model_portfolio_bars(portfolio_id=portfolio_id)
         )

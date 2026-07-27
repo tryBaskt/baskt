@@ -9,6 +9,8 @@ module "trade_worker" {
   queue_url                = module.queues.queue_url
   trade_worker_image_uri   = var.trade_worker_image_uri
   trade_worker_environment = var.trade_worker_environment
+  log_retention_days       = var.cloudwatch_log_retention_days
+  tags                     = local.common_tags
 
   depends_on = [module.dynamodb, module.ecr]
 }
