@@ -263,7 +263,6 @@ class TradeExecutionService:
         cognito_user_id: str,
         alpaca_account_id: str,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: Optional[str] = None,
         lock_already_acquired: bool = False,
     ) -> int:
         """
@@ -305,7 +304,9 @@ class TradeExecutionService:
             portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id, portfolio_id=portfolio_id
             )
-
+            portfolio_owner_cognito_user_id = None
+            if portfolio_allocation.portfolio_allocation_type == "MODEL_PORTFOLIO":
+                portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             # Current positions in portfolio (if any)
             curr_positions = portfolio_allocation.position_history[-1].positions if portfolio_allocation.position_history else []
             curr_positions_dict = {
@@ -673,7 +674,6 @@ class TradeExecutionService:
     def execute_withdraw_all_from_portfolio(
         self,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         transaction_id: str,
         alpaca_account_id: str,
         cognito_user_id: str,
@@ -706,12 +706,12 @@ class TradeExecutionService:
                 raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
 
             # Reconcile previously submitted orders before this execution.
+            portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     lock_already_acquired=True,
                 )
 
@@ -768,7 +768,6 @@ class TradeExecutionService:
     def execute_withdraw_from_portfolio(
         self,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         transaction_id: str,
         withdraw_amount: float,
         alpaca_account_id: str,
@@ -807,12 +806,12 @@ class TradeExecutionService:
                 raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
 
             # Reconcile previously submitted orders before this execution.
+            portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     lock_already_acquired=True,
                 )
 
@@ -886,7 +885,6 @@ class TradeExecutionService:
     def execute_update_in_portfolio(
         self,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         cognito_user_id: str,
         alpaca_account_id: str,
         model_portfolio_snapshot_id: str,
@@ -909,12 +907,12 @@ class TradeExecutionService:
                     raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
 
             # Reconcile previously submitted orders before this execution.
+            portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     lock_already_acquired=True,
                 )
 
@@ -1092,7 +1090,6 @@ class TradeExecutionService:
     def execute_deposit_to_portfolio(
         self,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         deposit_amount: float,
         transaction_id: str,
         cognito_user_id: str,
@@ -1134,12 +1131,12 @@ class TradeExecutionService:
                 raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
 
             # Reconcile previously submitted orders before this execution.
+            portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             if not is_test:
                 self.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     lock_already_acquired=True,
                 )
 
@@ -1227,7 +1224,6 @@ class TradeExecutionService:
                     )
                     self.execute_update_in_portfolio(
                         portfolio_id=portfolio_id,
-                        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                         cognito_user_id=cognito_user_id,
                         alpaca_account_id=alpaca_account_id,
                         model_portfolio_snapshot_id=update_snapshot_id,
@@ -1343,7 +1339,6 @@ class TradeExecutionService:
 
     def execute_sell_to_stock(
         self,
-        symbol: str,
         asset_id: str,
         transaction_id: str,
         withdraw_amount: float,
@@ -1399,6 +1394,7 @@ class TradeExecutionService:
                 with_wait=True
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
+            symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
             if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
                 _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
                 current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction
@@ -1463,7 +1459,6 @@ class TradeExecutionService:
 
     def execute_buy_to_stock(
         self,
-        symbol: str,
         asset_id: str,
         transaction_id: str,
         deposit_amount: float,
@@ -1520,6 +1515,7 @@ class TradeExecutionService:
                 with_wait=True,
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
+            symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
             if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
                 _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
                 current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction

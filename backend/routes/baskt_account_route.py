@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
+from core.authentication import get_current_baskt_account
 from core.deps import (
     get_baskt_account_repository,
-    get_current_user,
     get_model_portfolio_repository,
 )
 from repository.baskt_account_repository import (
@@ -29,6 +27,7 @@ from schema.model_portfolio_schema import (
     ModelPortfolioMetadataResponse,
     ModelPortfoliosMetadataResponse,
 )
+from domain.baskt_account_domain import BasktAccount
 
 
 router = APIRouter(prefix="/baskt-accounts", tags=["baskt-accounts"])
@@ -41,7 +40,7 @@ router = APIRouter(prefix="/baskt-accounts", tags=["baskt-accounts"])
 )
 def get_baskt_account_profile(
     cognito_user_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     baskt_account_repository: BasktAccountRepository = Depends(
         get_baskt_account_repository
     ),
@@ -50,7 +49,7 @@ def get_baskt_account_profile(
     ),
 ) -> BasktAccountProfileResponse:
     """Return a Baskt account's public metadata and owned portfolios."""
-    del user
+    del baskt_account
     try:
         account = baskt_account_repository.get_baskt_account(cognito_user_id)
         portfolios = model_portfolio_repository.get_model_portfolio_metadata_by_owner(

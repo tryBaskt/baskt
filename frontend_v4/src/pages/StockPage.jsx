@@ -167,13 +167,13 @@ export default function StockPage({ stockId, onBack }) {
 
     try {
       setIsSubmitting(true);
-      await apiRequest(`/trade-execution/stocks/${stock.stock_id}/${action}`, {
+      const requestOptions = {
         method: "POST",
-        body: JSON.stringify({
-          symbol: stock.symbol,
-          ...(needsAmount ? { amount: numericAmount } : {}),
-        }),
-      });
+      };
+      if (needsAmount) {
+        requestOptions.body = JSON.stringify({ amount: numericAmount });
+      }
+      await apiRequest(`/trade-execution/stocks/${stock.stock_id}/${action}`, requestOptions);
       setSuccess(
         action === "close"
           ? `Close request submitted for ${stock.symbol}.`

@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Type
+from typing import Type
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
+from core.authorization import require_active_alpaca_account, require_model_portfolio_owner
+from core.authentication import (
+	get_current_alpaca_account,
+	get_current_baskt_account,
+	get_alpaca_account_id,
+	get_cognito_user_id
+
+)
 from core.deps import (
     get_baskt_account_repository,
-    get_current_user,
     get_model_portfolio_analytics_service,
     get_model_portfolio_repository,
     get_trade_execution_queuing_service,
 )
-from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot
+from domain.model_portfolio_domain import ModelPortfolioSnapshot
+from domain.baskt_account_domain import BasktAccount
 from repository.baskt_account_repository import (
     BasktAccountRepository,
     BasktAccountRepositoryError,
@@ -102,7 +110,7 @@ def _raise_model_portfolio_http_exception(err: Exception) -> None:
 @router.get("/{portfolio_id}", response_model=ModelPortfolioResponse, status_code=HTTP_200_OK)
 def get_model_portfolio(
     portfolio_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     baskt_account_repository: BasktAccountRepository = Depends(
         get_baskt_account_repository
@@ -165,7 +173,7 @@ def get_model_portfolio(
 @router.post("", response_model=None, status_code=HTTP_201_CREATED)
 def create_model_portfolio(
     request: CreateModelPortfolioRequest,
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
 ) -> None:
     """
@@ -180,9 +188,8 @@ def create_model_portfolio(
         None.
     """
 
-    cognito_user_id = user["sub"]
-
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
         service.create_model_portfolio(
             portfolio_owner_cognito_user_id=cognito_user_id, 
             portfolio_name=request.name, 
@@ -198,11 +205,11 @@ def create_model_portfolio(
 def update_model_portfolio(
     portfolio_id: str,
     request: UpdateModelPortfolioRequest,
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     queuing_service: TradeExecutionQueuingService = Depends(
         get_trade_execution_queuing_service
-    ),
+    )
 ) -> None:
     """
     Update an existing model portfolio by appending a new snapshot.
@@ -216,17 +223,16 @@ def update_model_portfolio(
     Returns:
         None.
     """
-    # Check ownership
-    cognito_user_id = user["sub"]
-    try:
-        portfolio: ModelPortfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
-    except Exception as e:
-        _raise_model_portfolio_http_exception(e)
-    
-    if portfolio.portfolio_owner_cognito_user_id != cognito_user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        require_model_portfolio_owner(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            model_portfolio_repository=service,
+
+        )
+
         updated, new_snapshot_id = service.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=request.positions,
@@ -248,7 +254,7 @@ def update_model_portfolio(
 
 @router.get("", response_model=ModelPortfoliosMetadataResponse, status_code=HTTP_200_OK)
 def get_model_portfolio_metadata_by_owner(
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
 ) -> ModelPortfoliosMetadataResponse:
     """
@@ -262,8 +268,9 @@ def get_model_portfolio_metadata_by_owner(
         ModelPortfoliosMetadataResponse: Collection of user portfolio
         summaries.
     """
-    cognito_user_id = user["sub"]
+
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
         portfolios_meta_data = service.get_model_portfolio_metadata_by_owner(portfolio_owner_cognito_user_id=cognito_user_id)
         return ModelPortfoliosMetadataResponse(
             root=[
@@ -285,7 +292,7 @@ def get_model_portfolio_metadata_by_owner(
 @router.get("/{portfolio_id}/analytics", response_model=ModelPortfolioAnalyticsResponse, status_code=HTTP_200_OK)
 def get_model_portfolio_analytics(
     portfolio_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfolioAnalyticsService = Depends(get_model_portfolio_analytics_service),
 ) -> ModelPortfolioAnalyticsResponse:
     """

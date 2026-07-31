@@ -122,7 +122,10 @@ class UserTradeLockRepository:
 		"""
 
 		try:
-			return self.lock_table_client.get_item(key={"cognito_user_id": str(cognito_user_id)})
+			return self.lock_table_client.get_item(
+				key={"cognito_user_id": str(cognito_user_id)},
+				consistent_read=True,
+			)
 		except DynamoDBClientError as e:
 			raise UserTradeLockBadGatewayError(
 				operation="loading lock",

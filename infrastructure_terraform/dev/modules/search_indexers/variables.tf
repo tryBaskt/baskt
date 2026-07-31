@@ -8,3 +8,8 @@ variable "model_portfolio_table_arn" { type = string }
 variable "model_portfolio_stream_arn" { type = string }
 variable "baskt_account_table_arn" { type = string }
 variable "baskt_account_stream_arn" { type = string }
+variable "log_retention_days" { type = number }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}
