@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional, Sequence
 
 import pandas as pd
-import vectorbt as vbt
+from vectorbt.portfolio.base import Portfolio
 
 from domain.vectorbt_domain import VectorBTPortfolioAnalytics
 
@@ -96,7 +96,7 @@ class VectorBTClient:
             )
 
         try:
-            portfolio = vbt.Portfolio.from_orders(
+            portfolio = Portfolio.from_orders(
                 close=prices,
                 size=target_exposure,
                 size_type="targetpercent",
