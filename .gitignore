@@ -2,3 +2,10 @@
 .env.local
 .env.*.local
 notebook.ipynb
+
+# Python coverage / test artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
