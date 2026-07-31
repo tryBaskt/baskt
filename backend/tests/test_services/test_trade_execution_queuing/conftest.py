@@ -233,9 +233,6 @@ class MockTradeExecutionLambda:
         if action == "portfolio_update":
             self.trade_execution_service.execute_update_in_portfolio(
                 portfolio_id=payload["portfolio_id"],
-                portfolio_owner_cognito_user_id=payload[
-                    "portfolio_owner_cognito_user_id"
-                ],
                 cognito_user_id=payload["cognito_user_id"],
                 alpaca_account_id=payload["alpaca_account_id"],
                 model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
@@ -246,9 +243,6 @@ class MockTradeExecutionLambda:
         if action == "portfolio_deposit":
             self.trade_execution_service.execute_deposit_to_portfolio(
                 portfolio_id=payload["portfolio_id"],
-                portfolio_owner_cognito_user_id=payload[
-                    "portfolio_owner_cognito_user_id"
-                ],
                 deposit_amount=float(payload["amount"]),
                 transaction_id=payload["transaction_id"],
                 cognito_user_id=payload["cognito_user_id"],
@@ -259,9 +253,6 @@ class MockTradeExecutionLambda:
         if action == "portfolio_withdraw":
             self.trade_execution_service.execute_withdraw_from_portfolio(
                 portfolio_id=payload["portfolio_id"],
-                portfolio_owner_cognito_user_id=payload[
-                    "portfolio_owner_cognito_user_id"
-                ],
                 withdraw_amount=float(payload["amount"]),
                 transaction_id=payload["transaction_id"],
                 alpaca_account_id=payload["alpaca_account_id"],
@@ -272,9 +263,6 @@ class MockTradeExecutionLambda:
         if action == "portfolio_withdraw_all":
             self.trade_execution_service.execute_withdraw_all_from_portfolio(
                 portfolio_id=payload["portfolio_id"],
-                portfolio_owner_cognito_user_id=payload[
-                    "portfolio_owner_cognito_user_id"
-                ],
                 transaction_id=payload["transaction_id"],
                 alpaca_account_id=payload["alpaca_account_id"],
                 cognito_user_id=payload["cognito_user_id"],
@@ -283,7 +271,6 @@ class MockTradeExecutionLambda:
 
         if action == "stock_buy":
             self.trade_execution_service.execute_buy_to_stock(
-                symbol=str(payload["symbol"]).upper(),
                 asset_id=payload["asset_id"],
                 transaction_id=payload["transaction_id"],
                 deposit_amount=float(payload["amount"]),
@@ -294,7 +281,6 @@ class MockTradeExecutionLambda:
 
         if action == "stock_sell":
             self.trade_execution_service.execute_sell_to_stock(
-                symbol=str(payload["symbol"]).upper(),
                 asset_id=payload["asset_id"],
                 transaction_id=payload["transaction_id"],
                 withdraw_amount=float(payload["amount"]),
@@ -594,6 +580,9 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
             stock_class="US_EQUITY",
         )
 
+    def get_symbol_by_asset_id(*, asset_id: str) -> str:
+        return get_stock_by_asset_id(asset_id=asset_id).symbol
+
     mock.execute_quantity_buy.side_effect = execute_quantity_buy
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
@@ -609,6 +598,7 @@ def _build_mock_alpaca_broker_client(prices: Dict[str, float]) -> AlpacaBrokerCl
     mock.client.get_orders_for_account.side_effect = get_orders_for_account
     mock.client.cancel_order_for_account_by_id.side_effect = cancel_order_for_account_by_id
     mock.get_stock_by_asset_id.side_effect = get_stock_by_asset_id
+    mock.get_symbol_by_asset_id.side_effect = get_symbol_by_asset_id
 
     return mock
 
@@ -857,7 +847,6 @@ class TestEngine:
     ) -> str:
         """Queue a stock buy and verify that mock SQS received its payload."""
         message_id = self.trade_execution_queuing_service.queue_stock_buy(
-            symbol=symbol,
             asset_id=asset_id,
             amount=amount,
             cognito_user_id=cognito_user_id,
@@ -1069,7 +1058,6 @@ class TestEngine:
             portfolio_id=portfolio_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_deposit(
                 portfolio_id=portfolio_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 amount=deposit_amount,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
@@ -1092,7 +1080,6 @@ class TestEngine:
             all_orders_fully_filled = True
             self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 portfolio_id=portfolio_id,
             )
@@ -1216,7 +1203,6 @@ class TestEngine:
                 all_orders_fully_filled = True
                 self.trade_execution_service.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
-                    portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
                     portfolio_id=portfolio_id,
                 )
@@ -1420,7 +1406,6 @@ class TestEngine:
             portfolio_id=portfolio_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_withdrawal(
                 portfolio_id=portfolio_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 amount=withdraw_amount,
                 alpaca_account_id=alpaca_account_id,
                 cognito_user_id=cognito_user_id,
@@ -1434,7 +1419,6 @@ class TestEngine:
             all_orders_fully_filled = True
             self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 portfolio_id=portfolio_id,
             )
@@ -1540,7 +1524,6 @@ class TestEngine:
             portfolio_id=portfolio_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_portfolio_withdraw_all(
                 portfolio_id=portfolio_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 cognito_user_id=cognito_user_id,
             ),
@@ -1553,7 +1536,6 @@ class TestEngine:
             all_orders_fully_filled = True
             self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
                 portfolio_id=portfolio_id,
             )
@@ -1623,7 +1605,6 @@ class TestEngine:
             cognito_user_id=cognito_user_id,
             portfolio_id=asset_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_stock_buy(
-                symbol=symbol,
                 asset_id=asset_id,
                 amount=deposit_amount,
                 cognito_user_id=cognito_user_id,
@@ -1751,7 +1732,6 @@ class TestEngine:
             cognito_user_id=cognito_user_id,
             portfolio_id=asset_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_stock_sell(
-                symbol=symbol,
                 asset_id=asset_id,
                 amount=withdraw_amount,
                 alpaca_account_id=alpaca_account_id,
@@ -1874,7 +1854,6 @@ class TestEngine:
             cognito_user_id=cognito_user_id,
             portfolio_id=asset_id,
             queue_action=lambda: self.trade_execution_queuing_service.queue_stock_close(
-                symbol=symbol,
                 asset_id=asset_id,
                 alpaca_account_id=alpaca_account_id,
                 cognito_user_id=cognito_user_id,

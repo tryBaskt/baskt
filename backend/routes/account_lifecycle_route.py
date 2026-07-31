@@ -18,12 +18,14 @@ from starlette.status import (
 )
 
 # Baskt Imports
-from core.authorization import (
-	require_alpaca_account_owner,
-	require_cognito_user_id,
-	require_current_user_alpaca_account_id,
+from core.authorization import require_active_alpaca_account
+from core.authentication import (
+	get_current_alpaca_account,
+	get_current_baskt_account,
+	get_alpaca_account_id,
+	get_cognito_user_id
 )
-from core.deps import get_account_lifecycle_service, get_current_active_alpaca_account, get_current_user
+from core.deps import get_account_lifecycle_service
 from schema.account_lifecycle_schema import (
 	CreateBasktACHRelationshipRequest,
 	CreateBasktAccountLifecycleRequest,
@@ -53,7 +55,7 @@ from services.account_lifecycle_service import (
 )
 
 # Alpaca imports
-from alpaca.broker.models import ACHRelationship, Bank, Transfer, TradeAccount
+from alpaca.broker.models import ACHRelationship, Bank, Transfer, TradeAccount, Account
 from domain.baskt_account_domain import (
 	BasktAccount,
 	ContactData,
@@ -63,17 +65,6 @@ from domain.baskt_account_domain import (
 
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
-
-
-def _authenticated_account_context(user: Dict[str, Any]) -> tuple[str, str]:
-	"""Return authenticated Cognito and Alpaca account ids from verified claims."""
-	cognito_user_id = require_cognito_user_id(user)
-	alpaca_account_id = require_current_user_alpaca_account_id(user)
-	require_alpaca_account_owner(
-		user=user,
-		alpaca_account_id=alpaca_account_id,
-	)
-	return cognito_user_id, alpaca_account_id
 
 
 def _raise_account_lifecycle_http_exception(err: Exception) -> None:
@@ -268,12 +259,12 @@ def create_baskt_account(
 	status_code=HTTP_200_OK,
 )
 def get_account_details(
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Return the authenticated user's persisted account details."""
 	try:
-		cognito_user_id = require_cognito_user_id(user)
+		cognito_user_id = get_cognito_user_id(baskt_account)
 		baskt_account = service.get_baskt_account(
 			cognito_user_id=cognito_user_id
 		)
@@ -289,12 +280,12 @@ def get_account_details(
 )
 def update_display_name(
 	request: BasktDisplayName,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Update the authenticated user's Baskt display name."""
 	try:
-		cognito_user_id = require_cognito_user_id(user)
+		cognito_user_id = get_cognito_user_id(baskt_account)
 		service.update_display_name(
 			cognito_user_id=cognito_user_id,
 			display_name=request.display_name,
@@ -313,12 +304,12 @@ def update_display_name(
 )
 def update_description(
 	request: BasktDescription,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Update the authenticated user's profile description."""
 	try:
-		cognito_user_id = require_cognito_user_id(user)
+		cognito_user_id = get_cognito_user_id(baskt_account)
 		service.update_description(
 			cognito_user_id=cognito_user_id,
 			description=request.description,
@@ -330,14 +321,17 @@ def update_description(
 		_raise_account_lifecycle_http_exception(err)
 
 
-def _update_account_details(
+def _update_alpaca_account_details(
 	*,
-	user: Dict[str, Any],
+	baskt_account: BasktAccount,
+	alpaca_account: Account,
 	service: AccountLifecycleService,
 	updated_data: ContactData | IdentityData | DisclosuresData,
 ) -> BasktAccountDetailsResponse:
 	"""Update one account section and return the complete refreshed account."""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
+	cognito_user_id = get_cognito_user_id(baskt_account)
+	alpaca_account_id = get_alpaca_account_id(baskt_account)
+	require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 	service.update_baskt_account(
 		cognito_user_id=cognito_user_id,
 		alpaca_account_id=alpaca_account_id,
@@ -355,13 +349,15 @@ def _update_account_details(
 )
 def update_account_contact(
 	request: UpdateBasktContactRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Replace the authenticated user's contact data."""
 	try:
-		return _update_account_details(
-			user=user,
+		return _update_alpaca_account_details(
+			baskt_account=baskt_account,
+			alpaca_account=alpaca_account,
 			service=service,
 			updated_data=ContactData(**request.model_dump()),
 		)
@@ -376,12 +372,13 @@ def update_account_contact(
 )
 def update_account_identity(
 	request: UpdateBasktIdentityRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Replace the authenticated user's non-tax-ID identity data."""
 	try:
-		cognito_user_id = require_cognito_user_id(user)
+		cognito_user_id = get_cognito_user_id(baskt_account)
 		existing_account = service.get_baskt_account(
 			cognito_user_id=cognito_user_id
 		)
@@ -407,8 +404,9 @@ def update_account_identity(
 			**asdict(existing_account.identity_data),
 			**identity_updates,
 		}
-		return _update_account_details(
-			user=user,
+		return _update_alpaca_account_details(
+			baskt_account=baskt_account,
+			alpaca_account=alpaca_account,
 			service=service,
 			updated_data=IdentityData(**identity_data),
 		)
@@ -423,13 +421,15 @@ def update_account_identity(
 )
 def update_account_disclosures(
 	request: UpdateBasktDisclosuresRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktAccountDetailsResponse:
 	"""Replace the authenticated user's disclosures data."""
 	try:
-		return _update_account_details(
-			user=user,
+		return _update_alpaca_account_details(
+			baskt_account=baskt_account,
+			alpaca_account=alpaca_account,
 			service=service,
 			updated_data=DisclosuresData(**request.model_dump()),
 		)
@@ -438,15 +438,15 @@ def update_account_disclosures(
 
 @router.get("/trade-account", response_model=BasktTradeAccountResponse, status_code=HTTP_200_OK)
 def get_trade_account(
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service)
 ) -> BasktTradeAccountResponse:
 	"""
 	Get the authenticated user's Alpaca trade account details.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
 		trade_account = service.get_trade_account(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 		return _to_trade_account_response(trade_account)
 	except Exception as err:
@@ -456,15 +456,18 @@ def get_trade_account(
 @router.post("/ach-relationship", response_model=None, status_code=HTTP_201_CREATED)
 def create_ach_relationship(
 	request: CreateBasktACHRelationshipRequest | CreateBasktPlaidRelationshipRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""
 	Create a direct or Plaid ACH relationship for the authenticated account.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		if isinstance(request, CreateBasktPlaidRelationshipRequest):
 			service.create_plaid_ach_relationship(
 				alpaca_account_id=alpaca_account_id,
@@ -490,15 +493,18 @@ def create_ach_relationship(
 @router.put("/ach-relationship", response_model=None, status_code=HTTP_201_CREATED)
 def update_ach_relationship(
 	request: CreateBasktACHRelationshipRequest | CreateBasktPlaidRelationshipRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""
 	Replace the authenticated account's current ACH relationship.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		ach_relationships = service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		service.delete_ach_relationship(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, ach_relationship_id=str(ach_relationships[0].id))
 
@@ -527,15 +533,16 @@ def update_ach_relationship(
 
 @router.get("/ach-relationships", response_model=BasktACHRelationshipsResponse, status_code=HTTP_200_OK)
 def get_ach_relationships(
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktACHRelationshipsResponse:
 	"""
 	List ACH relationships for the authenticated account.
 	"""
 	try:
-		cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+
 		ach_relationships = service.get_ach_relationships(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
@@ -556,15 +563,18 @@ def get_ach_relationships(
 @router.post("/bank", response_model=None, status_code=HTTP_201_CREATED)
 def create_bank(
 	request: CreateBasktBankRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""
 	Create a bank relationship for the authenticated account.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		service.create_bank(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
@@ -586,15 +596,18 @@ def create_bank(
 @router.put("/bank", response_model=None, status_code=HTTP_201_CREATED)
 def update_bank(
 	request: CreateBasktBankRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""
 	Replace the authenticated account's current bank relationship.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		banks = service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		service.delete_bank(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, bank_id=str(banks[0].id))
 		service.create_bank(
@@ -617,15 +630,16 @@ def update_bank(
 
 @router.get("/banks", response_model=BasktBanksResponse, status_code=HTTP_200_OK)
 def get_banks(
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktBanksResponse:
 	"""
 	List bank relationships for the authenticated account.
 	"""
 	try:
-		cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+
 		banks = service.get_banks(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
@@ -643,15 +657,16 @@ def get_banks(
 def get_transfers(
 	limit: int = Query(default=10, ge=1, le=100),
 	offset: int = Query(default=0, ge=0),
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> BasktTransfersResponse:
 	"""
 	List transfers for the authenticated account with pagination metadata.
 	"""
 	try:
-		cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+
 		transfers = service.get_transfers(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
@@ -675,15 +690,18 @@ def get_transfers(
 @router.post("/transfer", response_model=None, status_code=HTTP_201_CREATED)
 def create_transfer(
 	request: CreateBasktTransferRequest,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""
 	Create an ACH or bank transfer for the authenticated account.
 	"""
-	cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
 	try:
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		if request.funding_source_type.upper() == "ACH":
 			service.create_ach_transfer(
 				alpaca_account_id=alpaca_account_id,
@@ -724,13 +742,16 @@ def create_transfer(
 )
 def cancel_transfer(
 	transfer_id: str,
-	user: Dict[str, Any] = Depends(get_current_user),
-	alpaca_account: Any = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Any = Depends(get_current_alpaca_account),
 	service: AccountLifecycleService = Depends(get_account_lifecycle_service),
 ) -> None:
 	"""Cancel a transfer belonging to the authenticated account."""
 	try:
-		cognito_user_id, alpaca_account_id = _authenticated_account_context(user)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+
 		service.cancel_transfer(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,

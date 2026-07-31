@@ -181,7 +181,7 @@ def verify_jwt_token(token: str) -> Optional[str]:
     Used for WebSocket authentication.
     Returns None if token is invalid.
     """
-    from core.deps import get_token_verifier
+    from core.authentication import get_token_verifier
     
     try:
         verifier = get_token_verifier()

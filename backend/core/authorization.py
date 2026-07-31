@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
+from alpaca.broker.models import Account
 from fastapi import HTTPException, status
 
-from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
+from core.authentication import get_cognito_user_id
+from domain.baskt_account_domain import BasktAccount
 from domain.model_portfolio_domain import ModelPortfolio
 from domain.portfolio_allocation_domain import PortfolioAllocation
 from repository.model_portfolio_repository import (
@@ -57,93 +59,36 @@ def _audit_denied_access(
     )
 
 
-def require_cognito_user_id(user: Dict[str, Any]) -> str:
-    """Return the authenticated Cognito user id from verified token claims."""
-    cognito_user_id = _normalize_id(user.get("sub"))
-    if not cognito_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authenticated token is missing Cognito user id.",
-        )
-    return cognito_user_id
-
-
-def require_current_user_alpaca_account_id(user: Dict[str, Any]) -> str:
-    """Return the authenticated user's Alpaca account id from token claims."""
-    alpaca_account_id = _normalize_id(user.get("custom:alpaca_acct_id"))
-    if not alpaca_account_id:
-        _audit_denied_access(
-            action="alpaca_account.claim_required",
-            user_id=_normalize_id(user.get("sub")) or None,
-            resource_type="alpaca_account",
-            resource_id=None,
-            reason="missing_alpaca_account_claim",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authenticated user does not have an Alpaca account id.",
-        )
-    return alpaca_account_id
-
-
-def require_alpaca_account_owner(
+def require_active_alpaca_account(
     *,
-    user: Dict[str, Any],
-    alpaca_account_id: str,
-    alpaca_broker_client: Optional[AlpacaBrokerClient] = None,
-    verify_account_exists: bool = False,
-) -> str:
+    baskt_account: BasktAccount,
+    alpaca_account: Account
+) -> Account:
     """
-    Ensure a requested Alpaca account id belongs to the authenticated user.
-
-    Cognito's custom Alpaca account id claim is the local source of ownership.
-    Set ``verify_account_exists`` when a route also needs to confirm the broker
-    account is reachable before continuing.
+    Ensure a requested Alpaca account id belongs to the authenticated user and is active.
     """
-    cognito_user_id = require_cognito_user_id(user)
-    current_alpaca_account_id = require_current_user_alpaca_account_id(user)
-    requested_alpaca_account_id = _normalize_id(alpaca_account_id)
 
-    if not requested_alpaca_account_id:
+    if alpaca_account is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Alpaca account id is required.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Active Alpaca account authorization requires an Alpaca account.",
         )
 
-    if requested_alpaca_account_id != current_alpaca_account_id:
+    account_status = alpaca_account.status.name.upper()
+    if account_status != "ACTIVE":
         _audit_denied_access(
-            action="alpaca_account.owner",
-            user_id=cognito_user_id,
+            action="alpaca_account.active",
+            user_id=get_cognito_user_id(baskt_account),
             resource_type="alpaca_account",
-            resource_id=requested_alpaca_account_id,
-            reason="alpaca_account_mismatch",
+            resource_id=_normalize_id(getattr(alpaca_account, "id", None)) or None,
+            reason="alpaca_account_not_active",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authenticated user is not allowed to access this Alpaca account.",
+            detail=f"Alpaca account must be ACTIVE. Current status is '{account_status}'.",
         )
 
-    if verify_account_exists:
-        if alpaca_broker_client is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Alpaca account verification requires an Alpaca broker client.",
-            )
-        try:
-            alpaca_broker_client.get_alpaca_account_by_id(
-                account_id=requested_alpaca_account_id,
-                cognito_user_id=cognito_user_id,
-            )
-        except AlpacaBrokerClientError as err:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={
-                    "message": "Failed to verify Alpaca account ownership.",
-                    "code": err.code,
-                },
-            ) from err
-
-    return requested_alpaca_account_id
+    return alpaca_account
 
 
 def require_model_portfolio_owner(
@@ -260,6 +205,37 @@ def require_portfolio_allocation_owner(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Portfolio allocation not found.",
         ) from err
+    except PortfolioAllocationBadGatewayError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+    except PortfolioAllocationInternalServerError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+
+
+def get_optional_portfolio_allocation_owner(
+    *,
+    portfolio_id: str,
+    cognito_user_id: str,
+    portfolio_allocation_repository: PortfolioAllocationRepository,
+) -> Optional[PortfolioAllocation]:
+    """
+    Load a Cognito user's allocation when it exists.
+
+    Missing allocations are a normal state for public Baskt/stock pages: users can
+    inspect a page before investing. Upstream failures still become HTTP errors.
+    """
+    try:
+        return portfolio_allocation_repository.get_portfolio_allocation(
+            cognito_user_id=cognito_user_id,
+            portfolio_id=portfolio_id,
+        )
+    except PortfolioAllocationNotFoundError:
+        return None
     except PortfolioAllocationBadGatewayError as err:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

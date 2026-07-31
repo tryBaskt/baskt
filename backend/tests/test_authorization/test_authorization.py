@@ -15,10 +15,18 @@ for import_path in (str(backend_dir), str(repo_root)):
         sys.path.insert(0, import_path)
 
 from core.authorization import (
-    require_alpaca_account_owner,
+    get_optional_portfolio_allocation_owner,
+    require_active_alpaca_account,
     require_model_portfolio_owner,
     require_model_portfolio_owner_match,
     require_portfolio_allocation_owner,
+)
+from domain.baskt_account_domain import (
+    AgreementData,
+    BasktAccount,
+    ContactData,
+    DisclosuresData,
+    IdentityData,
 )
 from domain.model_portfolio_domain import ModelPortfolio
 from domain.portfolio_allocation_domain import PortfolioAllocation
@@ -58,6 +66,15 @@ class FakePortfolioAllocationRepository:
             ) from err
 
 
+class FakeAccountStatus:
+    name = "SUBMITTED"
+
+
+class FakeAlpacaAccount:
+    id = "alpaca-account-1"
+    status = FakeAccountStatus()
+
+
 def _model_portfolio(
     *,
     portfolio_id: str = "portfolio-1",
@@ -87,6 +104,42 @@ def _portfolio_allocation(
         total_cost_basis=0.0,
         portfolio_allocation_type="STOCK",
         portfolio_name="Security Test Allocation",
+    )
+
+
+def _baskt_account(
+    *,
+    cognito_user_id: str = "owner-user",
+    alpaca_account_id: str = "alpaca-account-1",
+) -> BasktAccount:
+    return BasktAccount(
+        cognito_user_id=cognito_user_id,
+        display_name="Security Test Account",
+        alpaca_account_id=alpaca_account_id,
+        alpaca_account_number="BASKT123",
+        agreements_data=[
+            AgreementData(
+                agreement="customer_agreement",
+                signed_at=datetime.now(timezone.utc).isoformat(),
+                ip_address="127.0.0.1",
+            )
+        ],
+        disclosures_data=DisclosuresData(immediate_family_exposed=False),
+        identity_data=IdentityData(
+            given_name="Security",
+            family_name="Tester",
+            country_of_tax_residence="USA",
+        ),
+        contact_data=ContactData(
+            email_address="security@example.com",
+            phone_number=None,
+            street_address="123 Test St",
+            unit=None,
+            city="Test City",
+            state="CA",
+            postal_code="94105",
+            country="USA",
+        ),
     )
 
 
@@ -136,22 +189,19 @@ def test_cross_user_model_portfolio_owner_claim_is_denied_and_audited(
     _assert_audit_denial(caplog, "supplied_owner_does_not_match_portfolio")
 
 
-def test_cross_user_alpaca_account_is_denied_and_audited(
+def test_inactive_alpaca_account_is_denied_and_audited(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
 
     with pytest.raises(HTTPException) as exc_info:
-        require_alpaca_account_owner(
-            user={
-                "sub": "owner-user",
-                "custom:alpaca_acct_id": "alpaca-account-1",
-            },
-            alpaca_account_id="alpaca-account-2",
+        require_active_alpaca_account(
+            baskt_account=_baskt_account(),
+            alpaca_account=FakeAlpacaAccount(),
         )
 
     assert exc_info.value.status_code == 403
-    _assert_audit_denial(caplog, "alpaca_account_mismatch")
+    _assert_audit_denial(caplog, "alpaca_account_not_active")
 
 
 def test_cross_user_portfolio_allocation_is_hidden_and_audited(
@@ -176,3 +226,37 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
 
     assert exc_info.value.status_code == 404
     _assert_audit_denial(caplog, "allocation_not_found_or_not_owned")
+
+
+def test_optional_portfolio_allocation_owner_returns_owned_allocation() -> None:
+    allocation = _portfolio_allocation(
+        cognito_user_id="owner-user",
+        portfolio_id="portfolio-1",
+    )
+    repository = FakePortfolioAllocationRepository(
+        {("owner-user", "portfolio-1"): allocation}
+    )
+
+    result = get_optional_portfolio_allocation_owner(
+        portfolio_id="portfolio-1",
+        cognito_user_id="owner-user",
+        portfolio_allocation_repository=repository,
+    )
+
+    assert result is allocation
+
+
+def test_optional_portfolio_allocation_owner_allows_missing_allocation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
+    repository = FakePortfolioAllocationRepository({})
+
+    result = get_optional_portfolio_allocation_owner(
+        portfolio_id="portfolio-1",
+        cognito_user_id="viewer-user",
+        portfolio_allocation_repository=repository,
+    )
+
+    assert result is None
+    assert not any("authorization_denied" in record.message for record in caplog.records)

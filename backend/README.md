@@ -213,9 +213,17 @@ Users edit weights as percentages, but all backend requests send decimal weights
 
 Allow an inclusive start date and end date. Request:
 
-`GET /backtest?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&positions=<JSON>`
+`POST /backtest`
 
-The encoded positions must use the backtest request contract. Debounce requests while the user edits. Do not call the backend unless:
+```json
+{
+  "start_date": "YYYY-MM-DD",
+  "end_date": "YYYY-MM-DD",
+  "positions": []
+}
+```
+
+The positions must use the backtest request contract. Debounce requests while the user edits. Do not call the backend unless:
 
 - at least one valid position exists;
 - every symbol, weight, direction, and leverage is valid;
@@ -294,9 +302,9 @@ Start the independent detail and model-performance requests without unnecessaril
 - `GET /model-portfolios/{portfolio_id}`
 - `GET /model-portfolios/{portfolio_id}/analytics`
 
-After portfolio detail provides `portfolio_owner_cognito_user_id`, request the user's investment allocation:
+Request the user's investment allocation for the portfolio:
 
-`GET /account-analytics/portfolios/{portfolio_id}/analytics?portfolio_owner_cognito_user_id={owner_id}`
+`GET /account-analytics/portfolios/{portfolio_id}/analytics`
 
 ### Portfolio detail and snapshots
 
