@@ -1,4 +1,4 @@
-# Dev Trade Execution Queue Worker
+# Trade Execution Queue Worker
 
 The trade worker is deployed as a Docker image and consumes SQS messages through
 `TradeExecutionService`. The same deployment also creates a lightweight
@@ -13,14 +13,19 @@ For the hard-coded 2026 U.S. equity calendar, the controller:
 
 Messages continue accumulating in SQS while the mapping is disabled.
 
-## Deploy
+## Deployment Ownership
 
-The worker image is built and pushed by GitHub Actions when this folder or
-`backend/` changes.
+Manual deployment from `deployables/` is disabled. This directory provides
+runtime artifacts only:
 
-## Destroy
+- GitHub Actions builds and pushes the worker image when this folder or
+  `backend/` changes.
+- Terraform in `infrastructure_terraform/` owns Lambda, SQS, ECR, IAM,
+  EventBridge Scheduler, CloudWatch Logs, and environment configuration.
+- Create, update, and destroy operations must run through the Terraform GitHub
+  Actions workflows for the target environment.
 
-Destroy/recreation is managed by Terraform.
+Running old local deployment entrypoints fails closed by design.
 
 ## Message Shape
 
