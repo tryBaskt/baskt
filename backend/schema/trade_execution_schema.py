@@ -3,11 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class _PortfolioOwnerRequest(BaseModel):
-    portfolio_owner_cognito_user_id: str
-
-
-class _PortfolioTradeRequest(_PortfolioOwnerRequest):
+class _PortfolioTradeRequest(BaseModel):
     amount: float = Field(gt=0)
 
 
@@ -20,9 +16,6 @@ class DepositIntoPortfolioRequest(_PortfolioTradeRequest):
 class WithdrawFromPortfolioRequest(_PortfolioTradeRequest):
     pass
 
-class WithdrawAllPortfolioRequest(_PortfolioOwnerRequest):
-    pass
-
 class DepositIntoPortfolioResponse(_PortfolioTradeResponse):
     pass
 
@@ -33,20 +26,12 @@ class WithdrawAllPortfolioResponse(_PortfolioTradeResponse):
     pass
 
 
-class _StockTradeRequest(BaseModel):
-    symbol: str = Field(min_length=1)
-
-
-class BuyStockRequest(_StockTradeRequest):
+class BuyStockRequest(BaseModel):
     amount: float = Field(gt=0)
 
 
-class SellStockRequest(_StockTradeRequest):
+class SellStockRequest(BaseModel):
     amount: float = Field(gt=0)
-
-
-class CloseStockRequest(_StockTradeRequest):
-    pass
 
 
 class BuyStockResponse(_PortfolioTradeResponse):

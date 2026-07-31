@@ -225,12 +225,10 @@ class TradeExecutionQueuingService:
     def _validate_common_stock_fields(
         self,
         *,
-        symbol: str,
         asset_id: str,
         cognito_user_id: str,
         alpaca_account_id: str,
     ) -> None:
-        self._validate_required("symbol", symbol)
         self._validate_required("asset_id", asset_id)
         self._validate_common_trade_fields(
             cognito_user_id=cognito_user_id,
@@ -351,7 +349,6 @@ class TradeExecutionQueuingService:
         self,
         *,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         amount: float,
         cognito_user_id: str,
         alpaca_account_id: str,
@@ -363,14 +360,14 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
             )
             self._validate_required("portfolio_id", portfolio_id)
-            self._validate_required(
-                "portfolio_owner_cognito_user_id", portfolio_owner_cognito_user_id
-            )
             self._validate_amount(amount)
             self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(
                 portfolio_id=portfolio_id
+            )
+            portfolio_owner_cognito_user_id = (
+                model_portfolio.portfolio_owner_cognito_user_id
             )
             allocation = PortfolioAllocation(
                 portfolio_id=portfolio_id,
@@ -432,7 +429,6 @@ class TradeExecutionQueuingService:
         self,
         *,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         amount: float,
         cognito_user_id: str,
         alpaca_account_id: str,
@@ -444,8 +440,10 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
             )
             self._validate_required("portfolio_id", portfolio_id)
-            self._validate_required(
-                "portfolio_owner_cognito_user_id", portfolio_owner_cognito_user_id
+            portfolio_owner_cognito_user_id = (
+                self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(
+                    portfolio_id=portfolio_id
+                )
             )
             self._validate_amount(amount)
             allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
@@ -500,7 +498,6 @@ class TradeExecutionQueuingService:
         self,
         *,
         portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
         cognito_user_id: str,
         alpaca_account_id: str,
     ) -> str:
@@ -511,8 +508,10 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
             )
             self._validate_required("portfolio_id", portfolio_id)
-            self._validate_required(
-                "portfolio_owner_cognito_user_id", portfolio_owner_cognito_user_id
+            portfolio_owner_cognito_user_id = (
+                self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(
+                    portfolio_id=portfolio_id
+                )
             )
             allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id,
@@ -580,7 +579,6 @@ class TradeExecutionQueuingService:
     def _queue_stock_trade(
         self,
         *,
-        symbol: str,
         asset_id: str,
         amount: float,
         cognito_user_id: str,
@@ -590,21 +588,13 @@ class TradeExecutionQueuingService:
         action_name = "buy" if trade_direction == 1 else "sell"
         transaction_type = action_name.upper()
         self._validate_common_stock_fields(
-            symbol=symbol,
             asset_id=asset_id,
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
         )
         self._validate_amount(amount)
         stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
-        if stock.symbol.upper() != symbol.upper():
-            raise TradeExecutionQueuingInternalServerError(
-                message=(
-                    f"Stock ID '{asset_id}' belongs to '{stock.symbol}', not "
-                    f"'{symbol.upper()}'."
-                ),
-                code="TRADE_EXECUTION_QUEUE_STOCK_MISMATCH",
-            )
+        symbol = stock.symbol.upper()
         if not stock.tradable or not stock.fractionable:
             raise TradeExecutionQueuingInternalServerError(
                 message=f"Stock '{stock.symbol}' must be tradable and fractionable.",
@@ -650,7 +640,6 @@ class TradeExecutionQueuingService:
             transaction=transaction,
             action=f"stock_{action_name}",
             payload={
-                "symbol": symbol.upper(),
                 "asset_id": asset_id,
                 "amount": float(amount),
                 "transaction_id": transaction.transaction_id,
@@ -663,7 +652,6 @@ class TradeExecutionQueuingService:
     def queue_stock_buy(
         self,
         *,
-        symbol: str,
         asset_id: str,
         amount: float,
         cognito_user_id: str,
@@ -672,7 +660,6 @@ class TradeExecutionQueuingService:
         """Validate and queue a stock buy."""
         try:
             return self._queue_stock_trade(
-                symbol=symbol,
                 asset_id=asset_id,
                 amount=amount,
                 cognito_user_id=cognito_user_id,
@@ -694,7 +681,6 @@ class TradeExecutionQueuingService:
     def queue_stock_sell(
         self,
         *,
-        symbol: str,
         asset_id: str,
         amount: float,
         cognito_user_id: str,
@@ -702,6 +688,8 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue a stock sell, including opening a short position."""
         try:
+            stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
+            symbol = stock.symbol.upper()
             impending_sell_amount = float(amount)
             quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
 
@@ -725,7 +713,6 @@ class TradeExecutionQueuingService:
                 self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
             return self._queue_stock_trade(
-                symbol=symbol,
                 asset_id=asset_id,
                 amount=amount,
                 cognito_user_id=cognito_user_id,
@@ -747,7 +734,6 @@ class TradeExecutionQueuingService:
     def queue_stock_close(
         self,
         *,
-        symbol: str,
         asset_id: str,
         cognito_user_id: str,
         alpaca_account_id: str,
@@ -755,11 +741,11 @@ class TradeExecutionQueuingService:
         """Validate and queue a full stock-position close."""
         try:
             self._validate_common_stock_fields(
-                symbol=symbol,
                 asset_id=asset_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
             )
+            self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
             allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id,
                 portfolio_id=asset_id,
@@ -778,7 +764,6 @@ class TradeExecutionQueuingService:
                 transaction=transaction,
                 action="stock_close",
                 payload={
-                    "symbol": symbol.upper(),
                     "asset_id": asset_id,
                     "transaction_id": transaction.transaction_id,
                     "cognito_user_id": cognito_user_id,

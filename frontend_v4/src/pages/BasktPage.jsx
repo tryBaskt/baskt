@@ -3,7 +3,7 @@ import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import PositionsTable from "../components/PositionsTable";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
-import { apiRequest, toQuery } from "../lib/api";
+import { apiRequest } from "../lib/api";
 import { currency, formatDate, formatDateTime, formatMetricNumber, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
@@ -56,15 +56,12 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     allocationAnalytics?.profit_loss_percent !== null &&
     allocationAnalytics?.profit_loss_percent !== undefined;
 
-  async function loadAllocationAnalytics(ownerCognitoUserId, signal) {
+  async function loadAllocationAnalytics(signal) {
     setIsAllocationLoading(true);
     setAllocationError("");
-    const query = toQuery({
-      portfolio_owner_cognito_user_id: ownerCognitoUserId,
-    });
     try {
       const allocationPayload = await apiRequest(
-        `/account-analytics/portfolios/${portfolioId}/analytics${query}`,
+        `/account-analytics/portfolios/${portfolioId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(allocationPayload || null);
@@ -126,10 +123,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
           signal: controller.signal,
         });
         setBaskt(payload);
-        void loadAllocationAnalytics(
-          payload.portfolio_owner_cognito_user_id,
-          controller.signal
-        );
+        void loadAllocationAnalytics(controller.signal);
       } catch (basktError) {
         if (basktError?.name !== "AbortError") {
           setError(basktError?.message || "Could not load this Baskt.");
@@ -170,16 +164,16 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
 
     try {
       setIsSubmitting(true);
-      await apiRequest(`/trade-execution/portfolios/${portfolioId}/${endpoint}`, {
+      const requestOptions = {
         method: "POST",
-        body: JSON.stringify({
-          portfolio_owner_cognito_user_id: baskt.portfolio_owner_cognito_user_id,
-          ...(needsAmount ? { amount: Number(amount) } : {}),
-        }),
-      });
+      };
+      if (needsAmount) {
+        requestOptions.body = JSON.stringify({ amount: Number(amount) });
+      }
+      await apiRequest(`/trade-execution/portfolios/${portfolioId}/${endpoint}`, requestOptions);
       setSuccess(`${action === "withdraw-all" ? "Withdraw all" : action} request submitted.`);
       setAmount("");
-      await loadAllocationAnalytics(baskt.portfolio_owner_cognito_user_id);
+      await loadAllocationAnalytics();
     } catch (tradeError) {
       setError(tradeError?.message || "Trade request failed.");
     } finally {

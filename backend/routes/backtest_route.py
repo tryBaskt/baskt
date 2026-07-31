@@ -2,17 +2,16 @@
 
 # Python imports
 from __future__ import annotations
-from datetime import date
-import json
-from typing import Any, Dict, List, Type
+from typing import Type
 
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import ValidationError
 
 # Baskt imports
-from core.deps import get_backtest_service, get_current_user
-from schema.backtest_schema import BacktestAnalyticsResponse, BacktestPositionRequest
+from core.authentication import get_current_baskt_account
+from core.deps import get_backtest_service
+from domain.baskt_account_domain import BasktAccount
+from schema.backtest_schema import BacktestAnalyticsResponse, BacktestRequest
 from schema.stock_schema import StockResponse, StocksResponse
 from services.backtest_analytics_service import (
     BacktestInternalServerError,
@@ -21,15 +20,12 @@ from services.backtest_analytics_service import (
     BacktestServiceDataError,
     BacktestServiceValidationError,
 )
-                                        
-
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
 
 BACKTEST_ERROR_STATUS_MAP: tuple[tuple[Type[Exception], int], ...] = (
     (ValueError, status.HTTP_400_BAD_REQUEST),
-    (json.JSONDecodeError, status.HTTP_400_BAD_REQUEST),
     (BacktestServiceValidationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (BacktestServiceDataError, status.HTTP_502_BAD_GATEWAY),
     (BacktestServiceCalculationError, status.HTTP_422_UNPROCESSABLE_CONTENT),
@@ -67,41 +63,10 @@ def _raise_backtest_http_exception(err: Exception) -> None:
     ) from err
 
 
-def _parse_positions_query(positions: str) -> List[Dict[str, Any]]:
-    """
-    Parse and validate JSON-encoded backtest positions from the query string.
-
-    Args:
-        positions: JSON-encoded list of backtest position objects.
-
-    Returns:
-        List[Dict[str, Any]]: Validated position dictionaries for the service.
-
-    Raises:
-        ValueError: If positions is not a JSON list.
-        json.JSONDecodeError: If positions is not valid JSON.
-        BacktestServiceValidationError: If any position does not match the
-        request schema.
-    """
-    positions_conf = json.loads(positions)
-    if not isinstance(positions_conf, list):
-        raise ValueError("positions must be a JSON list")
-
-    try:
-        return [
-            BacktestPositionRequest.model_validate(position).model_dump(exclude_none=True)
-            for position in positions_conf
-        ]
-    except ValidationError as err:
-        raise BacktestServiceValidationError(
-            message=f"Invalid backtest position configuration: {err}"
-        ) from err
-
-
 @router.get("/tradeable-fractionable-us-baskt-assets", response_model=StocksResponse)
 def get_tradeable_fractionable_us_baskt_assets(
     backtest_service: BacktestService = Depends(get_backtest_service),
-    user: Dict[str, Any] = Depends(get_current_user)
+    baskt_account: BasktAccount = Depends(get_current_baskt_account)
 ) -> StocksResponse:
     """
     Get active US equity assets that Baskt can trade fractionally.
@@ -136,26 +101,17 @@ def get_tradeable_fractionable_us_baskt_assets(
         _raise_backtest_http_exception(err)
 
 
-@router.get("", response_model=BacktestAnalyticsResponse)
+@router.post("", response_model=BacktestAnalyticsResponse)
 def backtest(
-    start_date: date,
-    end_date: date,
-    positions: str,
-    user=Depends(get_current_user),
+    request: BacktestRequest,
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     svc: BacktestService = Depends(get_backtest_service),
 ) -> BacktestAnalyticsResponse:
     """
     Run a portfolio backtest for a date range and return timeseries + summary metrics.
 
     Args:
-        start_date: Inclusive backtest start date (YYYY-MM-DD).
-        end_date: Inclusive backtest end date (YYYY-MM-DD).
-        positions: JSON-encoded list of position configs. Each item should contain:
-            - symbol (str): ticker symbol
-            - weight (float): portfolio weight fraction (0..1), or
-              target_weight (float): portfolio weight fraction (0..1)
-            - direction (int): +1 for long, -1 for short
-            - leverage (float/int, optional): leverage multiplier; defaults to 1 if omitted
+        request: Request body with date range and position configs.
         user: Authenticated user from dependency injection; used for access control.
         svc: BacktestService dependency that performs the backtest computation.
 
@@ -167,11 +123,13 @@ def backtest(
         calculation fails.
     """
     try:
-        positions_conf = _parse_positions_query(positions)
         result = svc.run_backtest(
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            positions_conf=positions_conf
+            start_date=request.start_date.isoformat(),
+            end_date=request.end_date.isoformat(),
+            positions_conf=[
+                position.model_dump(exclude_none=True)
+                for position in request.positions
+            ],
         )
         return BacktestAnalyticsResponse(**result)
 

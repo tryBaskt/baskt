@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import { ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
-import { apiRequest, toQuery } from "../lib/api";
+import { apiRequest } from "../lib/api";
 import { formatMetricNumber, percent } from "../lib/format";
 
 const defaultPosition = { symbol: "", target_weight: 1, direction: 1, leverage: 1, shortable: false };
@@ -214,12 +214,15 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
     const timeout = window.setTimeout(async () => {
       try {
         setIsBacktesting(true);
-        const query = toQuery({
-          start_date: backtestStartDate,
-          end_date: backtestEndDate,
-          positions: JSON.stringify(validPositions),
+        const payload = await apiRequest("/backtest", {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify({
+            start_date: backtestStartDate,
+            end_date: backtestEndDate,
+            positions: validPositions,
+          }),
         });
-        const payload = await apiRequest(`/backtest${query}`, { signal: controller.signal });
         setBacktest(payload);
       } catch (backtestError) {
         if (backtestError.name !== "AbortError") {

@@ -21,5 +21,8 @@ resource "aws_lambda_function" "market_hours_controller" {
     }
   }
 
-  depends_on = [aws_iam_role_policy.market_controller]
+  depends_on = [
+    aws_cloudwatch_log_group.market_hours_controller,
+    aws_iam_role_policy.market_controller,
+  ]
 }

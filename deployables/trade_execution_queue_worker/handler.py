@@ -109,9 +109,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "portfolio_update":
         service.execute_update_in_portfolio(
             portfolio_id=payload["portfolio_id"],
-            portfolio_owner_cognito_user_id=payload[
-                "portfolio_owner_cognito_user_id"
-            ],
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
@@ -122,9 +119,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "portfolio_deposit":
         service.execute_deposit_to_portfolio(
             portfolio_id=payload["portfolio_id"],
-            portfolio_owner_cognito_user_id=payload[
-                "portfolio_owner_cognito_user_id"
-            ],
             deposit_amount=float(payload["amount"]),
             transaction_id=payload["transaction_id"],
             cognito_user_id=payload["cognito_user_id"],
@@ -135,9 +129,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "portfolio_withdraw":
         service.execute_withdraw_from_portfolio(
             portfolio_id=payload["portfolio_id"],
-            portfolio_owner_cognito_user_id=payload[
-                "portfolio_owner_cognito_user_id"
-            ],
             withdraw_amount=float(payload["amount"]),
             transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
@@ -148,9 +139,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
     if action == "portfolio_withdraw_all":
         service.execute_withdraw_all_from_portfolio(
             portfolio_id=payload["portfolio_id"],
-            portfolio_owner_cognito_user_id=payload[
-                "portfolio_owner_cognito_user_id"
-            ],
             transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],
@@ -159,7 +147,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_buy":
         service.execute_buy_to_stock(
-            symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             deposit_amount=float(payload["amount"]),
@@ -170,7 +157,6 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_sell":
         service.execute_sell_to_stock(
-            symbol=str(payload["symbol"]).upper(),
             asset_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             withdraw_amount=float(payload["amount"]),

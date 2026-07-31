@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 
-from core.deps import get_current_user, get_model_portfolios_stocks_search_service
+from core.authentication import get_current_baskt_account
+from core.deps import get_model_portfolios_stocks_search_service
+from domain.baskt_account_domain import BasktAccount
 from schema.model_portfolios_stocks_search_schema import (
     BasktAccountOpenSearchResultResponse,
     BasktAccountsOpenSearchResultResponse,
@@ -78,7 +78,7 @@ def search_model_portfolios_and_stocks(
     query: str = Query(min_length=1),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfoliosStocksSearchService = Depends(
         get_model_portfolios_stocks_search_service
     ),
@@ -99,7 +99,7 @@ def search_model_portfolios_and_stocks(
     Raises:
         HTTPException: If request validation or either search operation fails.
     """
-    del user
+    del baskt_account
 
     try:
         search_response = service.search_model_portfolios_and_stocks(
@@ -180,13 +180,13 @@ def search_baskt_accounts(
     query: str = Query(min_length=1),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfoliosStocksSearchService = Depends(
         get_model_portfolios_stocks_search_service
     ),
 ) -> BasktAccountsOpenSearchResultResponse:
     """Search public Baskt accounts by display name or description."""
-    del user
+    del baskt_account
     try:
         result = service.search_baskt_accounts(
             query=query,
@@ -220,7 +220,7 @@ def search_model_portfolios(
     query: str = Query(min_length=1),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: ModelPortfoliosStocksSearchService = Depends(
         get_model_portfolios_stocks_search_service
     ),
@@ -241,7 +241,7 @@ def search_model_portfolios(
         HTTPException: If search validation fails, OpenSearch is unavailable,
             its response is invalid, or an unexpected error occurs.
     """
-    del user
+    del baskt_account
 
     try:
         search_response = service.search_model_portfolios(

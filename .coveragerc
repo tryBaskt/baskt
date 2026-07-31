@@ -4,14 +4,12 @@ source =
 omit =
     backend/tests/*
     backend/new_tests/*
-    backend/routes/*
     backend/schema/*
     backend/domain/*
     backend/**/__init__.py
     backend/main.py
     tests/*
     new_tests/*
-    routes/*
     schema/*
     domain/*
     **/__init__.py
@@ -22,14 +20,12 @@ show_missing = true
 omit =
     backend/tests/*
     backend/new_tests/*
-    backend/routes/*
     backend/schema/*
     backend/domain/*
     backend/**/__init__.py
     backend/main.py
     tests/*
     new_tests/*
-    routes/*
     schema/*
     domain/*
     **/__init__.py

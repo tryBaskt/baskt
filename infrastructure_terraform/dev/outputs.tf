@@ -29,3 +29,11 @@ output "cognito_app_client_id" {
 output "cognito_user_pool_domain" {
   value = module.cognito.user_pool_domain
 }
+
+output "backend_application_log_group_name" {
+  value = aws_cloudwatch_log_group.backend_application.name
+}
+
+output "backend_audit_log_group_name" {
+  value = aws_cloudwatch_log_group.backend_audit.name
+}

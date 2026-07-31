@@ -1687,3 +1687,31 @@ class AlpacaBrokerClient:
                 message=f"Failed to get stock for asset id '{asset_id}': {error}",
                 code="ALPACA_BROKER_GET_STOCK_BY_ASSET_ID_FAILED",
             ) from error
+
+    def get_symbol_by_asset_id(
+            self,
+            *,
+            asset_id: str
+        ) -> str:
+            """
+            Get the ticker symbol for an Alpaca asset ID.
+
+            Args:
+                asset_id: Exact Alpaca asset ID to look up.
+
+            Returns:
+                str: Ticker symbol associated with the asset ID.
+
+            Raises:
+                AlpacaBrokerClientError: If Alpaca fails to load the asset or
+                the asset response cannot be converted into a symbol.
+            """
+            try:
+                asset = self.client.get_asset(symbol_or_asset_id=asset_id)
+                return str(asset.symbol.upper())
+            except Exception as error:
+                raise AlpacaBrokerClientError(
+                    message=f"Failed to get symbol for asset id '{asset_id}': {error}",
+                    code="ALPACA_BROKER_GET_SYMBOL_BY_ASSET_ID_FAILED",
+                ) from error
+    

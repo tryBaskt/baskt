@@ -22,5 +22,8 @@ resource "aws_lambda_function" "model_portfolio_search_indexer" {
     }
   }
 
-  depends_on = [aws_iam_role_policy.model_portfolio_search]
+  depends_on = [
+    aws_cloudwatch_log_group.model_portfolio_search_indexer,
+    aws_iam_role_policy.model_portfolio_search,
+  ]
 }

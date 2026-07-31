@@ -341,6 +341,51 @@ class ModelPortfolioRepository:
             )
             time.sleep(sleep_seconds)
 
+    def get_portfolio_cognito_owner_id_by_portfolio(self, portfolio_id: str) -> str:
+        """
+        Retrieve the Cognito user ID of the owner of a model portfolio.
+
+        Args:
+            portfolio_id: Identifier of the model portfolio.
+
+        Returns:
+            str: Cognito user ID of the portfolio owner.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If DynamoDB fails while reading the
+            portfolio owner.
+            ModelPortfolioNotFoundError: If the model portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If the portfolio record does
+            not contain a valid owner Cognito user ID.
+        """
+        try:
+            item = self.dynamodb.get_item(
+                key={"portfolio_id": portfolio_id},
+                projection_expression="portfolio_owner_cognito_user_id"
+            )
+        except DynamoDBClientError as e:
+            raise ModelPortfolioBadGatewayError(
+                source="DynamoDB",
+                operation="get_portfolio_cognito_owner",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
+        if not item:
+            raise ModelPortfolioNotFoundError(
+                portfolio_id=portfolio_id
+            )
+
+        try:
+            portfolio_owner_cognito_user_id = item["portfolio_owner_cognito_user_id"]
+            return portfolio_owner_cognito_user_id
+        except Exception as e:
+            raise ModelPortfolioUnprocessableEntityError(
+                operation="failed to parse portfolio owner cognito user id",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
+
+
     def get_position_history(self, portfolio_id: str) -> List[ModelPortfolioSnapshot]:
         """
         Retrieve all historical snapshots for a model portfolio.

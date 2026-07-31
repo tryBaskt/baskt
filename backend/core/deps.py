@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import boto3
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends
 
 from core.config import Settings, get_settings
-from core.security import CognitoTokenVerifier
 from clients.yfinance_client import YFinanceClient
 from services.backtest_analytics_service import BacktestService
-from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
+from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
 from clients.opensearch_client import OpenSearchClient
@@ -33,7 +31,6 @@ from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsSe
 from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
 from services.stock_analytics_service import StockAnalyticsService
 from services.trade_execution_queuing_service import TradeExecutionQueuingService
-from alpaca.broker.models import Account
 
 # -----------------------------
 # Settings (cached by lru_cache in config.py)
@@ -355,88 +352,3 @@ def get_model_portfolios_stocks_search_service(
         baskt_account_repository=baskt_account_repository,
         baskt_account_search_index=s.baskt_account_search_index,
     )
-
-
-# -----------------------------
-# Auth
-# -----------------------------
-
-@lru_cache
-def get_token_verifier() -> CognitoTokenVerifier:
-    """
-    Cache verifier globally. Do NOT accept Settings as an argument (unhashable).
-    """
-    s = get_settings()
-    return CognitoTokenVerifier(
-        user_pool_id=s.cognito_user_pool_id,
-        app_client_id=s.cognito_app_client_id,
-        region=s.cognito_region,
-    )
-
-
-bearer_scheme = HTTPBearer(auto_error=False)
-
-
-def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-) -> Dict[str, Any]:
-    if credentials is None or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
-        )
-
-    token = credentials.credentials.strip()
-    verifier = get_token_verifier()
-    return verifier.verify(token)
-
-
-def get_current_alpaca_account_id(
-    user: Dict[str, Any] = Depends(get_current_user),
-) -> str:
-    alpaca_account_id = user.get("custom:alpaca_acct_id")
-    if not alpaca_account_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authenticated user does not have an Alpaca account id.",
-        )
-
-    return str(alpaca_account_id)
-
-
-def get_current_alpaca_account(
-    user: Dict[str, Any] = Depends(get_current_user),
-    alpaca_account_id: str = Depends(get_current_alpaca_account_id),
-    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-) -> Account:
-    cognito_user_id = user.get("sub")
-    if not cognito_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authenticated token is missing Cognito user id.",
-        )
-
-    try:
-        return alpaca_broker_client.get_alpaca_account_by_id(
-            account_id=alpaca_account_id,
-            cognito_user_id=str(cognito_user_id),
-        )
-    except AlpacaBrokerClientError as err:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to verify Alpaca account: {err}",
-        ) from err
-
-
-def get_current_active_alpaca_account(
-    alpaca_account: Account = Depends(get_current_alpaca_account),
-) -> Account:
-    account_status = alpaca_account.status.name.upper()
-
-    if account_status != "ACTIVE":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Alpaca account must be ACTIVE, APPROVED, or . Current status is '{account_status}'.",
-        )
-
-    return alpaca_account

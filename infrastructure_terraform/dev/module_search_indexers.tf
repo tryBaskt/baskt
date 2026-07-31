@@ -11,6 +11,8 @@ module "search_indexers" {
   model_portfolio_stream_arn = module.dynamodb.model_portfolio_stream_arn
   baskt_account_table_arn    = module.dynamodb.baskt_account_arn
   baskt_account_stream_arn   = module.dynamodb.baskt_account_stream_arn
+  log_retention_days         = var.cloudwatch_log_retention_days
+  tags                       = local.common_tags
 
   depends_on = [module.opensearch_indices]
 }
