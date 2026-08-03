@@ -517,7 +517,14 @@ class ModelPortfolioAnalyticsService:
             dtype=float,
         )
         for analytics_snapshot in analytics_snapshots:
-            snapshot_timestamp = analytics_snapshot.timestamp
+            snapshot_timestamps = simulation_prices.index[
+                simulation_prices.index <= analytics_snapshot.timestamp
+            ]
+            snapshot_timestamp = (
+                snapshot_timestamps[-1]
+                if not snapshot_timestamps.empty
+                else simulation_prices.index[0]
+            )
             target_exposure.loc[snapshot_timestamp, :] = 0.0
             for position in analytics_snapshot.positions:
                 position_exposure = (
