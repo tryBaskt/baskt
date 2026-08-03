@@ -177,17 +177,17 @@ class StockAnalyticsService:
                     )
                 )
                 if should_seed_period_start:
-                    period_start_prices = (
+                    period_start_prices_df = (
                         self.asset_analytics_service.get_prices_at_time(
                             symbols=market_data_symbols,
                             timestamp=period_start_datetime,
                         )
                     )
-                    for seeded_symbol, price in period_start_prices.items():
+                    for price_row in period_start_prices_df.itertuples(index=False):
                         segment_prices_df.loc[
-                            period_start_datetime,
-                            seeded_symbol,
-                        ] = price
+                            price_row.timestamp,
+                            price_row.symbol,
+                        ] = price_row.price
         except AssetAnalyticsInternalServerError as error:
             raise StockAnalyticsInternalServerError(
                 message=(
@@ -196,7 +196,6 @@ class StockAnalyticsService:
                 ),
                 code="STOCK_ANALYTICS_PRICE_LOOKUP_FAILED",
             ) from error
-        
         if segment_prices_df.empty:
             return period, None
         if symbol not in segment_prices_df.columns:

@@ -1112,7 +1112,6 @@ class AlpacaBrokerClient:
             request is invalid, the account is inaccessible, the network
             request fails, or any unexpected error occurs.
         """
-        print("random print statement in execute quantity buy")
         order_req = MarketOrderRequest(
             symbol=symbol,
             qty=quantity,
@@ -1530,7 +1529,7 @@ class AlpacaBrokerClient:
         self,
         symbols: List[str],
         timestamp: datetime,
-    ) -> Dict[str, float]:
+    ) -> pd.DataFrame:
         """
         Fetch stock prices at or immediately before a specific timestamp.
 
@@ -1540,8 +1539,8 @@ class AlpacaBrokerClient:
                 to UTC before the price lookup.
 
         Returns:
-            Dict[str, float]: Mapping of symbol to the latest 1-minute bar close
-            at or before timestamp.
+            pd.DataFrame: Rows with symbol, price, and timestamp for the latest
+            1-minute bar close at or before timestamp.
 
         Raises:
             AlpacaBrokerClientError: If timestamp is timezone-naive, Alpaca
@@ -1562,7 +1561,6 @@ class AlpacaBrokerClient:
                 end=timestamp_utc,
                 timeframe=TimeFrame(1, TimeFrameUnit.Minute),
                 feed=DataFeed.IEX,
-                limit=10000,
             )
             bars_response = self.data_client.get_stock_bars(request)
             bars_data = getattr(bars_response, "data", {})
@@ -1577,22 +1575,41 @@ class AlpacaBrokerClient:
                 for symbol in symbols
             }
 
-            prices: Dict[str, float] = {}
+            price_rows: List[Dict[str, Any]] = []
             for symbol in symbols:
-                bars = [
-                    bar
-                    for bar in bars_by_symbol.get(symbol, [])
-                    if bar["timestamp"] <= timestamp_utc
-                ]
+                bars = sorted(
+                    (
+                        bar
+                        for bar in bars_by_symbol.get(symbol, [])
+                        if bar["timestamp"] <= timestamp_utc
+                    ),
+                    key=lambda bar: bar["timestamp"],
+                )
                 if not bars:
                     raise AlpacaBrokerClientError(
                         message=f"No stock price bar found at or before '{timestamp_utc.isoformat()}' for symbol '{symbol}'",
                         code="ALPACA_BROKER_STOCK_PRICE_AT_TIME_MISSING",
                     )
 
-                prices[symbol] = float(bars[-1]["close"])
+                latest_bar = bars[-1]
+                price_rows.append(
+                    {
+                        "symbol": symbol,
+                        "price": float(latest_bar["close"]),
+                        "timestamp": latest_bar["timestamp"],
+                    }
+                )
 
-            return prices
+            prices_df = pd.DataFrame(
+                price_rows,
+                columns=["symbol", "price", "timestamp"],
+            )
+            if not prices_df.empty:
+                prices_df["timestamp"] = pd.to_datetime(
+                    prices_df["timestamp"],
+                    utc=True,
+                )
+            return prices_df
         
         except AlpacaBrokerClientError:
             raise
