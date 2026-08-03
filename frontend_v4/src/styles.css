@@ -2123,7 +2123,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible { outline: 2
 .buying-power-row { display: flex; justify-content: space-between; padding: 22px 4px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .buying-power-row strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-.holdings-panel { position: sticky; top: 98px; overflow: hidden; border: 1px solid #302d35; border-radius: 6px; background: #0b0b0e; }
+.holdings-panel { position: sticky; top: 98px; margin-top: 128px; overflow: hidden; border: 1px solid #302d35; border-radius: 6px; background: #0b0b0e; }
 .holdings-heading { display: flex; justify-content: space-between; align-items: center; padding: 18px; border-bottom: 1px solid var(--line); }
 .holdings-heading h2 { margin: 0; font-size: 18px; }
 .holdings-heading > span { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #3a3542; border-radius: 50%; color: #a79fac; font: 600 11px/1 ui-monospace, monospace; }
@@ -2207,7 +2207,7 @@ th, td { border-color: #26232a !important; }
 
 @media (max-width: 960px) {
   .dashboard-grid { grid-template-columns: 1fr; }
-  .holdings-panel { position: static; }
+  .holdings-panel { position: static; margin-top: 0; }
   .holdings-list { max-height: none; }
   .dashboard-chart .chart-frame svg { height: 340px; }
   .settings-layout { grid-template-columns: 1fr; gap: 24px; }
@@ -2221,7 +2221,6 @@ th, td { border-color: #26232a !important; }
   .top-nav .nav-item, .account-button { padding-inline: 9px; font-size: 11px; }
   .content-area { padding: 24px 18px 60px; }
   .portfolio-heading { align-items: flex-start; flex-direction: column; }
-  .portfolio-stat { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
   .dashboard-chart .chart-frame svg { height: 290px; }
   .chart-periods.segmented-control { overflow-x: auto; }
   .auth-page, .signup-page { padding: 20px; }
