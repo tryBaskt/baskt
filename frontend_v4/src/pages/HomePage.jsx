@@ -105,7 +105,6 @@ export default function HomePage({ onOpenInvestment }) {
         <section className="portfolio-console">
           <div className="portfolio-heading">
             <div>
-              <p className="eyebrow">Individual portfolio</p>
               <h1>{isLoading ? "—" : currency(analytics?.equity)}</h1>
               <p className={`portfolio-move ${selectedPeriodTone}`}>
                 <strong>{isLoading ? "Loading" : signedCurrency(selectedPeriodPnl)}</strong>
@@ -136,7 +135,7 @@ export default function HomePage({ onOpenInvestment }) {
 
         <aside className="holdings-panel">
           <div className="holdings-heading">
-            <div><p className="eyebrow">Live allocation</p><h2>Holdings</h2></div>
+            <div><h2>Holdings</h2></div>
             <span>{allocationEntries.length}</span>
           </div>
 

@@ -75,7 +75,6 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
       </section>
 
       <section className="auth-card">
-        <p className="eyebrow">{challenge ? "Security step" : "Welcome back"}</p>
         <h2>{challenge ? "Set a new password" : "Sign in to Baskt"}</h2>
         <ErrorBanner message={error} />
         <SuccessBanner message={success} />
