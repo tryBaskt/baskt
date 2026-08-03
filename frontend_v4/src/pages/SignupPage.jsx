@@ -323,8 +323,7 @@ export default function SignupPage({ onBackToLogin }) {
         <button className="text-button" type="button" onClick={onBackToLogin}>
           Back to sign in
         </button>
-        <p className="eyebrow">Open your Baskt account</p>
-        <h1>Onboarding that stays out of your way.</h1>
+        <h1>Welcome to Baskt.</h1>
         <div className="stepper">
           {steps.map((label, index) => (
             <span key={label} className={index <= step ? "active" : ""}>

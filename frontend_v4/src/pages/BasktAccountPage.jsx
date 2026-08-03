@@ -40,14 +40,12 @@ export default function BasktAccountPage({ cognitoUserId, onBack, onOpenBaskt })
       {account && (
         <>
           <section className="baskt-account-profile">
-            <p className="eyebrow">Baskt member</p>
             <h1>{account.display_name}</h1>
             <p>{account.description || "No description yet."}</p>
           </section>
           <section>
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Baskts</p>
                 <h2>{portfolios.length} {portfolios.length === 1 ? "portfolio" : "portfolios"}</h2>
               </div>
             </div>

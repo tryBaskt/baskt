@@ -370,15 +370,10 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
 
         <div className="builder-hero">
           <div>
-            <p className="eyebrow">{editingPortfolioId ? "Update Baskt" : "Make a Baskt"}</p>
-            <h2>{editingPortfolioId ? name : "Build a portfolio that behaves on purpose."}</h2>
+            <h2>{editingPortfolioId ? name : "Build Your Baskt"}</h2>
             <p>
-              Choose tradeable US stocks, set target weights, and let the backtest refresh as you edit.
+              Choose tradeable US stocks, set target weights, and backtest.
             </p>
-          </div>
-          <div className={`allocation-badge ${allocationTone}`}>
-            <span>{percent(totalWeight * 100)}</span>
-            <small>{getAllocationMessage(totalWeight)}</small>
           </div>
         </div>
 
@@ -407,7 +402,6 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
 
         <div className="allocation-toolbar">
           <div>
-            <p className="eyebrow">Allocation</p>
             <h3>{positions.length} position{positions.length === 1 ? "" : "s"}</h3>
           </div>
         </div>
@@ -500,10 +494,6 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
         ) : null}
 
         <div className="builder-actions">
-          <div>
-            <strong>{percent(totalWeight * 100)}</strong>
-            <span>{isFullyAllocated ? `${validPositions.length} valid position${validPositions.length === 1 ? "" : "s"} ready to save` : "target weights must total 100%"}</span>
-          </div>
           <button
             className="primary-button"
             type="submit"
@@ -517,7 +507,6 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
 
       <aside className="insights-panel">
         <div className={`allocation-review ${allocationTone}`}>
-          <p className="eyebrow">Portfolio check</p>
           <strong>{percent(totalWeight * 100)}</strong>
           <span>{getAllocationMessage(totalWeight)}</span>
           <div className="allocation-track">
@@ -528,7 +517,6 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
         <section className="panel inset">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Backtest</p>
               <h2>{isBacktesting && isFullyAllocated ? "Running..." : "Backtest result"}</h2>
             </div>
           </div>

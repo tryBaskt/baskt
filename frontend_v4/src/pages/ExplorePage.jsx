@@ -75,7 +75,6 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock, onOpenUser }) {
     <div className="page-stack explore-page">
       <section className="section-heading explore-heading">
         <div>
-          <p className="eyebrow">Explore</p>
           <h2>Find people, Baskts, and stocks</h2>
         </div>
       </section>
@@ -109,7 +108,6 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock, onOpenUser }) {
           <>
             <div className="explore-results-header">
               <div>
-                <p className="eyebrow">Search results</p>
                 <h3>Results for &ldquo;{searchedQuery}&rdquo;</h3>
               </div>
               <span>

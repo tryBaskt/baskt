@@ -215,7 +215,6 @@ export default function Transfer() {
         <form className="panel" onSubmit={submitAch}>
           <div className="section-heading">
             <div>
-              <p className="eyebrow">ACH relationship</p>
               <h2>{ach ? "Connected ACH" : "Connect ACH"}</h2>
             </div>
             {ach && !isEditingAch ? (
@@ -277,7 +276,6 @@ export default function Transfer() {
         <form className="panel" onSubmit={submitBank}>
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Bank</p>
               <h2>{bank ? "Connected bank" : "Connect bank"}</h2>
             </div>
             {bank && !isEditingBank ? (
@@ -335,7 +333,6 @@ export default function Transfer() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Move money</p>
             <h2>Deposit or withdraw funds</h2>
           </div>
         </div>
@@ -356,7 +353,6 @@ export default function Transfer() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">History</p>
             <h2>Past transfers</h2>
           </div>
         </div>
