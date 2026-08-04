@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     #   '["http://a.com","http://b.com"]' (JSON string)
     cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
     timezone: str = "America/New_York"
+    cloudwatch_logs_enabled: bool = Field(default=False, alias="CLOUDWATCH_LOGS_ENABLED")
+    cloudwatch_log_stream_name: Optional[str] = Field(default=None, alias="CLOUDWATCH_LOG_STREAM_NAME")
 
     # ---------- AWS ----------
     aws_region: str = Field(default="us-east-1", alias="AWS_DEFAULT_REGION")
@@ -248,6 +250,16 @@ class Settings(BaseSettings):
         """Return the configured trade execution queue URL for the current environment."""
         queue_url = getattr(self, f"{self.env}_trade_execution_queue_url", None)
         return queue_url or None
+
+    @property
+    def backend_application_log_group_name(self) -> str:
+        """Return the CloudWatch Logs group for backend application logs."""
+        return f"/baskt/{self.env}/backend/application"
+
+    @property
+    def backend_audit_log_group_name(self) -> str:
+        """Return the CloudWatch Logs group for backend audit logs."""
+        return f"/baskt/{self.env}/backend/audit"
 
     @property
     def alpaca_api_key(self) -> str:

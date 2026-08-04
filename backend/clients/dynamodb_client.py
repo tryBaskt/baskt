@@ -117,7 +117,12 @@ class DynamoDBClient:
             )
         return "Item" in response
 
-    def get_item(self, key: Dict[str, Any], projection_expression: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_item(
+        self,
+        key: Dict[str, Any],
+        projection_expression: Optional[str] = None,
+        consistent_read: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """
         Retrieve a single item by primary key.
 
@@ -125,15 +130,24 @@ class DynamoDBClient:
             key: DynamoDB primary key map for the item to retrieve.
             projection_expression: Optional DynamoDB projection expression
                 limiting which attributes are returned.
+            consistent_read: Whether DynamoDB should use a strongly consistent
+                read.
 
         Returns:
             Optional[Dict[str, Any]]: The item if found, otherwise None.
         """
         try:
             if projection_expression:
-                response = self.table.get_item(Key=key, ProjectionExpression=projection_expression)
+                response = self.table.get_item(
+                    Key=key,
+                    ProjectionExpression=projection_expression,
+                    ConsistentRead=consistent_read,
+                )
             else:
-                response = self.table.get_item(Key=key)
+                response = self.table.get_item(
+                    Key=key,
+                    ConsistentRead=consistent_read,
+                )
         except Exception as e:
             raise DynamoDBClientError(
                 message=f"Failed to get item from DynamoDB: {e}",

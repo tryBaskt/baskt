@@ -343,7 +343,7 @@ class OrderRepository:
     def get_portfolio_ids_of_unfilled_orders(
         self,
         cognito_user_id: str,
-    ) -> List[Dict[str, str | None]]:
+    ) -> List[Tuple[str,str]]:
         """Get portfolio identifiers with unfilled orders for a Cognito user.
 
         The DynamoDB query projects only ``portfolio_id``,

@@ -135,13 +135,19 @@ class ModelPortfolioAnalyticsService:
         """
         try:
             symbols = [position.symbol for position in model_porfolio_snapshot.positions]
-            symbol_prices_start = self.asset_analytics_service.get_prices_at_time(
+            symbol_prices_start_df = self.asset_analytics_service.get_prices_at_time(
                 symbols=symbols,
                 timestamp=start_datetime,
             )
-            symbol_prices_end = self.asset_analytics_service.get_prices_at_time(
+            symbol_prices_end_df = self.asset_analytics_service.get_prices_at_time(
                 symbols=symbols,
                 timestamp=end_datetime,
+            )
+            symbol_prices_start = (
+                symbol_prices_start_df.set_index("symbol")["price"].to_dict()
+            )
+            symbol_prices_end = (
+                symbol_prices_end_df.set_index("symbol")["price"].to_dict()
             )
 
             start_position_values: Dict[str, float] = {}
@@ -304,12 +310,12 @@ class ModelPortfolioAnalyticsService:
         first_symbols = sorted(
             position.symbol for position in first_snapshot.positions
         )
-        first_prices = self.asset_analytics_service.get_prices_at_time(
+        first_prices_df = self.asset_analytics_service.get_prices_at_time(
             symbols=first_symbols,
             timestamp=first_snapshot.timestamp,
         )
-        for symbol, price in first_prices.items():
-            segment_prices.loc[first_snapshot.timestamp, symbol] = price
+        for price_row in first_prices_df.itertuples(index=False):
+            segment_prices.loc[price_row.timestamp, price_row.symbol] = price_row.price
 
         for index in range(len(analytics_snapshots) - 1):
             current_snapshot = analytics_snapshots[index]
@@ -322,12 +328,15 @@ class ModelPortfolioAnalyticsService:
             }
             transition_symbols = sorted(current_symbols | next_symbols)
 
-            transition_prices = self.asset_analytics_service.get_prices_at_time(
+            transition_prices_df = self.asset_analytics_service.get_prices_at_time(
                 symbols=transition_symbols,
                 timestamp=next_snapshot.timestamp,
             )
-            for symbol, price in transition_prices.items():
-                segment_prices.loc[next_snapshot.timestamp, symbol] = price
+            for price_row in transition_prices_df.itertuples(index=False):
+                segment_prices.loc[
+                    price_row.timestamp,
+                    price_row.symbol,
+                ] = price_row.price
 
         segment_prices.index.name = "timestamp"
         segment_prices.sort_index(inplace=True)
@@ -435,8 +444,6 @@ class ModelPortfolioAnalyticsService:
         # change volatility/alpha/beta relative to stock analytics.
         for analytics_snapshot in analytics_snapshots:
             snapshot_timestamp = analytics_snapshot.timestamp
-            if snapshot_timestamp not in simulation_prices.index:
-                continue
             if (
                 snapshot_timestamp in benchmark_prices_df.index
                 and benchmark_symbol in benchmark_prices_df.columns
@@ -448,20 +455,31 @@ class ModelPortfolioAnalyticsService:
                 )
             ):
                 continue
-            benchmark_snapshot_prices = (
+            benchmark_snapshot_prices_df = (
                 self.asset_analytics_service.get_prices_at_time(
                     symbols=[benchmark_symbol],
                     timestamp=snapshot_timestamp,
                 )
             )
-            benchmark_snapshot_price = benchmark_snapshot_prices.get(
-                benchmark_symbol
-            )
-            if benchmark_snapshot_price is not None:
+            for price_row in benchmark_snapshot_prices_df.itertuples(index=False):
+                if price_row.symbol != benchmark_symbol:
+                    continue
+                benchmark_timestamp = price_row.timestamp
+                if (
+                    benchmark_timestamp in benchmark_prices_df.index
+                    and benchmark_symbol in benchmark_prices_df.columns
+                    and pd.notna(
+                        benchmark_prices_df.loc[
+                            benchmark_timestamp,
+                            benchmark_symbol,
+                        ]
+                    )
+                ):
+                    continue
                 benchmark_prices_df.loc[
-                    snapshot_timestamp,
+                    benchmark_timestamp,
                     benchmark_symbol,
-                ] = benchmark_snapshot_price
+                ] = price_row.price
 
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
             raise ModelPortfolioAnalyticsInternalServerError(
@@ -499,7 +517,14 @@ class ModelPortfolioAnalyticsService:
             dtype=float,
         )
         for analytics_snapshot in analytics_snapshots:
-            snapshot_timestamp = analytics_snapshot.timestamp
+            snapshot_timestamps = simulation_prices.index[
+                simulation_prices.index <= analytics_snapshot.timestamp
+            ]
+            snapshot_timestamp = (
+                snapshot_timestamps[-1]
+                if not snapshot_timestamps.empty
+                else simulation_prices.index[0]
+            )
             target_exposure.loc[snapshot_timestamp, :] = 0.0
             for position in analytics_snapshot.positions:
                 position_exposure = (

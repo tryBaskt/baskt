@@ -483,7 +483,6 @@ export default function SettingsPage() {
   return (
     <section className="settings-page" aria-labelledby="settings-heading">
       <header className="settings-heading">
-        <p className="eyebrow">Account</p>
         <h1 id="settings-heading">Settings</h1>
         <p>Review and manage your Baskt account.</p>
       </header>
@@ -533,7 +532,7 @@ export default function SettingsPage() {
             settingsSection === "profile" ? (
               <>
                 <div className="account-details-title">
-                  <div><p className="eyebrow">Account</p><h2>Profile</h2></div>
+                  <div><h2>Profile</h2></div>
                   <p>Manage how your name appears across Baskt.</p>
                 </div>
                 <section className="account-details-section profile-settings-section">
@@ -617,7 +616,6 @@ export default function SettingsPage() {
             <>
               <div className="account-details-title">
                 <div>
-                  <p className="eyebrow">Account</p>
                   <h2>Personal Info</h2>
                 </div>
                 <p>Information used to maintain and service your account.</p>
@@ -644,7 +642,6 @@ export default function SettingsPage() {
               <>
                 <div className="account-details-title">
                   <div>
-                    <p className="eyebrow">Account</p>
                     <h2>Account Details</h2>
                   </div>
                   <p>Trading account balances and buying power from your brokerage account.</p>

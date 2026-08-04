@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
-from core.deps import get_current_user, get_stock_analytics_service
+from core.authentication import get_current_baskt_account
+from core.deps import get_stock_analytics_service
+from domain.baskt_account_domain import BasktAccount
 from schema.stock_schema import StockAnalyticsResponse
 from services.stock_analytics_service import (
     StockAnalyticsInternalServerError,
@@ -38,7 +38,7 @@ def _raise_stock_analytics_http_exception(error: Exception) -> None:
 @router.get("/{symbol}", response_model=StockAnalyticsResponse, status_code=HTTP_200_OK)
 def get_stock_analytics(
     symbol: str,
-    _user: Dict[str, Any] = Depends(get_current_user),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: StockAnalyticsService = Depends(get_stock_analytics_service),
 ) -> StockAnalyticsResponse:
     """Return standard-period performance analytics for one stock symbol."""

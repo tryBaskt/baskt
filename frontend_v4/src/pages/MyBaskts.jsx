@@ -54,7 +54,6 @@ export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
       <ErrorBanner message={error} />
       <section className="section-heading">
         <div>
-          <p className="eyebrow">Saved Baskts</p>
           <h2>Your portfolio library</h2>
         </div>
         <button className="primary-button" type="button" onClick={onCreateBaskt}>

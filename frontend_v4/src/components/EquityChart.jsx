@@ -3,12 +3,15 @@ import { useState } from "react";
 const CHART_SIZES = {
   compact: { width: 560, height: 300 },
   default: { width: 720, height: 300 },
-  wide: { width: 1120, height: 300 },
+  wide: { width: 1120, height: 420 },
   performance: { width: 960, height: 540 },
 };
-const MARGIN = { top: 60, right: 22, bottom: 46, left: 72 };
+const DEFAULT_MARGIN = { top: 60, right: 22, bottom: 46, left: 72 };
+const CHART_MARGINS = {
+  wide: { top: 52, right: 22, bottom: 46, left: 72 },
+};
 
-function getChartGeometry(values, width, height) {
+function getChartGeometry(values, width, height, margin) {
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   let min = minValue;
@@ -20,13 +23,13 @@ function getChartGeometry(values, width, height) {
     max += fallbackPadding;
   }
 
-  const plotWidth = width - MARGIN.left - MARGIN.right;
-  const plotHeight = height - MARGIN.top - MARGIN.bottom;
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
   const step = values.length > 1 ? plotWidth / (values.length - 1) : 0;
-  const valueToY = (value) => MARGIN.top + ((max - value) / (max - min)) * plotHeight;
+  const valueToY = (value) => margin.top + ((max - value) / (max - min)) * plotHeight;
 
   const points = values.map((value, index) => ({
-    x: MARGIN.left + index * step,
+    x: margin.left + index * step,
     y: valueToY(value),
   }));
 
@@ -34,7 +37,7 @@ function getChartGeometry(values, width, height) {
     const ratio = index / 4;
     return {
       value: max - ratio * (max - min),
-      y: MARGIN.top + ratio * plotHeight,
+      y: margin.top + ratio * plotHeight,
     };
   });
 
@@ -137,13 +140,14 @@ export default function EquityChart({
     .filter((point) => Number.isFinite(point.value));
   const values = pointsWithLabels.map((point) => point.value);
   const chartSize = CHART_SIZES[variant] || CHART_SIZES.default;
+  const margin = CHART_MARGINS[variant] || DEFAULT_MARGIN;
   const chartClassName = `chart-frame chart-frame--${variant}`;
 
   if (!values.length) {
     return <div className={chartClassName}><div className="chart-empty">{emptyMessage}</div></div>;
   }
 
-  const geometry = getChartGeometry(values, chartSize.width, chartSize.height);
+  const geometry = getChartGeometry(values, chartSize.width, chartSize.height, margin);
   const path = geometry.points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(" ");
@@ -153,14 +157,14 @@ export default function EquityChart({
   );
   const firstTimestamp = getTimestampMilliseconds(pointsWithLabels[0]?.timestamp);
   const lastTimestamp = getTimestampMilliseconds(pointsWithLabels.at(-1)?.timestamp);
-  const baseline = chartSize.height - MARGIN.bottom;
+  const baseline = chartSize.height - margin.bottom;
   const hoveredDatum = hoveredIndex === null ? null : pointsWithLabels[hoveredIndex];
   const hoveredPoint = hoveredIndex === null ? null : geometry.points[hoveredIndex];
 
   function updateHoveredPoint(event) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const viewBoxX = ((event.clientX - bounds.left) / bounds.width) * chartSize.width;
-    const ratio = (viewBoxX - MARGIN.left) / geometry.plotWidth;
+    const ratio = (viewBoxX - margin.left) / geometry.plotWidth;
     const nextIndex = Math.max(
       0,
       Math.min(values.length - 1, Math.round(ratio * Math.max(values.length - 1, 0)))
@@ -207,15 +211,15 @@ export default function EquityChart({
 
         {geometry.yTicks.map((tick) => (
           <g key={tick.y}>
-            <line className="chart-grid-line" x1={MARGIN.left} x2={chartSize.width - MARGIN.right} y1={tick.y} y2={tick.y} />
-            <text className="chart-axis-label chart-y-label" x={MARGIN.left - 10} y={tick.y + 4}>
+            <line className="chart-grid-line" x1={margin.left} x2={chartSize.width - margin.right} y1={tick.y} y2={tick.y} />
+            <text className="chart-axis-label chart-y-label" x={margin.left - 10} y={tick.y + 4}>
               {formatAxisValue(tick.value, valueType)}
             </text>
           </g>
         ))}
 
-        <line className="chart-axis-line" x1={MARGIN.left} x2={MARGIN.left} y1={MARGIN.top} y2={baseline} />
-        <line className="chart-axis-line" x1={MARGIN.left} x2={chartSize.width - MARGIN.right} y1={baseline} y2={baseline} />
+        <line className="chart-axis-line" x1={margin.left} x2={margin.left} y1={margin.top} y2={baseline} />
+        <line className="chart-axis-line" x1={margin.left} x2={chartSize.width - margin.right} y1={baseline} y2={baseline} />
 
         <path
           d={`${path} L ${geometry.points.at(-1).x.toFixed(2)} ${baseline} L ${geometry.points[0].x.toFixed(2)} ${baseline} Z`}
@@ -225,7 +229,7 @@ export default function EquityChart({
 
         {hoveredPoint && (
           <g className="chart-crosshair" aria-hidden="true">
-            <line x1={hoveredPoint.x} x2={hoveredPoint.x} y1={MARGIN.top} y2={baseline} />
+            <line x1={hoveredPoint.x} x2={hoveredPoint.x} y1={margin.top} y2={baseline} />
             <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="5" />
           </g>
         )}

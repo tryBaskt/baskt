@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 #     sys.path.insert(0, str(_BACKEND_DIR))
 
 from core.config import get_settings
+from core.logging_config import configure_cloudwatch_logging
 from routes.backtest_route import router as backtest_router
 from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
@@ -67,6 +68,7 @@ def _log_request_exception(
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_cloudwatch_logging(settings)
 
     app = FastAPI(title=settings.app_name)
 

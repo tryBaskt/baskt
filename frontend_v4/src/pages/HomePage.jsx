@@ -5,6 +5,14 @@ import { apiRequest } from "../lib/api";
 import { currency, percent } from "../lib/format";
 
 const periods = ["1D", "1W", "1M", "3M", "1A", "ALL"];
+const periodMoveLabels = {
+  "1D": "today",
+  "1W": "1W",
+  "1M": "1M",
+  "3M": "3M",
+  "1A": "1A",
+  ALL: "all time",
+};
 
 function formatAllocationType(value) {
   const normalized = String(value || "").toUpperCase();
@@ -76,20 +84,19 @@ export default function HomePage({ onOpenInvestment }) {
       percentOfAccount: Number(allocation?.portfolio_allocation_equity_percent || 0),
     })
   );
-  const investedEquity = allocationEntries.reduce((total, allocation) => total + allocation.equity, 0);
-  const oneDayGraph = analytics?.equity_graph?.["1D"] || analytics?.equity_graph?.["1d"];
-  const oneDayEquity = (oneDayGraph?.equity || [])
+  const selectedEquity = (selectedGraph?.equity || [])
     .filter((value) => value !== null && value !== undefined && value !== "")
     .map(Number)
     .filter(Number.isFinite);
-  const hasOneDayPnl = oneDayEquity.length >= 2 && oneDayEquity[0] !== 0;
-  const oneDayPnl = hasOneDayPnl
-    ? oneDayEquity.at(-1) - oneDayEquity[0]
+  const hasSelectedPeriodPnl = selectedEquity.length >= 2 && selectedEquity[0] !== 0;
+  const selectedPeriodPnl = hasSelectedPeriodPnl
+    ? selectedEquity.at(-1) - selectedEquity[0]
     : null;
-  const oneDayPnlPercent = hasOneDayPnl
-    ? (oneDayPnl / Math.abs(oneDayEquity[0])) * 100
+  const selectedPeriodPnlPercent = hasSelectedPeriodPnl
+    ? (selectedPeriodPnl / Math.abs(selectedEquity[0])) * 100
     : null;
-  const oneDayTone = oneDayPnl > 0 ? "positive" : oneDayPnl < 0 ? "negative" : "neutral";
+  const selectedPeriodTone = selectedPeriodPnl > 0 ? "positive" : selectedPeriodPnl < 0 ? "negative" : "neutral";
+  const selectedPeriodMoveLabel = periodMoveLabels[String(period).toUpperCase()] || period;
 
   return (
     <div className="page-stack dashboard-page">
@@ -98,16 +105,11 @@ export default function HomePage({ onOpenInvestment }) {
         <section className="portfolio-console">
           <div className="portfolio-heading">
             <div>
-              <p className="eyebrow">Individual portfolio</p>
               <h1>{isLoading ? "—" : currency(analytics?.equity)}</h1>
-              <p className={`portfolio-move ${oneDayTone}`}>
-                <strong>{isLoading ? "Loading" : signedCurrency(oneDayPnl)}</strong>
-                <span>{Number.isFinite(oneDayPnlPercent) ? `${oneDayPnlPercent > 0 ? "+" : ""}${percent(oneDayPnlPercent)} today` : "Not available"}</span>
+              <p className={`portfolio-move ${selectedPeriodTone}`}>
+                <strong>{isLoading ? "Loading" : signedCurrency(selectedPeriodPnl)}</strong>
+                <span>{Number.isFinite(selectedPeriodPnlPercent) ? `${selectedPeriodPnlPercent > 0 ? "+" : ""}${percent(selectedPeriodPnlPercent)} ${selectedPeriodMoveLabel}` : "Not available"}</span>
               </p>
-            </div>
-            <div className="portfolio-stat">
-              <span>Buying power</span>
-              <strong>{isLoading ? "—" : currency(analytics?.cash)}</strong>
             </div>
           </div>
 
@@ -126,14 +128,14 @@ export default function HomePage({ onOpenInvestment }) {
           </div>
 
           <div className="buying-power-row">
-            <span>Invested value</span>
-            <strong>{isLoading ? "—" : currency(investedEquity)}</strong>
+            <span>Buying power</span>
+            <strong>{isLoading ? "—" : currency(analytics?.cash)}</strong>
           </div>
         </section>
 
         <aside className="holdings-panel">
           <div className="holdings-heading">
-            <div><p className="eyebrow">Live allocation</p><h2>Holdings</h2></div>
+            <div><h2>Holdings</h2></div>
             <span>{allocationEntries.length}</span>
           </div>
 

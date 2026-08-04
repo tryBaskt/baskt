@@ -2,22 +2,29 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Dict, Any, Optional
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException
 # Alpaca imports
 from alpaca.broker.models import Account
 # Baskt imports
+from core.authorization import get_optional_portfolio_allocation_owner
+from core.authentication import (
+	get_current_alpaca_account,
+	get_current_baskt_account,
+	get_alpaca_account_id,
+	get_cognito_user_id
+
+)
 from core.deps import (
 	get_investment_analytics_service,
-	get_current_user,
-	get_current_active_alpaca_account,
 	get_trade_execution_service,
 	get_order_repository,
-	get_current_alpaca_account
+	get_portfolio_allocation_repository,
 )
 from repository.order_repository import OrderRepository
+from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from domain.baskt_account_domain import BasktAccount
 from schema.investment_analytics_schema import (
 	AccountAnalyticsResponse,
 	EquityGraphResponse
@@ -69,32 +76,31 @@ def _raise_investment_analytics_http_exception(err: Exception) -> None:
 
 @router.get("", response_model= AccountAnalyticsResponse, status_code=HTTP_200_OK)
 def get_account_analytics(
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 	order_repository: OrderRepository = Depends(get_order_repository)
 ) -> AccountAnalyticsResponse:
-	cognito_user_id = user["sub"]
-	alpaca_account_id = user["custom:alpaca_acct_id"]
-
-	if alpaca_account.status.name.upper() not in ('ACTIVE','APPROVED'):
-		return AccountAnalyticsResponse(
-			cash=0.0,
-			equity=0.0,
-			equity_graph={},
-			portfolio_allocations={}
-		)
 
 	try:
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		if alpaca_account.status.name.upper() not in ('ACTIVE','APPROVED'):
+			return AccountAnalyticsResponse(
+				cash=0.0,
+				equity=0.0,
+				equity_graph={},
+				portfolio_allocations={}
+			)
+
 		portfolio_ids_owner_ids = order_repository.get_portfolio_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
 
-		for portfolio_id, portfolio_owner_cognito_user_id in portfolio_ids_owner_ids:
+		for portfolio_id, _ in portfolio_ids_owner_ids:
 			trade_execution_service.realize_filled_orders(
 				cognito_user_id=cognito_user_id,
 				alpaca_account_id=alpaca_account_id,
 				portfolio_id=portfolio_id,
-				portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
 				lock_already_acquired=False
 			)
 
@@ -120,22 +126,30 @@ def get_account_analytics(
 @router.get("/portfolios/{portfolio_id}/analytics", response_model=PortfolioAllocationResponse, status_code=HTTP_200_OK)
 def get_portfolio_allocation_analytics(
 	portfolio_id: str,
-	portfolio_owner_cognito_user_id: str,
-	user: Dict[str, Any] = Depends(get_current_user),
-	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+	portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
 ) -> PortfolioAllocationResponse:
 
-	cognito_user_id = user["sub"]
-	alpaca_account_id = user["custom:alpaca_acct_id"]
-
 	try:
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		if alpaca_account.status.name.upper() != "ACTIVE":
+			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
+		allocation = get_optional_portfolio_allocation_owner(
+			portfolio_id=portfolio_id,
+			cognito_user_id=cognito_user_id,
+			portfolio_allocation_repository=portfolio_allocation_repository,
+		)
+		if allocation is None:
+			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
+
 		trade_execution_service.realize_filled_orders(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
-			portfolio_id=portfolio_id,
-			portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
+			portfolio_id=portfolio_id
 		)
 
 		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
@@ -177,22 +191,31 @@ def get_portfolio_allocation_analytics(
 @router.get("/stocks/{stock_id}/analytics", response_model=StockAllocationResponse, status_code=HTTP_200_OK)
 def get_stock_allocation_analytics(
 	stock_id: str,
-	portfolio_owner_cognito_user_id: Optional[str] = None,
-	user: Dict[str, Any] = Depends(get_current_user),
-	active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
+	portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
 ) -> StockAllocationResponse:
 
-	cognito_user_id = user["sub"]
-	alpaca_account_id = user["custom:alpaca_acct_id"]
-
 	try:
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		if alpaca_account.status.name.upper() != "ACTIVE":
+			return StockAllocationResponse(stock_id=stock_id)
+		allocation = get_optional_portfolio_allocation_owner(
+			portfolio_id=stock_id,
+			cognito_user_id=cognito_user_id,
+			portfolio_allocation_repository=portfolio_allocation_repository,
+		)
+		if allocation is None:
+			return StockAllocationResponse(
+				stock_id=stock_id
+			)
 		trade_execution_service.realize_filled_orders(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
-			portfolio_id=stock_id,
-			portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id
+			portfolio_id=stock_id
 		)
 
 		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=stock_id)
@@ -233,7 +256,7 @@ def get_stock_allocation_analytics(
 @router.get("/stocks/{stock_id}", response_model=StockResponse, status_code=HTTP_200_OK)
 def get_stock_metadata(
 	stock_id: str,
-	user: Dict[str, Any] = Depends(get_current_user),
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 ) -> StockResponse:
 	try:

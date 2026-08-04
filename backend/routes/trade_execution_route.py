@@ -2,7 +2,7 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any
 from starlette.status import (
     HTTP_202_ACCEPTED,
     HTTP_409_CONFLICT,
@@ -11,28 +11,31 @@ from starlette.status import (
     HTTP_502_BAD_GATEWAY,
 )
 
-# Alpaca imports
 from alpaca.broker.models import Account
 
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException
 
 # Baskt imports
+from core.authorization import require_active_alpaca_account
+from core.authentication import (
+	get_current_alpaca_account,
+	get_current_baskt_account,
+	get_alpaca_account_id,
+	get_cognito_user_id
+
+)
 from core.deps import (
-    get_current_active_alpaca_account,
-    get_current_user,
     get_trade_execution_queuing_service,
 )
 from schema.trade_execution_schema import (
     BuyStockRequest,
     BuyStockResponse,
-    CloseStockRequest,
     CloseStockResponse,
     DepositIntoPortfolioRequest,
     DepositIntoPortfolioResponse,
     SellStockRequest,
     SellStockResponse,
-    WithdrawAllPortfolioRequest,
     WithdrawAllPortfolioResponse,
     WithdrawFromPortfolioRequest,
     WithdrawFromPortfolioResponse,
@@ -41,6 +44,7 @@ from services.trade_execution_queuing_service import (
     TradeExecutionQueuingInternalServerError,
     TradeExecutionQueuingService,
 )
+from domain.baskt_account_domain import BasktAccount
 
 router = APIRouter(prefix="/trade-execution", tags=["trade-execution"])
 
@@ -89,16 +93,16 @@ def deposit_into_portfolio(
     portfolio_id: str,
     request: DepositIntoPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Account = Depends(get_current_alpaca_account),
 ) -> DepositIntoPortfolioResponse:
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
         queuing_service.queue_portfolio_deposit(
             portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
             amount=request.amount,
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id
@@ -114,17 +118,17 @@ def withdraw_from_portfolio(
     portfolio_id: str,
     request: WithdrawFromPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Any = Depends(get_current_alpaca_account),
 ) -> WithdrawFromPortfolioResponse:
     """Withdraw funds from a portfolio proportional to latest snapshot allocations."""
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
 
         queuing_service.queue_portfolio_withdrawal(
             portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
             amount=request.amount,
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
@@ -138,18 +142,17 @@ def withdraw_from_portfolio(
 @router.post("/portfolios/{portfolio_id}/withdraw-all",response_model=WithdrawAllPortfolioResponse, status_code=HTTP_202_ACCEPTED)
 def sell_all_from_portfolio(
     portfolio_id: str,
-    request: WithdrawAllPortfolioRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Any = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Any = Depends(get_current_alpaca_account),
 ) -> WithdrawAllPortfolioResponse:
     try:
-        cognito_user_id = user["sub"]
-        alpaca_account_id = user["custom:alpaca_acct_id"]
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
 
         queuing_service.queue_portfolio_withdraw_all(
             portfolio_id=portfolio_id,
-            portfolio_owner_cognito_user_id=request.portfolio_owner_cognito_user_id,
             alpaca_account_id=alpaca_account_id,
             cognito_user_id=cognito_user_id,
         )
@@ -164,16 +167,19 @@ def buy_stock(
     asset_id: str,
     request: BuyStockRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Account = Depends(get_current_alpaca_account),
 ) -> BuyStockResponse:
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
+
         queuing_service.queue_stock_buy(
-            symbol=request.symbol.upper(),
             asset_id=asset_id,
             amount=request.amount,
-            cognito_user_id=user["sub"],
-            alpaca_account_id=user["custom:alpaca_acct_id"],
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
         )
         return BuyStockResponse(success=True)
     except Exception as error:
@@ -185,16 +191,19 @@ def sell_stock(
     asset_id: str,
     request: SellStockRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Account = Depends(get_current_alpaca_account),
 ) -> SellStockResponse:
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
+
         queuing_service.queue_stock_sell(
-            symbol=request.symbol.upper(),
             asset_id=asset_id,
             amount=request.amount,
-            alpaca_account_id=user["custom:alpaca_acct_id"],
-            cognito_user_id=user["sub"],
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
         )
         return SellStockResponse(success=True)
     except Exception as error:
@@ -204,17 +213,19 @@ def sell_stock(
 @router.post("/stocks/{asset_id}/close", response_model=CloseStockResponse, status_code=HTTP_202_ACCEPTED)
 def close_stock(
     asset_id: str,
-    request: CloseStockRequest,
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
-    user: Dict[str, Any] = Depends(get_current_user),
-    _active_alpaca_account: Account = Depends(get_current_active_alpaca_account),
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    alpaca_account: Account = Depends(get_current_alpaca_account),
 ) -> CloseStockResponse:
     try:
+        cognito_user_id = get_cognito_user_id(baskt_account)
+        alpaca_account_id = get_alpaca_account_id(baskt_account)
+        require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
+
         queuing_service.queue_stock_close(
-            symbol=request.symbol.upper(),
             asset_id=asset_id,
-            alpaca_account_id=user["custom:alpaca_acct_id"],
-            cognito_user_id=user["sub"],
+            alpaca_account_id=alpaca_account_id,
+            cognito_user_id=cognito_user_id,
         )
         return CloseStockResponse(success=True)
     except Exception as error:

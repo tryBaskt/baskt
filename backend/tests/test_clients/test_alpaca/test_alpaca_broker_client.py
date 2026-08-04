@@ -113,7 +113,17 @@ def test_alpaca_broker_client_market_calendar_and_price_data(
         symbols=["AAPL"],
         timestamp=datetime(2024, 1, 2, 20, 0, tzinfo=timezone.utc),
     )
-    assert price_at_time["AAPL"] > 0
+    assert list(price_at_time.columns) == ["symbol", "price", "timestamp"]
+    assert price_at_time.iloc[0]["symbol"] == "AAPL"
+    assert price_at_time.iloc[0]["price"] > 0
+    assert price_at_time.iloc[0]["timestamp"] <= datetime(
+        2024,
+        1,
+        2,
+        20,
+        0,
+        tzinfo=timezone.utc,
+    )
 
 
 def test_alpaca_broker_client_rejects_invalid_market_data_inputs(
