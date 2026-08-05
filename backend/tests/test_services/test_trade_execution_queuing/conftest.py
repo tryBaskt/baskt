@@ -1674,10 +1674,11 @@ class TestEngine:
         # match order_db and portfolio_allocation
         allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         snapshot = allocation.position_history[-1]
-        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
+        snapshot_positions = [] if snapshot.position is None else [snapshot.position]
+        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot_positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
         assert symbols_orders_db_sorted == symbols_snapshot_sorted
-        for snapshot_position in snapshot.positions:
+        for snapshot_position in snapshot_positions:
             assert snapshot_position.symbol in orders_db_symbols_quantity
             assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
 
@@ -1687,7 +1688,7 @@ class TestEngine:
         baskt_symbols_sorted = sorted([symbol for symbol in baskt_positions_dict])
         assert symbols_snapshot_sorted == baskt_symbols_sorted
         alpaca_filled_amount = 0.0
-        for snapshot_position in snapshot.positions:
+        for snapshot_position in snapshot_positions:
             assert snapshot_position.symbol in baskt_positions_dict
             assert abs(snapshot_position.filled_quantity - baskt_positions_dict[snapshot_position.symbol].filled_quantity) <= FLOAT_ERROR
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
@@ -1802,10 +1803,11 @@ class TestEngine:
         allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
-        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
+        snapshot_positions = [] if snapshot.position is None else [snapshot.position]
+        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot_positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
         assert symbols_orders_db_sorted == symbols_snapshot_sorted
-        for snapshot_position in snapshot.positions:
+        for snapshot_position in snapshot_positions:
             assert snapshot_position.symbol in orders_db_symbols_quantity
             assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
 
@@ -1816,7 +1818,7 @@ class TestEngine:
         assert symbols_snapshot_sorted == baskt_symbols_sorted
         alpaca_filled_amount2 = 0.0
 
-        for snapshot_position in snapshot.positions:
+        for snapshot_position in snapshot_positions:
             assert snapshot_position.symbol in baskt_positions_dict
             assert abs(snapshot_position.filled_quantity - baskt_positions_dict[snapshot_position.symbol].filled_quantity) <= FLOAT_ERROR
             assert abs(snapshot_position.filled_avg_price - baskt_positions_dict[snapshot_position.symbol].filled_avg_price) <= FLOAT_ERROR
@@ -1914,10 +1916,11 @@ class TestEngine:
         allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
-        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
+        snapshot_positions = [] if snapshot.position is None else [snapshot.position]
+        symbols_snapshot_sorted = sorted(position.symbol for position in snapshot_positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
         assert symbols_orders_db_sorted == symbols_snapshot_sorted
-        for snapshot_position in snapshot.positions:
+        for snapshot_position in snapshot_positions:
             assert snapshot_position.symbol in orders_db_symbols_quantity
             assert abs(orders_db_symbols_quantity[snapshot_position.symbol] - snapshot_position.direction * snapshot_position.filled_quantity) <= FLOAT_ERROR
 

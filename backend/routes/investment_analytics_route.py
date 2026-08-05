@@ -218,7 +218,7 @@ def get_stock_allocation_analytics(
 			portfolio_id=stock_id
 		)
 
-		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=stock_id, is_stock_allocation=True)
+		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=stock_id)
 		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=stock_id)
 		if not analytics_dict and not transactions:
 			return StockAllocationResponse(
@@ -247,7 +247,7 @@ def get_stock_allocation_analytics(
 			equity=analytics_dict["equity"],
 			profit_loss=analytics_dict["profit_loss"],
 			profit_loss_percent=analytics_dict["profit_loss_percent"],
-			direction=analytics_dict["direction"]
+			direction=analytics_dict.get("direction")
 
 		)
 

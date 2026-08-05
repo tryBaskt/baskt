@@ -59,12 +59,8 @@ class PortfolioAllocationPositionSnapshot:
 
 @dataclass
 class StockAllocationPositionSnapshot:
-    position: StockAllocationPosition
+    position: Optional[StockAllocationPosition]
     timestamp: datetime
-
-    @property
-    def positions(self) -> List[StockAllocationPosition]:
-        return [self.position]
 
 
 @dataclass

@@ -4,7 +4,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
-from domain.allocation_domain import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
+from domain.allocation_domain import (
+    PortfolioAllocationTransactionSnapshot,
+    PortfolioAllocationPosition,
+    PortfolioAllocationPositionSnapshot,
+    PortfolioAllocation,
+    StockAllocationPosition,
+    StockAllocationPositionSnapshot,
+)
 from domain.baskt_domain import BasktPosition, DeltaPosition
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.allocation_repository import AllocationRepository
@@ -307,8 +314,18 @@ class TradeExecutionService:
             portfolio_owner_cognito_user_id = None
             if portfolio_allocation.allocation_type == "MODEL_PORTFOLIO":
                 portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
-            # Current positions in portfolio (if any)
-            curr_positions = portfolio_allocation.position_history[-1].positions if portfolio_allocation.position_history else []
+            # Current positions in allocation (if any)
+            curr_positions = []
+            if portfolio_allocation.position_history:
+                latest_position_snapshot = portfolio_allocation.position_history[-1]
+                if portfolio_allocation.allocation_type == "STOCK":
+                    curr_positions = (
+                        []
+                        if latest_position_snapshot.position is None
+                        else [latest_position_snapshot.position]
+                    )
+                else:
+                    curr_positions = latest_position_snapshot.positions
             curr_positions_dict = {
                 position.symbol: {"filled_avg_price": position.filled_avg_price, "filled_quantity": position.filled_quantity, "direction": position.direction}
                 for position in curr_positions
@@ -443,18 +460,41 @@ class TradeExecutionService:
                     order_filled_quantity=order_filled_quantity,
                 )
 
-            new_position_snapshot = PortfolioAllocationPositionSnapshot(
-                timestamp=datetime.now(timezone.utc),
-                positions=[
-                    PortfolioAllocationPosition(
+            if portfolio_allocation.allocation_type == "STOCK":
+                if len(curr_positions_dict) > 1:
+                    raise TradeExecutionInternalServerError(
+                        message=(
+                            f"Stock allocation '{portfolio_id}' has multiple positions: "
+                            f"{sorted(curr_positions_dict)}"
+                        ),
+                        code="TRADE_EXECUTION_STOCK_POSITION_INVALID",
+                    )
+                stock_position = None
+                if curr_positions_dict:
+                    symbol = next(iter(curr_positions_dict))
+                    stock_position = StockAllocationPosition(
                         symbol=symbol,
                         filled_avg_price=curr_positions_dict[symbol]["filled_avg_price"],
                         filled_quantity=curr_positions_dict[symbol]["filled_quantity"],
-                        direction=curr_positions_dict[symbol]["direction"]
+                        direction=curr_positions_dict[symbol]["direction"],
                     )
-                    for symbol in curr_positions_dict
-                ]
-            )
+                new_position_snapshot = StockAllocationPositionSnapshot(
+                    timestamp=datetime.now(timezone.utc),
+                    position=stock_position,
+                )
+            else:
+                new_position_snapshot = PortfolioAllocationPositionSnapshot(
+                    timestamp=datetime.now(timezone.utc),
+                    positions=[
+                        PortfolioAllocationPosition(
+                            symbol=symbol,
+                            filled_avg_price=curr_positions_dict[symbol]["filled_avg_price"],
+                            filled_quantity=curr_positions_dict[symbol]["filled_quantity"],
+                            direction=curr_positions_dict[symbol]["direction"]
+                        )
+                        for symbol in curr_positions_dict
+                    ]
+                )
 
             portfolio_allocation.position_history.append(new_position_snapshot)
             portfolio_allocation.total_cost_basis = curr_total_filled_amount
@@ -1293,20 +1333,23 @@ class TradeExecutionService:
                     lock_already_acquired=True,
                 )
 
-            # Get positions to close
-            curr_portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, allocation_id=asset_id)
-            curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
-
-            # Build the delta positions
-            delta_positions: List[DeltaPosition] = []
-            for position in curr_portfolio_allocation_positions:
-                delta_positions.append(
-                    DeltaPosition(
-                        symbol=position.symbol,
-                        quantity=position.filled_quantity,
-                        direction=position.direction * -1
-                    )
+            # Get position to close
+            curr_stock_allocation_position_snapshot = self.allocation_repository.get_latest_stock_allocation_position_snapshot(cognito_user_id=cognito_user_id, allocation_id=asset_id)
+            curr_stock_position = curr_stock_allocation_position_snapshot.position
+            if curr_stock_position is None:
+                raise TradeExecutionInternalServerError(
+                    message=f"Stock allocation '{asset_id}' has no position to close.",
+                    code="TRADE_EXECUTION_STOCK_NO_POSITION",
                 )
+            
+            # Build the delta position
+            delta_positions: List[DeltaPosition] = [
+                DeltaPosition(
+                    symbol=curr_stock_position.symbol,
+                    quantity=curr_stock_position.filled_quantity,
+                    direction=curr_stock_position.direction * -1
+                )
+            ]
 
             # Execute trades via helper
             execution_trade_response =  self._execute_trades_helper(
@@ -1395,9 +1438,10 @@ class TradeExecutionService:
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
             symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
-            if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
-                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
-                current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction
+            if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].position is not None:
+                latest_stock_snapshot = portfolio_allocation_position_snapshots[-1]
+                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=latest_stock_snapshot)
+                current_direction = latest_stock_snapshot.position.direction
             else:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
                 current_direction = None
@@ -1516,9 +1560,10 @@ class TradeExecutionService:
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
             symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
-            if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
-                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
-                current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction
+            if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].position is not None:
+                latest_stock_snapshot = portfolio_allocation_position_snapshots[-1]
+                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=latest_stock_snapshot)
+                current_direction = latest_stock_snapshot.position.direction
             else:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
                 current_direction = None

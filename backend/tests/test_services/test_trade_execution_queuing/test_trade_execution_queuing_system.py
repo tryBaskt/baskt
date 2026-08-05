@@ -508,9 +508,9 @@ def test_stock_short_then_partial_cover(test_engine: TestEngine):
 
         assert allocation.total_cost_basis > 10.00
         assert allocation.total_cost_basis < 30.00
-        assert len(latest_snapshot.positions) == 1
-        assert latest_snapshot.positions[0].symbol == "AAPL"
-        assert latest_snapshot.positions[0].direction == -1
+        assert latest_snapshot.position is not None
+        assert latest_snapshot.position.symbol == "AAPL"
+        assert latest_snapshot.position.direction == -1
     finally:
         transaction_id_order_id_dict = {}
         _record_order_response(transaction_id_order_id_dict, short_response)

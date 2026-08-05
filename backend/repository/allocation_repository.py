@@ -123,11 +123,12 @@ def _parse_portfolio_allocation_position_snapshot(item: Dict) -> PortfolioAlloca
 def _parse_stock_allocation_position_snapshot(item: Dict) -> StockAllocationPositionSnapshot:
     """Convert a stored stock position snapshot map into its domain model."""
     position = item.get("position")
-    if position is None:
-        raise KeyError("position")
-
     return StockAllocationPositionSnapshot(
-        position=_parse_stock_allocation_position(position),
+        position=(
+            None
+            if position is None
+            else _parse_stock_allocation_position(position)
+        ),
         timestamp=to_utc_from_iso(item["timestamp"]),
     )
 
@@ -310,6 +311,9 @@ class AllocationRepository:
         """
 
         position = position_snapshot.position
+        if position is None:
+            return 0.0, 0.0
+
         symbol = position.symbol
         try:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
@@ -362,6 +366,8 @@ class AllocationRepository:
         Calculate the current value for a portfolio or stock allocation snapshot.
         """
         if isinstance(portfolio_allocation_position_snapshot, StockAllocationPositionSnapshot):
+            if portfolio_allocation_position_snapshot.position is None:
+                return {}, 0.0, {}
             position_value, current_price = self.calculate_stock_allocation_position_snapshot_current_value(
                 position_snapshot=portfolio_allocation_position_snapshot,
             )

@@ -7,7 +7,11 @@ from typing import Dict, Any, List
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from repository.allocation_repository import AllocationRepository
-from domain.allocation_domain import PortfolioAllocationTransactionSnapshot
+from domain.allocation_domain import (
+    PortfolioAllocationTransactionSnapshot,
+    StockAllocationPositionSnapshot,
+    StockAllocationTransactionSnapshot,
+)
 from domain.stock_domain import Stock
 
 
@@ -36,7 +40,7 @@ class InvestmentAnalyticsService:
         self.alpaca_broker_client = alpaca_broker_client
         self.allocation_repository = allocation_repository
 
-    def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str, is_stock_allocation: bool = False) -> Dict[str, Any]:
+    def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str) -> Dict[str, Any]:
 
         try:
             if not self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=portfolio_id):
@@ -44,7 +48,14 @@ class InvestmentAnalyticsService:
 
             portfolio_allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
             position_history = portfolio_allocation.position_history
-            if (not position_history) or (not position_history[-1].positions):
+            latest_position_snapshot = position_history[-1] if position_history else None
+            is_stock_allocation = portfolio_allocation.allocation_type == "STOCK"
+            has_position = (
+                latest_position_snapshot.position is not None
+                if isinstance(latest_position_snapshot, StockAllocationPositionSnapshot)
+                else bool(latest_position_snapshot and latest_position_snapshot.positions)
+            )
+            if not has_position:
                 return {
                     "total_cost_basis": 0.0,
                     "equity": 0.0,
@@ -54,13 +65,13 @@ class InvestmentAnalyticsService:
 
                 }
             total_cost_basis = portfolio_allocation.total_cost_basis
-            _, equity, _ = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
+            _, equity, _ = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=latest_position_snapshot)
             return {
                 "total_cost_basis": total_cost_basis,
                 "equity": equity,
                 "profit_loss": equity - total_cost_basis,
-                "profit_loss_percent": (equity - total_cost_basis) / total_cost_basis,
-                "direction": portfolio_allocation.position_history[-1].positions[0].direction if is_stock_allocation else None
+                "profit_loss_percent": ((equity - total_cost_basis) / total_cost_basis) if total_cost_basis else 0.0,
+                "direction": latest_position_snapshot.position.direction if is_stock_allocation else None
             }
         except Exception as e:
             raise InvestmentAnalyticsInternalServerError(
@@ -78,12 +89,15 @@ class InvestmentAnalyticsService:
             )
 
         
-    def get_portfolio_allocation_transactions(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:
+    def get_portfolio_allocation_transactions(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot | StockAllocationTransactionSnapshot]:
          
         try:
             if not self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=portfolio_id):
                 return []
             
+            allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
+            if allocation.allocation_type == "STOCK":
+                return self.allocation_repository.get_stock_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
             return self.allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
         
         except Exception as e:
@@ -124,7 +138,12 @@ class InvestmentAnalyticsService:
                 portfolio_allocation_equity = 0.0
                 if portfolio_allocation.position_history:
                     curr_port_alloc_pos_snapshot = portfolio_allocation.position_history[-1]
-                    if curr_port_alloc_pos_snapshot.positions:
+                    has_position = (
+                        curr_port_alloc_pos_snapshot.position is not None
+                        if isinstance(curr_port_alloc_pos_snapshot, StockAllocationPositionSnapshot)
+                        else bool(curr_port_alloc_pos_snapshot.positions)
+                    )
+                    if has_position:
                         _, portfolio_allocation_equity, _ = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_port_alloc_pos_snapshot)
 
                 allocation_name = (

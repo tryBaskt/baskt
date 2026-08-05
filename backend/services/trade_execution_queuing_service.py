@@ -15,6 +15,8 @@ from domain.allocation_domain import (
     PortfolioAllocation,
     PortfolioAllocationTransactionSnapshot,
     StockAllocation,
+    StockAllocationPositionSnapshot,
+    StockAllocationTransactionSnapshot,
 )
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.allocation_repository import AllocationRepository
@@ -104,24 +106,24 @@ class TradeExecutionQueuingService:
     def _queue_transaction(
         self,
         *,
-        portfolio_allocation: PortfolioAllocation,
-        transaction: PortfolioAllocationTransactionSnapshot,
+        allocation: PortfolioAllocation | StockAllocation,
+        transaction: PortfolioAllocationTransactionSnapshot | StockAllocationTransactionSnapshot,
         action: str,
         payload: Dict[str, Any],
     ) -> str:
         """Persist a transaction before publishing the message that executes it."""
         if self.allocation_repository.is_exists_allocation_for_user(
-            cognito_user_id=portfolio_allocation.cognito_user_id,
-            allocation_id=portfolio_allocation.allocation_id,
+            cognito_user_id=allocation.cognito_user_id,
+            allocation_id=allocation.allocation_id,
         ):
-            portfolio_allocation = self.allocation_repository.get_allocation(
-                cognito_user_id=portfolio_allocation.cognito_user_id,
-                allocation_id=portfolio_allocation.allocation_id,
+            allocation = self.allocation_repository.get_allocation(
+                cognito_user_id=allocation.cognito_user_id,
+                allocation_id=allocation.allocation_id,
             )
 
-        portfolio_allocation.transaction_history.append(transaction)
+        allocation.transaction_history.append(transaction)
         self.allocation_repository.set_allocation(
-            allocation=portfolio_allocation
+            allocation=allocation
         )
         try:
             return self._send_message(action=action, payload=payload)
@@ -132,7 +134,7 @@ class TradeExecutionQueuingService:
                 "The trade passed validation but could not be added to the execution queue."
             )
             self.allocation_repository.set_allocation(
-                allocation=portfolio_allocation
+                allocation=allocation
             )
             raise
 
@@ -179,19 +181,24 @@ class TradeExecutionQueuingService:
 
     def _allocation_equity(self, allocation: PortfolioAllocation) -> float:
         """Return the current absolute market value of an allocation."""
-        if not allocation.position_history or not allocation.position_history[-1].positions:
+        if not allocation.position_history:
+            return 0.0
+        latest_snapshot = allocation.position_history[-1]
+        if isinstance(latest_snapshot, StockAllocationPositionSnapshot) and latest_snapshot.position is None:
+            return 0.0
+        if not isinstance(latest_snapshot, StockAllocationPositionSnapshot) and not latest_snapshot.positions:
             return 0.0
         _, equity, _ = self.allocation_repository.calculate_positions_current_value(
-            portfolio_allocation_position_snapshot=allocation.position_history[-1]
+            portfolio_allocation_position_snapshot=latest_snapshot
         )
         return float(equity)
 
     @staticmethod
     def _stock_direction(allocation: PortfolioAllocation) -> Optional[int]:
         """Return the current stock direction, or None for an empty allocation."""
-        if not allocation.position_history or not allocation.position_history[-1].positions:
+        if not allocation.position_history or allocation.position_history[-1].position is None:
             return None
-        return int(allocation.position_history[-1].positions[0].direction)
+        return int(allocation.position_history[-1].position.direction)
 
     @staticmethod
     def _project_stock_equity(
@@ -695,7 +702,7 @@ class TradeExecutionQueuingService:
             quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
 
             if self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=asset_id):
-                transaction_snapshots = self.allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=asset_id)
+                transaction_snapshots = self.allocation_repository.get_stock_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=asset_id)
                 for snapshot in transaction_snapshots:
                     if (
                         snapshot.status.upper() in {"QUEUED", "PROCESSING", "ORDERED", "PARTIALLY_FILLED"}
@@ -751,7 +758,7 @@ class TradeExecutionQueuingService:
                 cognito_user_id=cognito_user_id,
                 allocation_id=asset_id,
             )
-            if not allocation.position_history or not allocation.position_history[-1].positions:
+            if not allocation.position_history or allocation.position_history[-1].position is None:
                 raise TradeExecutionQueuingInternalServerError(
                     message=f"Stock allocation '{asset_id}' has no position to close.",
                     code="TRADE_EXECUTION_QUEUE_NO_POSITIONS",
