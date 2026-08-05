@@ -12,18 +12,18 @@ from fastapi import HTTPException, status
 from core.authentication import get_cognito_user_id
 from domain.baskt_account_domain import BasktAccount
 from domain.model_portfolio_domain import ModelPortfolio
-from domain.portfolio_allocation_domain import PortfolioAllocation
+from domain.allocation_domain import PortfolioAllocation, StockAllocation
 from repository.model_portfolio_repository import (
     ModelPortfolioBadGatewayError,
     ModelPortfolioInternalServerError,
     ModelPortfolioNotFoundError,
     ModelPortfolioRepository,
 )
-from repository.portfolio_allocation_repository import (
-    PortfolioAllocationBadGatewayError,
-    PortfolioAllocationInternalServerError,
-    PortfolioAllocationNotFoundError,
-    PortfolioAllocationRepository,
+from repository.allocation_repository import (
+    AllocationBadGatewayError,
+    AllocationNotFoundError,
+    AllocationRepository,
+    AllocationRepositoryError,
 )
 
 
@@ -183,34 +183,34 @@ def require_model_portfolio_owner_match(
 
 def require_portfolio_allocation_owner(
     *,
-    portfolio_id: str,
+    allocation_id: str,
     cognito_user_id: str,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
-) -> PortfolioAllocation:
+    allocation_repository: AllocationRepository,
+) -> PortfolioAllocation | StockAllocation:
     """Load a portfolio allocation owned by the Cognito user."""
     try:
-        return portfolio_allocation_repository.get_portfolio_allocation(
+        return allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=allocation_id,
         )
-    except PortfolioAllocationNotFoundError as err:
+    except AllocationNotFoundError as err:
         _audit_denied_access(
             action="portfolio_allocation.owner",
             user_id=cognito_user_id,
             resource_type="portfolio_allocation",
-            resource_id=portfolio_id,
+            resource_id=allocation_id,
             reason="allocation_not_found_or_not_owned",
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Portfolio allocation not found.",
         ) from err
-    except PortfolioAllocationBadGatewayError as err:
+    except AllocationBadGatewayError as err:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(err), "code": err.code},
         ) from err
-    except PortfolioAllocationInternalServerError as err:
+    except AllocationRepositoryError as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(err), "code": err.code},
@@ -219,10 +219,10 @@ def require_portfolio_allocation_owner(
 
 def get_optional_portfolio_allocation_owner(
     *,
-    portfolio_id: str,
+    allocation_id: str,
     cognito_user_id: str,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
-) -> Optional[PortfolioAllocation]:
+    allocation_repository: AllocationRepository,
+) -> Optional[PortfolioAllocation | StockAllocation]:
     """
     Load a Cognito user's allocation when it exists.
 
@@ -230,18 +230,18 @@ def get_optional_portfolio_allocation_owner(
     inspect a page before investing. Upstream failures still become HTTP errors.
     """
     try:
-        return portfolio_allocation_repository.get_portfolio_allocation(
+        return allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=allocation_id,
         )
-    except PortfolioAllocationNotFoundError:
+    except AllocationNotFoundError:
         return None
-    except PortfolioAllocationBadGatewayError as err:
+    except AllocationBadGatewayError as err:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(err), "code": err.code},
         ) from err
-    except PortfolioAllocationInternalServerError as err:
+    except AllocationRepositoryError as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(err), "code": err.code},

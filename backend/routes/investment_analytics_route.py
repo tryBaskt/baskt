@@ -20,10 +20,10 @@ from core.deps import (
 	get_investment_analytics_service,
 	get_trade_execution_service,
 	get_order_repository,
-	get_portfolio_allocation_repository,
+	get_allocation_repository,
 )
 from repository.order_repository import OrderRepository
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from domain.baskt_account_domain import BasktAccount
 from schema.investment_analytics_schema import (
 	AccountAnalyticsResponse,
@@ -130,7 +130,7 @@ def get_portfolio_allocation_analytics(
 	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
-	portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+	allocation_repository: AllocationRepository = Depends(get_allocation_repository),
 ) -> PortfolioAllocationResponse:
 
 	try:
@@ -139,9 +139,9 @@ def get_portfolio_allocation_analytics(
 		if alpaca_account.status.name.upper() != "ACTIVE":
 			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
 		allocation = get_optional_portfolio_allocation_owner(
-			portfolio_id=portfolio_id,
+			allocation_id=portfolio_id,
 			cognito_user_id=cognito_user_id,
-			portfolio_allocation_repository=portfolio_allocation_repository,
+			allocation_repository=allocation_repository,
 		)
 		if allocation is None:
 			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
@@ -160,7 +160,7 @@ def get_portfolio_allocation_analytics(
 		transactions_response = [
 			PortfolioAllocationTransactionResponse(
 				transaction_id=transaction.transaction_id,
-				model_portfolio_snapshot_id=transaction.model_portfolio_snapshot_id,
+				portfolio_snapshot_id=transaction.portfolio_snapshot_id,
 				created_at=transaction.created_at,
 				filled_at=transaction.filled_at,
 				updated_at=transaction.updated_at,
@@ -195,7 +195,7 @@ def get_stock_allocation_analytics(
 	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
-	portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+	allocation_repository: AllocationRepository = Depends(get_allocation_repository),
 ) -> StockAllocationResponse:
 
 	try:
@@ -204,9 +204,9 @@ def get_stock_allocation_analytics(
 		if alpaca_account.status.name.upper() != "ACTIVE":
 			return StockAllocationResponse(stock_id=stock_id)
 		allocation = get_optional_portfolio_allocation_owner(
-			portfolio_id=stock_id,
+			allocation_id=stock_id,
 			cognito_user_id=cognito_user_id,
-			portfolio_allocation_repository=portfolio_allocation_repository,
+			allocation_repository=allocation_repository,
 		)
 		if allocation is None:
 			return StockAllocationResponse(

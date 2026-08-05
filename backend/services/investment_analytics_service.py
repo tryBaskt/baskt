@@ -6,8 +6,8 @@ from typing import Dict, Any, List
 
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
-from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot
+from repository.allocation_repository import AllocationRepository
+from domain.allocation_domain import PortfolioAllocationTransactionSnapshot
 from domain.stock_domain import Stock
 
 
@@ -31,18 +31,18 @@ class InvestmentAnalyticsService:
         self,
         *,
         alpaca_broker_client: AlpacaBrokerClient,
-        portfolio_allocation_repository: PortfolioAllocationRepository,
+        allocation_repository: AllocationRepository,
     ):
         self.alpaca_broker_client = alpaca_broker_client
-        self.portfolio_allocation_repository = portfolio_allocation_repository
+        self.allocation_repository = allocation_repository
 
     def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str, is_stock_allocation: bool = False) -> Dict[str, Any]:
 
         try:
-            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+            if not self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=portfolio_id):
                 return {}
 
-            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            portfolio_allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
             position_history = portfolio_allocation.position_history
             if (not position_history) or (not position_history[-1].positions):
                 return {
@@ -54,7 +54,7 @@ class InvestmentAnalyticsService:
 
                 }
             total_cost_basis = portfolio_allocation.total_cost_basis
-            _, equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
+            _, equity, _ = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
             return {
                 "total_cost_basis": total_cost_basis,
                 "equity": equity,
@@ -81,10 +81,10 @@ class InvestmentAnalyticsService:
     def get_portfolio_allocation_transactions(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:
          
         try:
-            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+            if not self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=portfolio_id):
                 return []
             
-            return self.portfolio_allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            return self.allocation_repository.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
         
         except Exception as e:
             raise InvestmentAnalyticsInternalServerError(
@@ -112,7 +112,7 @@ class InvestmentAnalyticsService:
             account_analytics["equity"] = float(trade_account.equity)
 
             account_analytics["portfolio_allocations"] = {}
-            portfolio_allocations = self.portfolio_allocation_repository.get_portfolio_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+            portfolio_allocations = self.allocation_repository.get_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
             for portfolio_allocation in portfolio_allocations:
                 if (
                     portfolio_allocation.transaction_history
@@ -125,12 +125,17 @@ class InvestmentAnalyticsService:
                 if portfolio_allocation.position_history:
                     curr_port_alloc_pos_snapshot = portfolio_allocation.position_history[-1]
                     if curr_port_alloc_pos_snapshot.positions:
-                        _, portfolio_allocation_equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_port_alloc_pos_snapshot)
+                        _, portfolio_allocation_equity, _ = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=curr_port_alloc_pos_snapshot)
 
-                account_analytics["portfolio_allocations"][portfolio_allocation.portfolio_id] = {
-                    "portfolio_name": portfolio_allocation.portfolio_name,
-                    "portfolio_id": portfolio_allocation.portfolio_id,
-                    "portfolio_allocation_type": portfolio_allocation.portfolio_allocation_type,
+                allocation_name = (
+                    portfolio_allocation.symbol
+                    if portfolio_allocation.allocation_type == "STOCK"
+                    else portfolio_allocation.portfolio_name
+                )
+                account_analytics["portfolio_allocations"][portfolio_allocation.allocation_id] = {
+                    "portfolio_name": allocation_name,
+                    "portfolio_id": portfolio_allocation.allocation_id,
+                    "allocation_type": portfolio_allocation.allocation_type,
                     "portfolio_allocation_equity": portfolio_allocation_equity,
                     "portfolio_allocation_equity_percent": portfolio_allocation_equity / float(trade_account.equity) if float(trade_account.equity) > 0.0 else 0.0
                 }

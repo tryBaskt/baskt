@@ -243,7 +243,7 @@ def update_model_portfolio(
         if new_snapshot_id is not None:
             queuing_service.queue_portfolio_update(
                 portfolio_id=portfolio_id,
-                model_portfolio_snapshot_id=new_snapshot_id,
+                portfolio_snapshot_id=new_snapshot_id,
             )
         return
     except HTTPException:

@@ -29,9 +29,9 @@ from domain.baskt_account_domain import (
     IdentityData,
 )
 from domain.model_portfolio_domain import ModelPortfolio
-from domain.portfolio_allocation_domain import PortfolioAllocation
+from domain.allocation_domain import PortfolioAllocation
 from repository.model_portfolio_repository import ModelPortfolioNotFoundError
-from repository.portfolio_allocation_repository import PortfolioAllocationNotFoundError
+from repository.allocation_repository import AllocationNotFoundError
 
 
 AUDIT_LOGGER = "baskt.audit.authorization"
@@ -48,21 +48,21 @@ class FakeModelPortfolioRepository:
             raise ModelPortfolioNotFoundError(portfolio_id=portfolio_id) from err
 
 
-class FakePortfolioAllocationRepository:
+class FakeAllocationRepository:
     def __init__(self, allocations: dict[tuple[str, str], PortfolioAllocation]) -> None:
         self.allocations = allocations
 
-    def get_portfolio_allocation(
+    def get_allocation(
         self,
         cognito_user_id: str,
-        portfolio_id: str,
+        allocation_id: str,
     ) -> PortfolioAllocation:
         try:
-            return self.allocations[(cognito_user_id, portfolio_id)]
+            return self.allocations[(cognito_user_id, allocation_id)]
         except KeyError as err:
-            raise PortfolioAllocationNotFoundError(
+            raise AllocationNotFoundError(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=allocation_id,
             ) from err
 
 
@@ -97,12 +97,12 @@ def _portfolio_allocation(
     cognito_user_id: str = "owner-user",
 ) -> PortfolioAllocation:
     return PortfolioAllocation(
-        portfolio_id=portfolio_id,
+        allocation_id=portfolio_id,
         cognito_user_id=cognito_user_id,
         position_history=[],
         transaction_history=[],
         total_cost_basis=0.0,
-        portfolio_allocation_type="STOCK",
+        allocation_type="STOCK",
         portfolio_name="Security Test Allocation",
     )
 
@@ -208,7 +208,7 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
-    repository = FakePortfolioAllocationRepository(
+    repository = FakeAllocationRepository(
         {
             ("owner-user", "portfolio-1"): _portfolio_allocation(
                 cognito_user_id="owner-user",
@@ -219,9 +219,9 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
 
     with pytest.raises(HTTPException) as exc_info:
         require_portfolio_allocation_owner(
-            portfolio_id="portfolio-1",
+            allocation_id="portfolio-1",
             cognito_user_id="other-user",
-            portfolio_allocation_repository=repository,
+            allocation_repository=repository,
         )
 
     assert exc_info.value.status_code == 404
@@ -233,14 +233,14 @@ def test_optional_portfolio_allocation_owner_returns_owned_allocation() -> None:
         cognito_user_id="owner-user",
         portfolio_id="portfolio-1",
     )
-    repository = FakePortfolioAllocationRepository(
+    repository = FakeAllocationRepository(
         {("owner-user", "portfolio-1"): allocation}
     )
 
     result = get_optional_portfolio_allocation_owner(
-        portfolio_id="portfolio-1",
+        allocation_id="portfolio-1",
         cognito_user_id="owner-user",
-        portfolio_allocation_repository=repository,
+        allocation_repository=repository,
     )
 
     assert result is allocation
@@ -250,12 +250,12 @@ def test_optional_portfolio_allocation_owner_allows_missing_allocation(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
-    repository = FakePortfolioAllocationRepository({})
+    repository = FakeAllocationRepository({})
 
     result = get_optional_portfolio_allocation_owner(
-        portfolio_id="portfolio-1",
+        allocation_id="portfolio-1",
         cognito_user_id="viewer-user",
-        portfolio_allocation_repository=repository,
+        allocation_repository=repository,
     )
 
     assert result is None

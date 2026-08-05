@@ -43,18 +43,18 @@ def investment_analytics_service() -> InvestmentAnalyticsService:
     app_deps.get_boto3_session.cache_clear()
     app_deps.get_dynamodb_resource_cached.cache_clear()
     app_deps.get_alpaca_broker_client.cache_clear()
-    app_deps.get_portfolio_allocation_dynamodb_client.cache_clear()
+    app_deps.get_allocation_dynamodb_client.cache_clear()
 
     alpaca_broker_client = app_deps.get_alpaca_broker_client()
-    portfolio_allocation_repository = app_deps.get_portfolio_allocation_repository(
+    allocation_repository = app_deps.get_allocation_repository(
         alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_dynamodb_client=(
-            app_deps.get_portfolio_allocation_dynamodb_client()
+        allocation_dynamodb_client=(
+            app_deps.get_allocation_dynamodb_client()
         ),
     )
     return app_deps.get_investment_analytics_service(
         alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
     )
 
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
-from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
+from domain.allocation_domain import PortfolioAllocationTransactionSnapshot, PortfolioAllocationPosition, PortfolioAllocationPositionSnapshot, PortfolioAllocation
 from domain.baskt_domain import BasktPosition, DeltaPosition
 from repository.model_portfolio_repository import ModelPortfolioRepository
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
@@ -45,14 +45,14 @@ class TradeExecutionService:
         self,
         alpaca_broker_client: AlpacaBrokerClient,
         model_portfolio_repository: ModelPortfolioRepository,
-        portfolio_allocation_repository: PortfolioAllocationRepository,
+        allocation_repository: AllocationRepository,
         order_repository: OrderRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
         user_trade_lock_repository: UserTradeLockRepository
     ):
         self.alpaca_broker_client: AlpacaBrokerClient = alpaca_broker_client
         self.model_portfolio_repository: ModelPortfolioRepository = model_portfolio_repository
-        self.portfolio_allocation_repository: PortfolioAllocationRepository = portfolio_allocation_repository
+        self.allocation_repository: AllocationRepository = allocation_repository
         self.order_repository: OrderRepository = order_repository
         self.model_portfolio_follower_repository: ModelPortfolioFollowerRepository = model_portfolio_follower_repository
         self.user_trade_lock_repository: UserTradeLockRepository = user_trade_lock_repository
@@ -109,9 +109,9 @@ class TradeExecutionService:
         error: Exception,
     ) -> bool:
         """Persist a failed execution state without creating a new transaction."""
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+        allocation = self.allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=portfolio_id,
         )
         transaction = self._find_transaction(allocation, transaction_id)
         if transaction.status.upper() not in {"QUEUED", "PROCESSING"}:
@@ -119,8 +119,8 @@ class TradeExecutionService:
         transaction.status = "FAILED"
         transaction.updated_at = datetime.now(timezone.utc)
         transaction.status_explanation = str(error) or "Trade execution failed."
-        self.portfolio_allocation_repository.set_portfolio_allocation(
-            portfolio_allocation=allocation
+        self.allocation_repository.set_allocation(
+            allocation=allocation
         )
 
     @staticmethod
@@ -297,15 +297,15 @@ class TradeExecutionService:
                     raise HTTPException(status_code=409, detail="Another trade operation is in progress for this user")
 
             # If user has not deposit/withdraw in portfolio at all
-            if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
+            if not self.allocation_repository.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=portfolio_id):
                 return 0
 
             # Getting current portfolio allocation
-            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
-                cognito_user_id=cognito_user_id, portfolio_id=portfolio_id
+            portfolio_allocation = self.allocation_repository.get_allocation(
+                cognito_user_id=cognito_user_id, allocation_id=portfolio_id
             )
             portfolio_owner_cognito_user_id = None
-            if portfolio_allocation.portfolio_allocation_type == "MODEL_PORTFOLIO":
+            if portfolio_allocation.allocation_type == "MODEL_PORTFOLIO":
                 portfolio_owner_cognito_user_id = self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(portfolio_id=portfolio_id)
             # Current positions in portfolio (if any)
             curr_positions = portfolio_allocation.position_history[-1].positions if portfolio_allocation.position_history else []
@@ -422,7 +422,7 @@ class TradeExecutionService:
 
             if not total_newly_filled_orders:
                 if has_transaction_updates:
-                    self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=portfolio_allocation)
+                    self.allocation_repository.set_allocation(allocation=portfolio_allocation)
                 return 0
 
             total_newly_filled_orders.sort(
@@ -459,7 +459,7 @@ class TradeExecutionService:
             portfolio_allocation.position_history.append(new_position_snapshot)
             portfolio_allocation.total_cost_basis = curr_total_filled_amount
 
-            self.portfolio_allocation_repository.set_portfolio_allocation(portfolio_allocation=portfolio_allocation)
+            self.allocation_repository.set_allocation(allocation=portfolio_allocation)
 
             return len(total_newly_filled_orders)
 
@@ -609,12 +609,12 @@ class TradeExecutionService:
         alpaca_account_id: str,
         transaction_id: str,
         portfolio_owner_cognito_user_id: Optional[str],
-        model_portfolio_snapshot_id: Optional[str] = None
+        portfolio_snapshot_id: Optional[str] = None
     ) -> bool:
         """Submit planned orders and update the transaction created by the queue."""
-        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+        portfolio_allocation = self.allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=portfolio_id,
         )
         transaction = self._find_transaction(portfolio_allocation, transaction_id)
 
@@ -626,8 +626,8 @@ class TradeExecutionService:
         transaction.status = "PROCESSING"
         transaction.updated_at = datetime.now(timezone.utc)
         transaction.status_explanation = None
-        self.portfolio_allocation_repository.set_portfolio_allocation(
-            portfolio_allocation=portfolio_allocation
+        self.allocation_repository.set_allocation(
+            allocation=portfolio_allocation
         )
 
         baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict(
@@ -661,11 +661,11 @@ class TradeExecutionService:
         transaction.cost_basis = 0.0
         transaction.order_fill_percent = 100.0 if not order_results else 0.0
         transaction.status = "FULLY_FILLED" if not order_results else "ORDERED"
-        transaction.model_portfolio_snapshot_id = model_portfolio_snapshot_id
+        transaction.portfolio_snapshot_id = portfolio_snapshot_id
         if not order_results:
             transaction.filled_at = transaction.updated_at
-        self.portfolio_allocation_repository.set_portfolio_allocation(
-            portfolio_allocation=portfolio_allocation
+        self.allocation_repository.set_allocation(
+            allocation=portfolio_allocation
         )
         return True
 
@@ -716,7 +716,7 @@ class TradeExecutionService:
                 )
 
             # Get current positions to close out
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            curr_portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
             curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
 
             # Build the delta positions
@@ -816,10 +816,10 @@ class TradeExecutionService:
                 )
 
             # Get current portfolio allocation equity and portfolio allocation position weight
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
-                cognito_user_id=cognito_user_id, portfolio_id=portfolio_id
+            curr_portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(
+                cognito_user_id=cognito_user_id, allocation_id=portfolio_id
             )
-            position_weights_dict, portfolio_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_weight(
+            position_weights_dict, portfolio_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_weight(
                 portfolio_allocation_position_snapshot=curr_portfolio_allocation_position_snapshot
             )
 
@@ -887,7 +887,7 @@ class TradeExecutionService:
         portfolio_id: str,
         cognito_user_id: str,
         alpaca_account_id: str,
-        model_portfolio_snapshot_id: str,
+        portfolio_snapshot_id: str,
         transaction_id: str,
         is_test: bool = False,
         lock_already_acquired: bool = False,
@@ -916,9 +916,9 @@ class TradeExecutionService:
                     lock_already_acquired=True,
                 )
 
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             update_transaction = self._find_transaction(allocation, transaction_id)
             if update_transaction.transaction_type.upper() != "UPDATE":
@@ -926,12 +926,12 @@ class TradeExecutionService:
                     message=f"Transaction '{transaction_id}' is not an UPDATE transaction.",
                     code="TRADE_EXECUTION_UPDATE_TRANSACTION_TYPE_INVALID",
                 )
-            if update_transaction.model_portfolio_snapshot_id != model_portfolio_snapshot_id:
+            if update_transaction.portfolio_snapshot_id != portfolio_snapshot_id:
                 raise TradeExecutionInternalServerError(
                     message=(
                         f"Transaction '{transaction_id}' targets model snapshot "
-                        f"'{update_transaction.model_portfolio_snapshot_id}', not "
-                        f"'{model_portfolio_snapshot_id}'."
+                        f"'{update_transaction.portfolio_snapshot_id}', not "
+                        f"'{portfolio_snapshot_id}'."
                     ),
                     code="TRADE_EXECUTION_UPDATE_SNAPSHOT_MISMATCH",
                 )
@@ -942,12 +942,12 @@ class TradeExecutionService:
             )
             new_model_portfolio_snapshot = None
             for snap in model_portfolio_snapshots:
-                if snap.snapshot_id == model_portfolio_snapshot_id:
+                if snap.snapshot_id == portfolio_snapshot_id:
                     new_model_portfolio_snapshot = deepcopy(snap)
                     break
             if not new_model_portfolio_snapshot:
                 raise TradeExecutionInternalServerError(
-                    message=f"Model portfolio snapshot id {model_portfolio_snapshot_id} not found in model portfolio {portfolio_id}",
+                    message=f"Model portfolio snapshot id {portfolio_snapshot_id} not found in model portfolio {portfolio_id}",
                     code="TRADE_EXECUTION_UPDATE_FAILED"
                 )
             new_model_portfolio_positions = new_model_portfolio_snapshot.positions
@@ -959,9 +959,9 @@ class TradeExecutionService:
             new_model_portfolio_weights_dict, _, new_model_portfolio_quotes = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=new_model_portfolio_snapshot)
 
             # Get current portfolio allocation positions
-            portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
+            portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id
+                allocation_id=portfolio_id
             )
             portfolio_allocation_positions = portfolio_allocation_position_snapshot.positions
             curr_portfolio_allocation_symbols = [position.symbol for position in portfolio_allocation_positions]
@@ -969,7 +969,7 @@ class TradeExecutionService:
                 pos.symbol: pos
                 for pos in portfolio_allocation_positions
             }
-            curr_portfolio_allocation_weights_dict, _, _ = self.portfolio_allocation_repository.calculate_positions_current_weight(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshot)
+            curr_portfolio_allocation_weights_dict, _, _ = self.allocation_repository.calculate_positions_current_weight(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshot)
 
             # Build delta positions
             delta_positions: List[DeltaPosition] = []
@@ -985,7 +985,7 @@ class TradeExecutionService:
                         )
                     )
 
-            curr_allocation_amount = self.portfolio_allocation_repository.get_portfolio_allocation_total_cost_basis(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            curr_allocation_amount = self.allocation_repository.get_allocation_total_cost_basis(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
 
             # Create delta positions for new position in model Portfolio
             for new_position in new_model_portfolio_positions:
@@ -1064,7 +1064,7 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_id=transaction_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                model_portfolio_snapshot_id=model_portfolio_snapshot_id
+                portfolio_snapshot_id=portfolio_snapshot_id
             )
         except Exception as error:
             self._mark_transaction_failed(
@@ -1076,7 +1076,7 @@ class TradeExecutionService:
             raise TradeExecutionInternalServerError(
                 message=(
                     f"Failed to execute portfolio update for portfolio '{portfolio_id}', "
-                    f"snapshot '{model_portfolio_snapshot_id}', user '{cognito_user_id}', "
+                    f"snapshot '{portfolio_snapshot_id}', user '{cognito_user_id}', "
                     f"and account '{alpaca_account_id}': {error}"
                 ),
                 code="TRADE_EXECUTION_PORTFOLIO_UPDATE_FAILED",
@@ -1143,22 +1143,22 @@ class TradeExecutionService:
             # Get the latest model portfolio position's weights
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
             curr_model_portfolio_snapshot = model_portfolio.position_history[-1]
-            curr_model_portfolio_snapshot_id = curr_model_portfolio_snapshot.snapshot_id
+            curr_portfolio_snapshot_id = curr_model_portfolio_snapshot.snapshot_id
             curr_model_portfolio_positions = curr_model_portfolio_snapshot.positions
             symbols = [position.symbol for position in curr_model_portfolio_positions]
             model_portfolio_position_weight_dict,_,_ = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=curr_model_portfolio_snapshot)
 
             # Get the portfolio allocation equity (if any)
             portfolio_allocation_equity = 0.0
-            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            portfolio_allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
                 with_wait=True
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
             quotes = {}
             if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
-                _, portfolio_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
+                _, portfolio_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
             else:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols)
             if portfolio_allocation_equity + deposit_amount < MINIMUM_PORTFOLIO_BALANCE:
@@ -1190,7 +1190,7 @@ class TradeExecutionService:
                 alpaca_account_id=alpaca_account_id,
                 transaction_id=transaction_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                model_portfolio_snapshot_id = curr_model_portfolio_snapshot_id
+                portfolio_snapshot_id = curr_portfolio_snapshot_id
             )
 
             if executed:
@@ -1202,7 +1202,7 @@ class TradeExecutionService:
                 )
 
                 model_portfolio_2 = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
-                if model_portfolio_2.position_history[-1].snapshot_id != curr_model_portfolio_snapshot_id:
+                if model_portfolio_2.position_history[-1].snapshot_id != curr_portfolio_snapshot_id:
                     update_snapshot_id = model_portfolio_2.position_history[-1].snapshot_id
                     queued_at = datetime.now(timezone.utc)
                     update_transaction = PortfolioAllocationTransactionSnapshot(
@@ -1212,21 +1212,21 @@ class TradeExecutionService:
                         requested_amount=None,
                         transaction_type="UPDATE",
                         status="QUEUED",
-                        model_portfolio_snapshot_id=update_snapshot_id,
+                        portfolio_snapshot_id=update_snapshot_id,
                     )
-                    updated_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+                    updated_allocation = self.allocation_repository.get_allocation(
                         cognito_user_id=cognito_user_id,
-                        portfolio_id=portfolio_id,
+                        allocation_id=portfolio_id,
                     )
                     updated_allocation.transaction_history.append(update_transaction)
-                    self.portfolio_allocation_repository.set_portfolio_allocation(
-                        portfolio_allocation=updated_allocation
+                    self.allocation_repository.set_allocation(
+                        allocation=updated_allocation
                     )
                     self.execute_update_in_portfolio(
                         portfolio_id=portfolio_id,
                         cognito_user_id=cognito_user_id,
                         alpaca_account_id=alpaca_account_id,
-                        model_portfolio_snapshot_id=update_snapshot_id,
+                        portfolio_snapshot_id=update_snapshot_id,
                         transaction_id=update_transaction.transaction_id,
                         lock_already_acquired=True,
                     )
@@ -1294,7 +1294,7 @@ class TradeExecutionService:
                 )
 
             # Get positions to close
-            curr_portfolio_allocation_position_snapshot = self.portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+            curr_portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(cognito_user_id=cognito_user_id, allocation_id=asset_id)
             curr_portfolio_allocation_positions = curr_portfolio_allocation_position_snapshot.positions
 
             # Build the delta positions
@@ -1388,15 +1388,15 @@ class TradeExecutionService:
             # Get the current value of stock allocation (if any)
             stock_allocation_equity = 0.0
             quotes = {}
-            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            portfolio_allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=asset_id,
+                allocation_id=asset_id,
                 with_wait=True
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
             symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
             if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
-                _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
+                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
                 current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction
             else:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])
@@ -1509,15 +1509,15 @@ class TradeExecutionService:
             # Get the current value of stock allocation (if any)
             stock_allocation_equity = 0.0
             quotes = {}
-            portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            portfolio_allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=asset_id,
+                allocation_id=asset_id,
                 with_wait=True,
             )
             portfolio_allocation_position_snapshots = portfolio_allocation.position_history
             symbol = self.alpaca_broker_client.get_symbol_by_asset_id(asset_id=asset_id)
             if portfolio_allocation_position_snapshots and portfolio_allocation_position_snapshots[-1].positions:
-                _, stock_allocation_equity, quotes = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
+                _, stock_allocation_equity, quotes = self.allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshots[-1])
                 current_direction = portfolio_allocation_position_snapshots[-1].positions[0].direction
             else:
                 quotes = self.alpaca_broker_client.get_latest_price(symbols=[symbol])

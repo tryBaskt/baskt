@@ -10,12 +10,12 @@ from core.authentication import get_current_alpaca_account
 from core.deps import (
     get_investment_analytics_service,
     get_order_repository,
-    get_portfolio_allocation_repository,
+    get_allocation_repository,
     get_trade_execution_service,
 )
-from domain.portfolio_allocation_domain import PortfolioAllocationTransactionSnapshot
+from domain.allocation_domain import PortfolioAllocationTransactionSnapshot
 from domain.stock_domain import Stock
-from repository.portfolio_allocation_repository import PortfolioAllocationNotFoundError
+from repository.allocation_repository import AllocationNotFoundError
 from routes.investment_analytics_route import router as investment_analytics_router
 from services.investment_analytics_service import InvestmentAnalyticsInternalServerError
 
@@ -114,17 +114,17 @@ class FakeInvestmentAnalyticsService:
         )
 
 
-class FakePortfolioAllocationRepository:
+class FakeAllocationRepository:
     def __init__(self, *, missing: bool = False) -> None:
         self.missing = missing
         self.calls: list[tuple[str, str]] = []
 
-    def get_portfolio_allocation(self, cognito_user_id: str, portfolio_id: str):
-        self.calls.append((cognito_user_id, portfolio_id))
+    def get_allocation(self, cognito_user_id: str, allocation_id: str):
+        self.calls.append((cognito_user_id, allocation_id))
         if self.missing:
-            raise PortfolioAllocationNotFoundError(
+            raise AllocationNotFoundError(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=allocation_id,
             )
         return object()
 
@@ -135,7 +135,7 @@ def investment_analytics_app(app_factory):
     order_repository = FakeOrderRepository()
     trade_execution_service = FakeTradeExecutionService()
     analytics_service = FakeInvestmentAnalyticsService()
-    allocation_repository = FakePortfolioAllocationRepository()
+    allocation_repository = FakeAllocationRepository()
     app.dependency_overrides[get_order_repository] = lambda: order_repository
     app.dependency_overrides[get_trade_execution_service] = (
         lambda: trade_execution_service
@@ -143,7 +143,7 @@ def investment_analytics_app(app_factory):
     app.dependency_overrides[get_investment_analytics_service] = (
         lambda: analytics_service
     )
-    app.dependency_overrides[get_portfolio_allocation_repository] = (
+    app.dependency_overrides[get_allocation_repository] = (
         lambda: allocation_repository
     )
     return {
@@ -223,8 +223,8 @@ def test_user_cannot_read_another_users_portfolio_allocation_analytics(
     investment_analytics_app,
 ) -> None:
     investment_analytics_app["app"].dependency_overrides[
-        get_portfolio_allocation_repository
-    ] = lambda: FakePortfolioAllocationRepository(missing=True)
+        get_allocation_repository
+    ] = lambda: FakeAllocationRepository(missing=True)
 
     response = investment_analytics_client.get(
         "/account-analytics/portfolios/portfolio-1/analytics"

@@ -26,7 +26,7 @@ from repository.model_portfolio_update_lock_repository import (
 )
 from repository.baskt_account_repository import BasktAccountRepository
 from repository.order_repository import OrderRepository
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 
 
@@ -64,8 +64,8 @@ def order_dynamodb_client() -> DynamoDBClient:
 
 
 @pytest.fixture(scope="session")
-def portfolio_allocation_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_portfolio_allocation_dynamodb_client()
+def allocation_dynamodb_client() -> DynamoDBClient:
+    return app_deps.get_allocation_dynamodb_client()
 
 
 @pytest.fixture(scope="session")
@@ -94,12 +94,12 @@ def order_repository(
 
 
 @pytest.fixture(scope="session")
-def portfolio_allocation_repository(
-    portfolio_allocation_dynamodb_client: DynamoDBClient,
+def allocation_repository(
+    allocation_dynamodb_client: DynamoDBClient,
     alpaca_broker_client: AlpacaBrokerClient,
-) -> PortfolioAllocationRepository:
-    return app_deps.get_portfolio_allocation_repository(
-        portfolio_allocation_dynamodb_client=portfolio_allocation_dynamodb_client,
+) -> AllocationRepository:
+    return app_deps.get_allocation_repository(
+        allocation_dynamodb_client=allocation_dynamodb_client,
         alpaca_broker_client=alpaca_broker_client,
     )
 

@@ -175,7 +175,7 @@ The `AccountAnalyticsResponse` supplies `cash`, `equity`, `equity_graph`, and `p
 Convert the `portfolio_allocations` mapping into rows. Each entry is keyed by its portfolio/asset identifier and includes the fields needed to show:
 
 - `portfolio_name`
-- `portfolio_allocation_type`
+- `allocation_type`
 - `portfolio_allocation_equity`
 - `portfolio_allocation_equity_percent`
 

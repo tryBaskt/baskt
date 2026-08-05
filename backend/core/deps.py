@@ -18,7 +18,7 @@ from clients.opensearch_client import OpenSearchClient
 from clients.vectorbt_client import VectorBTClient
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from services.trade_execution_service import TradeExecutionService
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
@@ -92,10 +92,10 @@ def get_model_portfolio_dynamodb_client() -> DynamoDBClient:
     return DynamoDBClient(table=dynamodb.Table(s.model_portfolios_dynamodb))
 
 @lru_cache
-def get_portfolio_allocation_dynamodb_client() -> DynamoDBClient:
+def get_allocation_dynamodb_client() -> DynamoDBClient:
     s = get_settings()
     dynamodb = get_dynamodb_resource_cached()
-    return DynamoDBClient(table=dynamodb.Table(s.portfolio_allocation_dynamodb))
+    return DynamoDBClient(table=dynamodb.Table(s.allocation_dynamodb))
 
 @lru_cache
 def get_order_dynamodb_client() -> DynamoDBClient:
@@ -203,12 +203,14 @@ def get_model_portfolio_repository(
         model_portfolio_follower_repository=model_portfolio_follower_repository,
     )
 
-def get_portfolio_allocation_repository(
+def get_allocation_repository(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    portfolio_allocation_dynamodb_client: DynamoDBClient = Depends(get_portfolio_allocation_dynamodb_client),
-) -> PortfolioAllocationRepository:
-    # Use the portfolio allocation table, which has keys (cognito_user_id, portfolio_id)
-    return PortfolioAllocationRepository(alpaca_broker_client=alpaca_broker_client, dynamodb_client=portfolio_allocation_dynamodb_client)
+    allocation_dynamodb_client: DynamoDBClient = Depends(get_allocation_dynamodb_client),
+) -> AllocationRepository:
+    return AllocationRepository(
+        alpaca_broker_client=alpaca_broker_client,
+        dynamodb_client=allocation_dynamodb_client,
+    )
 
 def get_order_repository(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
@@ -263,7 +265,7 @@ def get_account_lifecycle_service(
 def get_trade_execution_service(
     model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    allocation_repository: AllocationRepository = Depends(get_allocation_repository),
     order_repository: OrderRepository = Depends(get_order_repository),
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
@@ -271,7 +273,7 @@ def get_trade_execution_service(
     return TradeExecutionService(
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_repository=model_portfolio_repository,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository
@@ -292,7 +294,7 @@ def get_trade_execution_queue_url() -> str:
 def get_trade_execution_queuing_service(
     sqs_client: Any = Depends(get_sqs_client_cached),
     model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
-    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    allocation_repository: AllocationRepository = Depends(get_allocation_repository),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
@@ -301,7 +303,7 @@ def get_trade_execution_queuing_service(
         sqs_client=sqs_client,
         queue_url=get_trade_execution_queue_url(),
         model_portfolio_repository=model_portfolio_repository,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
@@ -309,11 +311,11 @@ def get_trade_execution_queuing_service(
 
 def get_investment_analytics_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    portfolio_allocation_repository: PortfolioAllocationRepository = Depends(get_portfolio_allocation_repository),
+    allocation_repository: AllocationRepository = Depends(get_allocation_repository),
 ) -> InvestmentAnalyticsService:
     return InvestmentAnalyticsService(
         alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
     )
 
 def get_model_portfolio_analytics_service(

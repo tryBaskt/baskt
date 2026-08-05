@@ -3,17 +3,17 @@ from uuid import uuid4
 
 import pytest
 
-from domain.portfolio_allocation_domain import (
+from domain.allocation_domain import (
     PortfolioAllocation,
     PortfolioAllocationPosition,
     PortfolioAllocationPositionSnapshot,
     PortfolioAllocationTransactionSnapshot,
 )
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
-from repository.portfolio_allocation_repository import (
-    PortfolioAllocationInternalServerError,
-    PortfolioAllocationNotFoundError,
-    PortfolioAllocationUnprocessableEntityError,
+from repository.allocation_repository import AllocationRepository
+from repository.allocation_repository import (
+    AllocationRepositoryError,
+    AllocationNotFoundError,
+    AllocationUnprocessableEntityError,
 )
 
 
@@ -21,7 +21,7 @@ def _allocation() -> PortfolioAllocation:
     unique_suffix = uuid4().hex
     timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
     return PortfolioAllocation(
-        portfolio_id=f"repository-portfolio-{unique_suffix}",
+        allocation_id=f"repository-portfolio-{unique_suffix}",
         cognito_user_id=f"repository-user-{unique_suffix}",
         position_history=[
             PortfolioAllocationPositionSnapshot(
@@ -57,64 +57,64 @@ def _allocation() -> PortfolioAllocation:
             )
         ],
         total_cost_basis=500,
-        portfolio_allocation_type="MODEL_PORTFOLIO",
+        allocation_type="MODEL_PORTFOLIO",
         portfolio_name=f"Repository Allocation Test {unique_suffix[:8]}",
     )
 
 
 @pytest.mark.integration
-def test_portfolio_allocation_repository_persists_and_loads_all_views(
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+def test_allocation_repository_persists_and_loads_all_views(
+    allocation_repository: AllocationRepository,
 ) -> None:
     allocation = _allocation()
 
     try:
-        portfolio_allocation_repository.set_portfolio_allocation(allocation)
+        allocation_repository.set_allocation(allocation)
 
-        assert portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(
+        assert allocation_repository.is_exists_allocation_for_user(
             cognito_user_id=allocation.cognito_user_id,
-            portfolio_id=allocation.portfolio_id,
+            allocation_id=allocation.allocation_id,
         )
-        loaded = portfolio_allocation_repository.get_portfolio_allocation(
+        loaded = allocation_repository.get_allocation(
             cognito_user_id=allocation.cognito_user_id,
-            portfolio_id=allocation.portfolio_id,
+            allocation_id=allocation.allocation_id,
         )
-        assert loaded.portfolio_id == allocation.portfolio_id
+        assert loaded.allocation_id == allocation.allocation_id
         assert loaded.transaction_history[0].transaction_id == (
             allocation.transaction_history[0].transaction_id
         )
-        assert portfolio_allocation_repository.get_portfolio_allocation_total_cost_basis(
+        assert allocation_repository.get_allocation_total_cost_basis(
             cognito_user_id=allocation.cognito_user_id,
-            portfolio_id=allocation.portfolio_id,
+            allocation_id=allocation.allocation_id,
         ) == 500.0
-        assert portfolio_allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
+        assert allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
             cognito_user_id=allocation.cognito_user_id,
-            portfolio_id=allocation.portfolio_id,
+            allocation_id=allocation.allocation_id,
             n=1,
         )[0].transaction_id == allocation.transaction_history[0].transaction_id
-        assert portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
+        assert allocation_repository.get_latest_portfolio_allocation_position_snapshot(
             cognito_user_id=allocation.cognito_user_id,
-            portfolio_id=allocation.portfolio_id,
+            allocation_id=allocation.allocation_id,
         ).positions[0].symbol == "AAPL"
-        assert portfolio_allocation_repository.get_portfolio_allocations_by_cognito_user_id(
+        assert allocation_repository.get_allocations_by_cognito_user_id(
             cognito_user_id=allocation.cognito_user_id,
         )[0].portfolio_name == allocation.portfolio_name
     finally:
-        portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+        allocation_repository.allocation_table_client.delete_item(
             key={
                 "cognito_user_id": allocation.cognito_user_id,
-                "portfolio_id": allocation.portfolio_id,
+                "allocation_id": allocation.allocation_id,
             }
         )
 
 
 @pytest.mark.integration
-def test_portfolio_allocation_repository_calculates_values_and_weights(
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+def test_allocation_repository_calculates_values_and_weights(
+    allocation_repository: AllocationRepository,
 ) -> None:
     snapshot = _allocation().position_history[0]
 
-    values, total_value, quotes = portfolio_allocation_repository.calculate_positions_current_value(
+    values, total_value, quotes = allocation_repository.calculate_positions_current_value(
         portfolio_allocation_position_snapshot=snapshot,
     )
     expected_values = {
@@ -124,7 +124,7 @@ def test_portfolio_allocation_repository_calculates_values_and_weights(
     assert values == expected_values
     assert total_value == sum(expected_values.values())
 
-    weights, total_weight_value, _ = portfolio_allocation_repository.calculate_positions_current_weight(
+    weights, total_weight_value, _ = allocation_repository.calculate_positions_current_weight(
         portfolio_allocation_position_snapshot=snapshot,
     )
     assert weights == {
@@ -134,74 +134,74 @@ def test_portfolio_allocation_repository_calculates_values_and_weights(
 
 
 @pytest.mark.integration
-def test_portfolio_allocation_repository_missing_and_invalid_n_paths(
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+def test_allocation_repository_missing_and_invalid_n_paths(
+    allocation_repository: AllocationRepository,
 ) -> None:
     allocation = _allocation()
     missing_cognito_user_id = f"missing-user-{uuid4()}"
     missing_portfolio_id = f"missing-portfolio-{uuid4()}"
 
     for call in (
-        lambda: portfolio_allocation_repository.get_portfolio_allocation(
+        lambda: allocation_repository.get_allocation(
             missing_cognito_user_id,
             missing_portfolio_id,
         ),
-        lambda: portfolio_allocation_repository.get_portfolio_allocation_total_cost_basis(
+        lambda: allocation_repository.get_allocation_total_cost_basis(
             missing_cognito_user_id,
             missing_portfolio_id,
         ),
-        lambda: portfolio_allocation_repository.get_portfolio_allocation_position_snapshots(
+        lambda: allocation_repository.get_portfolio_allocation_position_history(
             missing_cognito_user_id,
             missing_portfolio_id,
         ),
-        lambda: portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
+        lambda: allocation_repository.get_latest_portfolio_allocation_position_snapshot(
             missing_cognito_user_id,
             missing_portfolio_id,
         ),
-        lambda: portfolio_allocation_repository.get_portfolio_allocation_transaction_history(
+        lambda: allocation_repository.get_portfolio_allocation_transaction_history(
             missing_cognito_user_id,
             missing_portfolio_id,
         ),
     ):
-        with pytest.raises(PortfolioAllocationNotFoundError):
+        with pytest.raises(AllocationNotFoundError):
             call()
 
-    assert portfolio_allocation_repository.get_portfolio_allocations_by_cognito_user_id(
+    assert allocation_repository.get_allocations_by_cognito_user_id(
         missing_cognito_user_id
     ) == []
 
     try:
-        portfolio_allocation_repository.set_portfolio_allocation(allocation)
+        allocation_repository.set_allocation(allocation)
 
         with pytest.raises(ValueError):
-            portfolio_allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
+            allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
                 cognito_user_id=allocation.cognito_user_id,
-                portfolio_id=allocation.portfolio_id,
+                allocation_id=allocation.allocation_id,
                 n=0,
             )
         with pytest.raises(ValueError):
-            portfolio_allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
+            allocation_repository.get_n_last_portfolio_allocation_transaction_snapshots(
                 cognito_user_id=allocation.cognito_user_id,
-                portfolio_id=allocation.portfolio_id,
+                allocation_id=allocation.allocation_id,
                 n=2,
             )
     finally:
-        portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+        allocation_repository.allocation_table_client.delete_item(
             key={
                 "cognito_user_id": allocation.cognito_user_id,
-                "portfolio_id": allocation.portfolio_id,
+                "allocation_id": allocation.allocation_id,
             }
         )
 
 
 @pytest.mark.integration
-def test_portfolio_allocation_repository_empty_and_zero_value_snapshots(
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+def test_allocation_repository_empty_and_zero_value_snapshots(
+    allocation_repository: AllocationRepository,
 ) -> None:
     timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-    with pytest.raises(PortfolioAllocationInternalServerError):
-        portfolio_allocation_repository.calculate_positions_current_value(
+    with pytest.raises(AllocationRepositoryError):
+        allocation_repository.calculate_positions_current_value(
             PortfolioAllocationPositionSnapshot(
                 positions=[],
                 timestamp=timestamp,
@@ -220,7 +220,7 @@ def test_portfolio_allocation_repository_empty_and_zero_value_snapshots(
         timestamp=timestamp,
     )
     weights, total_value, quotes = (
-        portfolio_allocation_repository.calculate_positions_current_weight(snapshot)
+        allocation_repository.calculate_positions_current_weight(snapshot)
     )
     assert weights == {"AAPL": 0.0}
     assert total_value == 0.0
@@ -228,49 +228,49 @@ def test_portfolio_allocation_repository_empty_and_zero_value_snapshots(
 
 
 @pytest.mark.integration
-def test_portfolio_allocation_repository_malformed_items_are_wrapped(
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+def test_allocation_repository_malformed_items_are_wrapped(
+    allocation_repository: AllocationRepository,
 ) -> None:
     malformed_cognito_user_id = f"malformed-user-{uuid4()}"
     malformed_portfolio_id = f"malformed-portfolio-{uuid4()}"
 
     try:
-        portfolio_allocation_repository.portfolio_allocation_table_client.put_item(
+        allocation_repository.allocation_table_client.put_item(
             {
                 "cognito_user_id": malformed_cognito_user_id,
-                "portfolio_id": malformed_portfolio_id,
+                "allocation_id": malformed_portfolio_id,
                 "position_history": [],
                 "transaction_history": [{"transaction_id": "broken"}],
                 "total_cost_basis": "not-a-number",
-                "portfolio_allocation_type": "MODEL_PORTFOLIO",
+                "allocation_type": "MODEL_PORTFOLIO",
                 "portfolio_name": "Malformed Allocation",
             }
         )
 
-        with pytest.raises(PortfolioAllocationUnprocessableEntityError):
-            portfolio_allocation_repository.get_portfolio_allocation_position_snapshots(
+        with pytest.raises(AllocationUnprocessableEntityError):
+            allocation_repository.get_portfolio_allocation_position_history(
                 malformed_cognito_user_id,
                 malformed_portfolio_id,
             )
-        with pytest.raises(PortfolioAllocationUnprocessableEntityError):
-            portfolio_allocation_repository.get_latest_portfolio_allocation_position_snapshot(
+        with pytest.raises(AllocationUnprocessableEntityError):
+            allocation_repository.get_latest_portfolio_allocation_position_snapshot(
                 malformed_cognito_user_id,
                 malformed_portfolio_id,
             )
-        with pytest.raises(PortfolioAllocationUnprocessableEntityError):
-            portfolio_allocation_repository.get_portfolio_allocation_total_cost_basis(
+        with pytest.raises(AllocationUnprocessableEntityError):
+            allocation_repository.get_allocation_total_cost_basis(
                 malformed_cognito_user_id,
                 malformed_portfolio_id,
             )
-        with pytest.raises(PortfolioAllocationUnprocessableEntityError):
-            portfolio_allocation_repository.get_portfolio_allocation(
+        with pytest.raises(AllocationUnprocessableEntityError):
+            allocation_repository.get_allocation(
                 malformed_cognito_user_id,
                 malformed_portfolio_id,
             )
     finally:
-        portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
+        allocation_repository.allocation_table_client.delete_item(
             key={
                 "cognito_user_id": malformed_cognito_user_id,
-                "portfolio_id": malformed_portfolio_id,
+                "allocation_id": malformed_portfolio_id,
             }
         )

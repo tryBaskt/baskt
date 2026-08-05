@@ -500,9 +500,9 @@ def test_stock_short_then_partial_cover(test_engine: TestEngine):
             10.00,
         )
 
-        allocation = test_engine.portfolio_allocation_repository.get_portfolio_allocation(
+        allocation = test_engine.allocation_repository.get_allocation(
             cognito_user_id=test_engine.funded_50000_cognito_user_id,
-            portfolio_id=asset_id,
+            allocation_id=asset_id,
         )
         latest_snapshot = allocation.position_history[-1]
 

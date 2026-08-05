@@ -17,8 +17,8 @@ resource "aws_lambda_function" "trade_execution_worker" {
         (format("%s_COGNITO_USER_POOL_ID", upper(var.environment)))      = var.cognito_user_pool_id
         (format("%s_COGNITO_APP_CLIENT_ID", upper(var.environment)))     = var.cognito_app_client_id
         (format("%s_TRADE_EXECUTION_QUEUE_URL", upper(var.environment))) = var.queue_url
+        ALLOCATION_DYNAMODB                                              = "-allocation-dynamodb"
         MODEL_PORTFOLIO_DYNAMODB                                         = "-model-portfolio-dynamodb"
-        PORTFOLIO_ALLOCATION_DYNAMODB                                    = "-portfolio-allocation-dynamodb"
         ORDER_DYNAMODB                                                   = "-order-dynamodb"
         MODEL_PORTFOLIO_FOLLOWER_DYNAMODB                                = "-model-portfolio-follower-dynamodb"
         USER_TRADE_LOCK_DYNAMODB                                         = "-user-trade-lock-dynamodb"

@@ -21,7 +21,7 @@ from clients.cognito_client import CognitoClient
 from services.account_lifecycle_service import AccountLifecycleService
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.model_portfolio_repository import ModelPortfolioRepository
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from repository.order_repository import OrderRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
@@ -235,7 +235,7 @@ class MockTradeExecutionLambda:
                 portfolio_id=payload["portfolio_id"],
                 cognito_user_id=payload["cognito_user_id"],
                 alpaca_account_id=payload["alpaca_account_id"],
-                model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
+                portfolio_snapshot_id=payload["portfolio_snapshot_id"],
                 transaction_id=payload["transaction_id"],
             )
             return
@@ -675,12 +675,12 @@ def model_portfolio_repository(
 
 
 @pytest.fixture(scope="session")
-def portfolio_allocation_repository(alpaca_broker_client: AlpacaBrokerClient) -> PortfolioAllocationRepository:
+def allocation_repository(alpaca_broker_client: AlpacaBrokerClient) -> AllocationRepository:
 
-    app_deps.get_portfolio_allocation_dynamodb_client.cache_clear()
-    portfolio_allocation_dynamodb_client = app_deps.get_portfolio_allocation_dynamodb_client()
-    return app_deps.get_portfolio_allocation_repository(
-        portfolio_allocation_dynamodb_client=portfolio_allocation_dynamodb_client,
+    app_deps.get_allocation_dynamodb_client.cache_clear()
+    allocation_dynamodb_client = app_deps.get_allocation_dynamodb_client()
+    return app_deps.get_allocation_repository(
+        allocation_dynamodb_client=allocation_dynamodb_client,
         alpaca_broker_client=alpaca_broker_client
     )
 
@@ -723,7 +723,7 @@ def account_lifecycle_service(
 def trade_execution_service(
     model_portfolio_repository: ModelPortfolioRepository,
     alpaca_broker_client: AlpacaBrokerClient,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+    allocation_repository: AllocationRepository,
     order_repository: OrderRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
     user_trade_lock_repository: UserTradeLockRepository
@@ -732,7 +732,7 @@ def trade_execution_service(
     return app_deps.get_trade_execution_service(
         model_portfolio_repository=model_portfolio_repository,
         alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
@@ -744,7 +744,7 @@ def trade_execution_queuing_service(
     trade_execution_service: TradeExecutionService,
     model_portfolio_repository: ModelPortfolioRepository,
     alpaca_broker_client: AlpacaBrokerClient,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+    allocation_repository: AllocationRepository,
     user_trade_lock_repository: UserTradeLockRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
 ) -> TradeExecutionQueuingService:
@@ -765,7 +765,7 @@ def trade_execution_queuing_service(
         sqs_client=sqs_client,
         queue_url=queue_url,
         model_portfolio_repository=model_portfolio_repository,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
@@ -787,7 +787,7 @@ class TestEngine:
         model_portfolio_repository: ModelPortfolioRepository,
         order_repository: OrderRepository,
         alpaca_broker_client: AlpacaBrokerClient,
-        portfolio_allocation_repository: PortfolioAllocationRepository,
+        allocation_repository: AllocationRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
     ):
         self.account_lifecycle_service = account_lifecycle_service
@@ -797,7 +797,7 @@ class TestEngine:
         self.model_portfolio_repository = model_portfolio_repository
         self.order_repository = order_repository
         self.alpaca_broker_client = alpaca_broker_client
-        self.portfolio_allocation_repository = portfolio_allocation_repository
+        self.allocation_repository = allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
         self.accounts = TradeExecutionTestAccountIds()
         self.baskt_account_portfolio_positions = {}
@@ -873,13 +873,13 @@ class TestEngine:
     ) -> Dict[str, Any]:
         """Queue one action and wait for either mock or AWS Lambda execution."""
         previous_transaction_ids = set()
-        if self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(
+        if self.allocation_repository.is_exists_allocation_for_user(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=portfolio_id,
         ):
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             previous_transaction_ids = {
                 transaction.transaction_id
@@ -936,9 +936,9 @@ class TestEngine:
         """Find the transaction persisted immediately before the AWS SQS send."""
         deadline = monotonic() + timeout_seconds
         while monotonic() < deadline:
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             new_transactions = [
                 transaction
@@ -963,9 +963,9 @@ class TestEngine:
         """Wait until Lambda advances a queued transaction to an execution state."""
         deadline = monotonic() + timeout_seconds
         while monotonic() < deadline:
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             transaction = next(
                 transaction
@@ -1124,7 +1124,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=portfolio_id)
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
@@ -1189,9 +1189,9 @@ class TestEngine:
             alpaca_account_id = follower_alpaca_account_id_cognito_user_id["alpaca_account_id"]
             ud_orders = ud_orders_dict[cognito_user_id]["orders"]
             transaction_id = ud_orders_dict[cognito_user_id]["transaction_id"]
-            previous_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            previous_allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=cognito_user_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             previous_position_history_size = (
                 0
@@ -1248,7 +1248,7 @@ class TestEngine:
                     del orders_db_symbols_quantity[symbol]
 
             # match order_db and portfolio_allocation
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
+            allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=portfolio_id)
             assert allocation is not None and len(allocation.position_history) == previous_position_history_size + 1
             snapshot = allocation.position_history[-1]
             symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -1318,9 +1318,9 @@ class TestEngine:
         )
         previous_transaction_ids = {}
         for follower in followers:
-            allocation = self.portfolio_allocation_repository.get_portfolio_allocation(
+            allocation = self.allocation_repository.get_allocation(
                 cognito_user_id=follower["cognito_user_id"],
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
             previous_transaction_ids[follower["cognito_user_id"]] = {
                 transaction.transaction_id
@@ -1329,7 +1329,7 @@ class TestEngine:
 
         message_ids = self.trade_execution_queuing_service.queue_portfolio_update(
             portfolio_id=portfolio_id,
-            model_portfolio_snapshot_id=new_snapshot_id,
+            portfolio_snapshot_id=new_snapshot_id,
         )
         if isinstance(self.sqs_client, MockSQSClient):
             self.sqs_client.wait_until_idle()
@@ -1392,7 +1392,7 @@ class TestEngine:
         slippage_correction: int = 1
     ):
         market_value = 0.0
-        portfolio_allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        portfolio_allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
         snapshot = portfolio_allocation.position_history[-1]
         symbols = [position.symbol for position in snapshot.positions]
         quotes = self.alpaca_broker_client.get_latest_price(symbols=symbols)
@@ -1465,7 +1465,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=portfolio_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -1580,7 +1580,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=portfolio_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
 
         # match portfolio_allocation to alpaca
@@ -1672,7 +1672,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
         symbols_orders_db_sorted = sorted(orders_db_symbols_quantity.keys())
@@ -1799,7 +1799,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -1911,7 +1911,7 @@ class TestEngine:
                 del orders_db_symbols_quantity[symbol]
 
         # match order_db and portfolio_allocation
-        allocation = self.portfolio_allocation_repository.get_portfolio_allocation(cognito_user_id=cognito_user_id,portfolio_id=asset_id)
+        allocation = self.allocation_repository.get_allocation(cognito_user_id=cognito_user_id,allocation_id=asset_id)
         assert allocation is not None and len(allocation.position_history) == self.portfolio_allocation_history_size
         snapshot = allocation.position_history[-1]
         symbols_snapshot_sorted = sorted(position.symbol for position in snapshot.positions)
@@ -1960,8 +1960,8 @@ class TestEngine:
                 pass
 
             try:
-                self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
-                    key={"cognito_user_id": cognito_user_id,"portfolio_id": asset_id}
+                self.allocation_repository.allocation_table_client.delete_item(
+                    key={"cognito_user_id": cognito_user_id,"allocation_id": asset_id}
                 )
             except Exception as e:
                 pass
@@ -2061,8 +2061,8 @@ class TestEngine:
                 pass
 
             try:
-                self.portfolio_allocation_repository.portfolio_allocation_table_client.delete_item(
-                    key={"cognito_user_id": cognito_user_id,"portfolio_id": portfolio_id}
+                self.allocation_repository.allocation_table_client.delete_item(
+                    key={"cognito_user_id": cognito_user_id,"allocation_id": portfolio_id}
                 )
             except Exception as e:
                 pass
@@ -2070,7 +2070,7 @@ class TestEngine:
         for _, portfolio_id in portfolio_owner_model_portfolios:
             try:
                 self.model_portfolio_repository.dynamodb.delete_item(
-                    key={"portfolio_id": portfolio_id}
+                    key={"allocation_id": portfolio_id}
                 )
             except Exception as e:
                 continue
@@ -2108,7 +2108,7 @@ def test_engine(
     model_portfolio_repository: ModelPortfolioRepository,
     order_repository: OrderRepository,
     alpaca_broker_client: AlpacaBrokerClient,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
+    allocation_repository: AllocationRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
 ) -> TestEngine:
     return TestEngine(
@@ -2119,6 +2119,6 @@ def test_engine(
         model_portfolio_repository=model_portfolio_repository,
         order_repository=order_repository,
         alpaca_broker_client=alpaca_broker_client,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
     )

@@ -56,9 +56,9 @@ class Settings(BaseSettings):
         default="-model-portfolio-dynamodb",
         alias="MODEL_PORTFOLIO_DYNAMODB"
     )
-    portfolio_allocation_dynamodb_suffix: str = Field(
-        default="-portfolio-allocation-dynamodb",
-        alias="PORTFOLIO_ALLOCATION_DYNAMODB"
+    allocation_dynamodb_suffix: str = Field(
+        default="-allocation-dynamodb",
+        alias="ALLOCATION_DYNAMODB"
     )
     order_dynamodb_suffix: str = Field(
         default="-order-dynamodb",
@@ -196,10 +196,10 @@ class Settings(BaseSettings):
         return f"{self.env}{self.model_portfolios_dynamodb_suffix}"
 
     @property
-    def portfolio_allocation_dynamodb(self) -> str:
+    def allocation_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
-        return f"{self.env}{self.portfolio_allocation_dynamodb_suffix}"
-    
+        return f"{self.env}{self.allocation_dynamodb_suffix}"
+
     @property
     def order_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
