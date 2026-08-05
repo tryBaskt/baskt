@@ -467,14 +467,16 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
                   <strong>%</strong>
                 </div>
               </label>
-              <label>
+              <label className={!position.shortable ? "side-field side-field-disabled" : "side-field"}>
                 <span>Side</span>
                 <select value={position.direction} onChange={(event) => updatePositionDirection(index, event.target.value)}>
                   <option value={1}>Long</option>
                   <option value={-1} disabled={!position.shortable}>Short</option>
                 </select>
                 {!position.shortable ? (
-                  <small className="field-help">Shorting unavailable for this stock.</small>
+                  <small className="side-field-tooltip" role="tooltip">
+                    <strong>Shorting unavailable for this stock</strong>
+                  </small>
                 ) : null}
               </label>
               <label>

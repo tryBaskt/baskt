@@ -429,7 +429,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
                       <small>{formatDateTime(transaction.created_at)}</small>
                     </span>
                     <span>
-                      <strong>{currency(transaction.cost_basis)}</strong>
+                      <strong>{currency(transaction.cost_basis, "Not available")}</strong>
+                      <small>Requested {currency(transaction.requested_amount, "Not available")}</small>
                       <small>{transaction.status}</small>
                     </span>
                   </div>

@@ -36,7 +36,7 @@ class InvestmentAnalyticsService:
         self.alpaca_broker_client = alpaca_broker_client
         self.portfolio_allocation_repository = portfolio_allocation_repository
 
-    def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str) -> Dict[str, Any]:
+    def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str, is_stock_allocation: bool = False) -> Dict[str, Any]:
 
         try:
             if not self.portfolio_allocation_repository.is_exists_portfolio_allocation_for_user(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id):
@@ -49,7 +49,9 @@ class InvestmentAnalyticsService:
                     "total_cost_basis": 0.0,
                     "equity": 0.0,
                     "profit_loss": 0.0,
-                    "profit_loss_percent": 0.0 
+                    "profit_loss_percent": 0.0,
+                    "direction": None
+
                 }
             total_cost_basis = portfolio_allocation.total_cost_basis
             _, equity, _ = self.portfolio_allocation_repository.calculate_positions_current_value(portfolio_allocation_position_snapshot=portfolio_allocation.position_history[-1])
@@ -57,7 +59,8 @@ class InvestmentAnalyticsService:
                 "total_cost_basis": total_cost_basis,
                 "equity": equity,
                 "profit_loss": equity - total_cost_basis,
-                "profit_loss_percent": (equity - total_cost_basis) / total_cost_basis
+                "profit_loss_percent": (equity - total_cost_basis) / total_cost_basis,
+                "direction": portfolio_allocation.position_history[-1].positions[0].direction if is_stock_allocation else None
             }
         except Exception as e:
             raise InvestmentAnalyticsInternalServerError(

@@ -113,6 +113,7 @@ class StockAnalyticsService:
         *,
         symbol: str,
         current_datetime: datetime,
+        earliest_price_datetime: datetime,
         period: str,
         delta: timedelta,
         timeframe: str,
@@ -122,6 +123,7 @@ class StockAnalyticsService:
         Args:
             symbol: Identifier of the stock.
             current_datetime: Timezone-aware analytics endpoint.
+            earliest_price_datetime: Earliest available stock price timestamp.
             period: Period label included in the response.
             delta: Lookback duration used to select snapshots.
             timeframe: Alpaca and VectorBT bar timeframe.
@@ -142,6 +144,7 @@ class StockAnalyticsService:
             )
 
         current_datetime = current_datetime.astimezone(timezone.utc)
+        earliest_price_datetime = earliest_price_datetime.astimezone(timezone.utc)
         period_start_datetime = current_datetime - delta
         period_end_datetime = current_datetime
         if period == "1D":
@@ -151,6 +154,14 @@ class StockAnalyticsService:
             ) = self.get_one_day_session_bounds(current_datetime)
         elif period.upper() == "ALL":
             period_start_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+        period_start_bounded_by_earliest_price = (
+            period_start_datetime < earliest_price_datetime
+        )
+        if period_start_bounded_by_earliest_price:
+            period_start_datetime = earliest_price_datetime
+        if period_start_datetime >= period_end_datetime:
+            return period, None
 
         try:
             benchmark_symbol = "SPY"
@@ -162,7 +173,10 @@ class StockAnalyticsService:
                 timeframe=timeframe,
                 source=("yfinance" if period.upper() == "ALL" else "alpaca"),
             )
-            if period.upper() != "ALL":
+            if (
+                period.upper() != "ALL"
+                and not period_start_bounded_by_earliest_price
+            ):
                 should_seed_period_start = (
                     period_start_datetime not in segment_prices_df.index
                     or any(
@@ -279,6 +293,59 @@ class StockAnalyticsService:
 
 
 
+    def get_earliest_price_datetime(
+        self,
+        *,
+        symbol: str,
+        current_datetime: datetime,
+    ) -> datetime:
+        """Find the earliest available daily price timestamp for a stock."""
+        if current_datetime.tzinfo is None or current_datetime.utcoffset() is None:
+            raise StockAnalyticsInternalServerError(
+                message="current_datetime must be timezone-aware",
+                code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
+            )
+
+        try:
+            prices_df = self.asset_analytics_service.get_prices_over_time(
+                symbols=[symbol],
+                start_datetime=datetime(1970, 1, 1, tzinfo=timezone.utc),
+                end_datetime=current_datetime.astimezone(timezone.utc),
+                timeframe="1D",
+                source="yfinance",
+            )
+        except AssetAnalyticsInternalServerError as error:
+            raise StockAnalyticsInternalServerError(
+                message=(
+                    f"Failed to fetch earliest price date for stock "
+                    f"'{symbol}': {error}"
+                ),
+                code="STOCK_ANALYTICS_EARLIEST_PRICE_LOOKUP_FAILED",
+            ) from error
+
+        if prices_df.empty or symbol not in prices_df.columns:
+            raise StockAnalyticsInternalServerError(
+                message=f"No price history found for stock '{symbol}'",
+                code="STOCK_ANALYTICS_PRICE_HISTORY_MISSING",
+            )
+
+        stock_prices = prices_df[symbol].dropna().sort_index()
+        if stock_prices.empty:
+            raise StockAnalyticsInternalServerError(
+                message=f"No price history found for stock '{symbol}'",
+                code="STOCK_ANALYTICS_PRICE_HISTORY_MISSING",
+            )
+
+        earliest_timestamp = stock_prices.index[0]
+        if isinstance(earliest_timestamp, pd.Timestamp):
+            earliest_datetime = earliest_timestamp.to_pydatetime()
+        else:
+            earliest_datetime = earliest_timestamp
+        if earliest_datetime.tzinfo is None or earliest_datetime.utcoffset() is None:
+            earliest_datetime = earliest_datetime.replace(tzinfo=timezone.utc)
+        return earliest_datetime.astimezone(timezone.utc)
+
+
     def get_stock_bars(
         self,
         symbol: str,
@@ -304,13 +371,18 @@ class StockAnalyticsService:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
 
+            earliest_price_datetime = self.get_earliest_price_datetime(
+                symbol=symbol,
+                current_datetime=current_datetime,
+            )
+
             period_timdelta_timeframe = [
+                ("all", timedelta(days=1), "1D"),
                 ("1D", timedelta(days=1),"5Min"),
                 ("1W", timedelta(weeks=1), "1H"),
                 ("1M", timedelta(days=30), "1D"),
                 ("3M", timedelta(days=90), "1D"),
                 ("1A", timedelta(days=365), "1D"),
-                ("all", timedelta(days=1), "1D")
             ]
 
             response: Dict[str, Dict[str, Any]] = {}
@@ -322,6 +394,7 @@ class StockAnalyticsService:
                 return self._calculate_stock_period(
                     symbol=symbol,
                     current_datetime=current_datetime,
+                    earliest_price_datetime=earliest_price_datetime,
                     period=period,
                     delta=delta,
                     timeframe=timeframe,

@@ -1,5 +1,5 @@
 uvicorn main:app --reload
-npm run dev
+npm run dev:dev
 
 Things to be aware of:
 1. Email verified is set to true in CognitoClient.create_cognito_user()

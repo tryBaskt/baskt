@@ -27,3 +27,4 @@ class PortfolioAllocationResponse(BaseModel):
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_loss_percent: Optional[float] = None
+    direction: Optional[int] = None # Only for stock allocations

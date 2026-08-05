@@ -38,6 +38,7 @@ class StockAllocationResponse(BaseModel):
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_loss_percent: Optional[float] = None
+    direction: Optional[float] = None
 
 class StockAnalyticsPeriodResponse(BaseModel):
     """Performance series and metrics for one stock analytics period."""
