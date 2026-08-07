@@ -902,7 +902,6 @@ class TestEngine:
                 previous_transaction_ids=previous_transaction_ids,
                 timeout_seconds=timeout_seconds,
             )
-
         transaction = self._wait_for_transaction_execution(
             cognito_user_id=cognito_user_id,
             portfolio_id=portfolio_id,
@@ -1644,7 +1643,6 @@ class TestEngine:
 
             if all_orders_fully_filled:
                 break
-
             sleep(0.25)
 
         # match alpaca orders and order_db

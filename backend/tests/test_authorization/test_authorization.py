@@ -102,6 +102,8 @@ def _portfolio_allocation(
         position_history=[],
         transaction_history=[],
         total_cost_basis=0.0,
+        open_positions=False,
+        open_orders=False,
         allocation_type="STOCK",
         portfolio_name="Security Test Allocation",
     )

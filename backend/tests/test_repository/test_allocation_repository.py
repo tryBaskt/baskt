@@ -57,6 +57,8 @@ def _allocation() -> PortfolioAllocation:
             )
         ],
         total_cost_basis=500,
+        open_positions=True,
+        open_orders=False,
         allocation_type="MODEL_PORTFOLIO",
         portfolio_name=f"Repository Allocation Test {unique_suffix[:8]}",
     )

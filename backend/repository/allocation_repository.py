@@ -140,6 +140,8 @@ def _parse_allocation(item: Dict) -> PortfolioAllocation | StockAllocation:
         "allocation_id": str(item["allocation_id"]),
         "cognito_user_id": str(item["cognito_user_id"]),
         "total_cost_basis": float(item["total_cost_basis"]),
+        "open_positions": bool(item["open_positions"]),
+        "open_orders": bool(item["open_orders"]),
         "allocation_type": allocation_type,
     }
 
