@@ -70,7 +70,7 @@ def _raise_allocation_analytics_http_exception(err: Exception) -> None:
 
 
 @router.get("", response_model=AllAllocationAnalyticsResponse, status_code=HTTP_200_OK)
-def get_account_analytics(
+def get_all_allocation_analytics(
 	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	alpaca_account: Account = Depends(get_current_alpaca_account),
 	service: AllocationAnalyticsService = Depends(get_allocation_analytics_service),
