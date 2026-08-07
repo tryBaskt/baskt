@@ -186,7 +186,7 @@ def require_portfolio_allocation_owner(
     allocation_id: str,
     cognito_user_id: str,
     allocation_repository: AllocationRepository,
-) -> PortfolioAllocation | StockAllocation:
+) -> PortfolioAllocation:
     """Load a portfolio allocation owned by the Cognito user."""
     try:
         return allocation_repository.get_allocation(
@@ -222,7 +222,7 @@ def get_optional_portfolio_allocation_owner(
     allocation_id: str,
     cognito_user_id: str,
     allocation_repository: AllocationRepository,
-) -> Optional[PortfolioAllocation | StockAllocation]:
+) -> Optional[PortfolioAllocation]:
     """
     Load a Cognito user's allocation when it exists.
 
