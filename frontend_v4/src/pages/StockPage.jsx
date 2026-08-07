@@ -79,7 +79,7 @@ export default function StockPage({ stockId, onBack }) {
     setStockError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stockId}`,
+        `/stocks/${stockId}`,
         { signal }
       );
       setStock(payload || null);
@@ -102,7 +102,7 @@ export default function StockPage({ stockId, onBack }) {
     setAllocationError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stockId}/analytics`,
+        `/allocation_analytics/stocks/${stockId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(payload || null);

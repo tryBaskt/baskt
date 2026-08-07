@@ -114,8 +114,8 @@ def test_allocation_repository_calculates_values_and_weights(
 ) -> None:
     snapshot = _allocation().position_history[0]
 
-    values, total_value, quotes = allocation_repository.calculate_positions_current_value(
-        portfolio_allocation_position_snapshot=snapshot,
+    values, total_value, quotes = allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
+        position_snapshot=snapshot,
     )
     expected_values = {
         "AAPL": 2 * quotes["AAPL"],
@@ -124,8 +124,8 @@ def test_allocation_repository_calculates_values_and_weights(
     assert values == expected_values
     assert total_value == sum(expected_values.values())
 
-    weights, total_weight_value, _ = allocation_repository.calculate_positions_current_weight(
-        portfolio_allocation_position_snapshot=snapshot,
+    weights, total_weight_value, _ = allocation_repository.calculate_portfolio_allocation_position_snapshot_current_weight(
+        position_snapshot=snapshot,
     )
     assert weights == {
         symbol: value / total_value for symbol, value in expected_values.items()
@@ -201,7 +201,7 @@ def test_allocation_repository_empty_and_zero_value_snapshots(
     timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     with pytest.raises(AllocationRepositoryError):
-        allocation_repository.calculate_positions_current_value(
+        allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
             PortfolioAllocationPositionSnapshot(
                 positions=[],
                 timestamp=timestamp,
@@ -220,7 +220,7 @@ def test_allocation_repository_empty_and_zero_value_snapshots(
         timestamp=timestamp,
     )
     weights, total_value, quotes = (
-        allocation_repository.calculate_positions_current_weight(snapshot)
+        allocation_repository.calculate_portfolio_allocation_position_snapshot_current_weight(snapshot)
     )
     assert weights == {"AAPL": 0.0}
     assert total_value == 0.0

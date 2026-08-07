@@ -68,6 +68,8 @@ class BaseAllocation:
     allocation_id: str
     cognito_user_id: str
     total_cost_basis: float
+    open_positions: bool 
+    open_orders: bool 
     allocation_type: str # MODEL_PORTFOLIO | STOCK
 
 

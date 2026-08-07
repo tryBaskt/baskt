@@ -122,6 +122,8 @@ class TradeExecutionQueuingService:
             )
 
         allocation.transaction_history.append(transaction)
+        allocation.open_orders = True
+
         self.allocation_repository.set_allocation(
             allocation=allocation
         )
@@ -188,9 +190,14 @@ class TradeExecutionQueuingService:
             return 0.0
         if not isinstance(latest_snapshot, StockAllocationPositionSnapshot) and not latest_snapshot.positions:
             return 0.0
-        _, equity, _ = self.allocation_repository.calculate_positions_current_value(
-            portfolio_allocation_position_snapshot=latest_snapshot
-        )
+        if isinstance(latest_snapshot, StockAllocationPositionSnapshot):
+            equity, _ = self.allocation_repository.calculate_stock_allocation_position_snapshot_current_value(
+                position_snapshot=latest_snapshot
+            )
+        else:
+            _, equity, _ = self.allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
+                position_snapshot=latest_snapshot
+            )
         return float(equity)
 
     @staticmethod
@@ -385,6 +392,8 @@ class TradeExecutionQueuingService:
                 total_cost_basis=0.0,
                 allocation_type="MODEL_PORTFOLIO",
                 portfolio_name=model_portfolio.portfolio_name,
+                open_orders=False,
+                open_positions=False
             )
             if self.allocation_repository.is_exists_allocation_for_user(
                 cognito_user_id=cognito_user_id,
@@ -582,6 +591,8 @@ class TradeExecutionQueuingService:
             total_cost_basis=0.0,
             allocation_type="STOCK",
             symbol=symbol.upper(),
+            open_orders=False,
+            open_positions=False
         )
 
     def _queue_stock_trade(

@@ -147,7 +147,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_buy":
         service.execute_buy_to_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             deposit_amount=float(payload["amount"]),
             cognito_user_id=payload["cognito_user_id"],
@@ -157,7 +157,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_sell":
         service.execute_sell_to_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             withdraw_amount=float(payload["amount"]),
             alpaca_account_id=payload["alpaca_account_id"],
@@ -167,7 +167,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_close":
         service.execute_close_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],

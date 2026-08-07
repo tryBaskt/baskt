@@ -15,9 +15,9 @@ for import_path in (str(backend_dir), str(repo_root)):
 
 from core import deps as app_deps
 from core.config import get_settings
-from services.investment_analytics_service import (
-    InvestmentAnalyticsInternalServerError,
-    InvestmentAnalyticsService,
+from services.allocation_analytics_service import (
+    AllocationAnalyticsInternalServerError,
+    AllocationAnalyticsService,
 )
 
 DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
@@ -39,7 +39,7 @@ def _funded_account_ids() -> tuple[str, str]:
 
 
 @pytest.fixture(scope="session")
-def investment_analytics_service() -> InvestmentAnalyticsService:
+def allocation_analytics_service() -> AllocationAnalyticsService:
     app_deps.get_boto3_session.cache_clear()
     app_deps.get_dynamodb_resource_cached.cache_clear()
     app_deps.get_alpaca_broker_client.cache_clear()
@@ -52,29 +52,29 @@ def investment_analytics_service() -> InvestmentAnalyticsService:
             app_deps.get_allocation_dynamodb_client()
         ),
     )
-    return app_deps.get_investment_analytics_service(
+    return app_deps.get_allocation_analytics_service(
         alpaca_broker_client=alpaca_broker_client,
         allocation_repository=allocation_repository,
     )
 
 
-def test_investment_analytics_error_class_sets_code() -> None:
-    error = InvestmentAnalyticsInternalServerError(
+def test_allocation_analytics_error_class_sets_code() -> None:
+    error = AllocationAnalyticsInternalServerError(
         "failed",
-        code="INVESTMENT_ANALYTICS_CUSTOM",
+        code="ALLOCATION_ANALYTICS_CUSTOM",
     )
 
     assert str(error) == "failed"
-    assert error.code == "INVESTMENT_ANALYTICS_CUSTOM"
+    assert error.code == "ALLOCATION_ANALYTICS_CUSTOM"
 
 
 @pytest.mark.integration
-def test_investment_analytics_account_summary_for_funded_account(
-    investment_analytics_service: InvestmentAnalyticsService,
+def test_allocation_analytics_account_summary_for_funded_account(
+    allocation_analytics_service: AllocationAnalyticsService,
 ) -> None:
     alpaca_account_id, cognito_user_id = _funded_account_ids()
 
-    analytics = investment_analytics_service.get_account_analytics(
+    analytics = allocation_analytics_service.get_all_active_allocation_analytics(
         cognito_user_id=cognito_user_id,
         alpaca_account_id=alpaca_account_id,
     )
@@ -90,51 +90,35 @@ def test_investment_analytics_account_summary_for_funded_account(
     assert isinstance(analytics["cash"], float)
     assert analytics["equity"] is not None
     assert isinstance(analytics["equity"], float)
-    assert analytics["portfolio_allocations"] is not None
-    assert isinstance(analytics["portfolio_allocations"], dict)
+    assert analytics["allocations"] is not None
+    assert isinstance(analytics["allocations"], dict)
 
 
 # @pytest.mark.integration
-# def test_investment_analytics_missing_portfolio_allocation_returns_empty_values(
-#     investment_analytics_service: InvestmentAnalyticsService,
+# def test_allocation_analytics_missing_portfolio_allocation_returns_empty_values(
+#     allocation_analytics_service: AllocationAnalyticsService,
 # ) -> None:
 #     _, cognito_user_id = _funded_account_ids()
-#     missing_portfolio_id = f"missing-investment-analytics-{uuid4()}"
+#     missing_portfolio_id = f"missing-allocation-analytics-{uuid4()}"
 
-#     assert investment_analytics_service.get_portfolio_allocation_analytics(
+#     assert allocation_analytics_service.get_portfolio_allocation_analytics(
 #         cognito_user_id=cognito_user_id,
 #         portfolio_id=missing_portfolio_id,
 #     ) == {}
-#     assert investment_analytics_service.get_portfolio_allocation_transactions(
+#     assert allocation_analytics_service.get_portfolio_allocation_transaction_history(
 #         cognito_user_id=cognito_user_id,
 #         portfolio_id=missing_portfolio_id,
 #     ) == []
 
 
 @pytest.mark.integration
-def test_investment_analytics_get_stock_by_stock_id(
-    investment_analytics_service: InvestmentAnalyticsService,
+def test_allocation_analytics_wraps_invalid_account_errors(
+    allocation_analytics_service: AllocationAnalyticsService,
 ) -> None:
-    aapl = investment_analytics_service.alpaca_broker_client.get_stock_by_symbol(
-        symbol="AAPL"
-    )
-
-    stock = investment_analytics_service.get_stock_by_stock_id(
-        stock_id=aapl.stock_id,
-    )
-
-    assert stock.symbol == "AAPL"
-    assert stock.stock_id == aapl.stock_id
-
-
-@pytest.mark.integration
-def test_investment_analytics_wraps_invalid_account_errors(
-    investment_analytics_service: InvestmentAnalyticsService,
-) -> None:
-    with pytest.raises(InvestmentAnalyticsInternalServerError) as exc_info:
-        investment_analytics_service.get_account_analytics(
+    with pytest.raises(AllocationAnalyticsInternalServerError) as exc_info:
+        allocation_analytics_service.get_all_active_allocation_analytics(
             cognito_user_id=f"missing-user-{uuid4()}",
             alpaca_account_id=str(uuid4()),
         )
 
-    assert exc_info.value.code == "INVESTMENT_ANALYTICS_SERVICE_ERROR"
+    assert exc_info.value.code == "ALLOCATION_ANALYTICS_SERVICE_ERROR"

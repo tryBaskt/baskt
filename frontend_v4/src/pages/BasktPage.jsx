@@ -61,7 +61,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setAllocationError("");
     try {
       const allocationPayload = await apiRequest(
-        `/account-analytics/portfolios/${portfolioId}/analytics`,
+        `/allocation_analytics/portfolios/${portfolioId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(allocationPayload || null);

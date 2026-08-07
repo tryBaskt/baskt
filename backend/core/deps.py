@@ -25,7 +25,7 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_update_lock_repository import ModelPortfolioUpdateLockRepository
 from repository.baskt_account_repository import BasktAccountRepository
 from services.account_lifecycle_service import AccountLifecycleService
-from services.investment_analytics_service import InvestmentAnalyticsService
+from services.allocation_analytics_service import AllocationAnalyticsService
 from services.asset_analytics_service import AssetAnalyticsService
 from services.model_portfolio_analytics_service import ModelPortfolioAnalyticsService
 from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
@@ -309,11 +309,11 @@ def get_trade_execution_queuing_service(
         model_portfolio_follower_repository=model_portfolio_follower_repository,
     )
 
-def get_investment_analytics_service(
+def get_allocation_analytics_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     allocation_repository: AllocationRepository = Depends(get_allocation_repository),
-) -> InvestmentAnalyticsService:
-    return InvestmentAnalyticsService(
+) -> AllocationAnalyticsService:
+    return AllocationAnalyticsService(
         alpaca_broker_client=alpaca_broker_client,
         allocation_repository=allocation_repository,
     )

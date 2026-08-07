@@ -266,10 +266,203 @@ class AllocationRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.allocation_table_client = dynamodb_client
 
+    ###############################
+    ###### COMMON FUNCTIONS #######
+    ###############################
+
     def _wait_exists(self, cognito_user_id: str, allocation_id: str):
         expire_time = time.time() + WAIT_TIME_SECONDS
         while time.time() < expire_time and not self.is_exists_allocation_for_user(cognito_user_id=cognito_user_id, allocation_id=allocation_id):
             time.sleep(0.25)
+
+    def is_exists_allocation_for_user(self, cognito_user_id: str, allocation_id: str) -> bool:
+        """
+        """
+
+        key = {"cognito_user_id": cognito_user_id, "allocation_id": allocation_id}
+        return self.allocation_table_client.item_exists(key=key)  
+
+    def _get_position_history(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False):
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, allocation_id=allocation_id)
+        
+        try:
+            item = self.allocation_table_client.get_item(
+                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id},
+                projection_expression="position_history"
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="loading portfolio allocation",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise AllocationNotFoundError(
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id
+            )
+
+        if "position_history" not in item:
+            raise AllocationUnprocessableEntityError(
+                operation="load position history",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=KeyError("position_history"),
+            )
+        if len(item["position_history"]) < 1:
+            raise AllocationUnprocessableEntityError(
+                operation="load position history",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=KeyError("position_history"),
+            )
+
+        return item
+
+    def get_allocation_total_cost_basis(self, cognito_user_id: str, allocation_id: str) -> float:
+        """
+        """
+        try:
+            item = self.allocation_table_client.get_item(
+                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id},
+                projection_expression="total_cost_basis"
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="loading  allocation",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise AllocationNotFoundError(
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id
+            )
+
+        try:
+            return float(item["total_cost_basis"])
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="parse total cost basis",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=e,
+            ) from e
+
+    def get_allocations_by_cognito_user_id(self, cognito_user_id: str) -> List[PortfolioAllocation | StockAllocation]:
+        """
+        Load all allocations for a Cognito user.
+        """
+        try:
+            items = self.allocation_table_client.query(
+                key_condition=Key("cognito_user_id").eq(cognito_user_id),
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="querying allocations",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e
+
+        try:
+            return [_parse_allocation(item) for item in items]
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="parse allocations for user",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e
+
+    def get_allocation(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> PortfolioAllocation | StockAllocation:
+        """
+        Load a full allocation aggregate for a user.
+        """
+        if with_wait:
+            self._wait_exists(cognito_user_id=cognito_user_id, allocation_id=allocation_id)
+
+        try:
+            item = self.allocation_table_client.get_item(
+                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id}
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="loading allocation",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise AllocationNotFoundError(
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+            )
+
+        try:
+            return _parse_allocation(item)
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="parse allocation",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=e,
+            ) from e
+
+    def set_allocation(self, allocation: PortfolioAllocation | StockAllocation) -> None:
+        """
+        Persist an allocation aggregate to storage.
+        """
+        try:
+            item = dataclass_to_dynamodb_item(allocation)
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="serialize allocation for persistence",
+                cognito_user_id=allocation.cognito_user_id,
+                allocation_id=allocation.allocation_id,
+                cause=e,
+            ) from e
+
+        try:
+            self.allocation_table_client.put_item(item=item)
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="persisting allocation",
+                cognito_user_id=allocation.cognito_user_id,
+                allocation_id=allocation.allocation_id,
+                cause=e,
+            ) from e
+
+    ####################################
+    ####### ALLOCATION FUNCTIONS #######
+    ####################################
+
+    def calculate_portfolio_allocation_position_snapshot_current_weight(self, position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
+        """
+        """
+
+        position_values, total_portfolio_allocation_value, quotes = self.calculate_portfolio_allocation_position_snapshot_current_value(position_snapshot=position_snapshot)
+
+        if total_portfolio_allocation_value == 0:
+            return {symbol: 0.0 for symbol in position_values}, 0.0, quotes
+
+        return (
+            {
+                symbol: value / total_portfolio_allocation_value
+                for symbol, value in position_values.items()
+            },
+            total_portfolio_allocation_value,
+            quotes
+        )       
 
     def calculate_portfolio_allocation_position_snapshot_current_value(self, position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
         """
@@ -333,77 +526,6 @@ class AllocationRepository:
 
         return position_value, current_price
 
-    def calculate_portfolio_allocation_position_snapshot_current_weight(self, position_snapshot: PortfolioAllocationPositionSnapshot) -> Tuple[Dict[str, float], float, Dict[str, float]]:
-        """
-        """
-
-        position_values, total_portfolio_allocation_value, quotes = self.calculate_portfolio_allocation_position_snapshot_current_value(position_snapshot=position_snapshot)
-
-        if total_portfolio_allocation_value == 0:
-            return {symbol: 0.0 for symbol in position_values}, 0.0, quotes
-
-        return (
-            {
-                symbol: value / total_portfolio_allocation_value
-                for symbol, value in position_values.items()
-            },
-            total_portfolio_allocation_value,
-            quotes
-        )
-
-    def is_exists_allocation_for_user(self, cognito_user_id: str, allocation_id: str) -> bool:
-        """
-        """
-
-        key = {"cognito_user_id": cognito_user_id, "allocation_id": allocation_id}
-        return self.allocation_table_client.item_exists(key=key)
-
-    def calculate_positions_current_value(
-        self,
-        portfolio_allocation_position_snapshot: PortfolioAllocationPositionSnapshot | StockAllocationPositionSnapshot,
-    ) -> Tuple[Dict[str, float], float, Dict[str, float]]:
-        """
-        Calculate the current value for a portfolio or stock allocation snapshot.
-        """
-        if isinstance(portfolio_allocation_position_snapshot, StockAllocationPositionSnapshot):
-            if portfolio_allocation_position_snapshot.position is None:
-                return {}, 0.0, {}
-            position_value, current_price = self.calculate_stock_allocation_position_snapshot_current_value(
-                position_snapshot=portfolio_allocation_position_snapshot,
-            )
-            return (
-                {portfolio_allocation_position_snapshot.position.symbol: position_value},
-                position_value,
-                {portfolio_allocation_position_snapshot.position.symbol: current_price},
-            )
-        return self.calculate_portfolio_allocation_position_snapshot_current_value(
-            position_snapshot=portfolio_allocation_position_snapshot,
-        )
-
-    def calculate_positions_current_weight(
-        self,
-        portfolio_allocation_position_snapshot: PortfolioAllocationPositionSnapshot | StockAllocationPositionSnapshot,
-    ) -> Tuple[Dict[str, float], float, Dict[str, float]]:
-        """
-        Calculate current weights for a portfolio or stock allocation snapshot.
-        """
-        if isinstance(portfolio_allocation_position_snapshot, StockAllocationPositionSnapshot):
-            position_values, allocation_value, quotes = self.calculate_positions_current_value(
-                portfolio_allocation_position_snapshot=portfolio_allocation_position_snapshot,
-            )
-            if allocation_value == 0:
-                return {symbol: 0.0 for symbol in position_values}, 0.0, quotes
-            return (
-                {
-                    symbol: value / allocation_value
-                    for symbol, value in position_values.items()
-                },
-                allocation_value,
-                quotes,
-            )
-        return self.calculate_portfolio_allocation_position_snapshot_current_weight(
-            position_snapshot=portfolio_allocation_position_snapshot,
-        )
 
     def get_portfolio_allocation_transaction_history(
         self,
@@ -461,171 +583,6 @@ class AllocationRepository:
 
         return result
 
-
-    def get_n_last_portfolio_allocation_transaction_snapshots(
-        self,
-        cognito_user_id: str,
-        allocation_id: str,
-        n: int,
-        with_wait: bool = False,
-    ) -> List[PortfolioAllocationTransactionSnapshot]:
-        """
-        Retrieve the last n allocation snapshots for a user's portfolio.
-
-        Args:
-            cognito_user_id: User identifier.
-            allocation_id: Allocation identifier.
-            n: Number of trailing snapshots to return.
-
-        Returns:
-            List[PortfolioAllocationSnapshot]: Most recent n allocation
-            snapshots.
-
-        Raises:
-            ValueError: If n is out of range.
-            PortfolioAllocationUnprocessableEntityError: If stored allocation
-            history cannot be parsed.
-            PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
-            allocation history.
-            PortfolioAllocationNotFoundError: If the allocation record does not
-            exist.
-        """
-
-        if n <= 0:
-            raise ValueError(
-                f"validate n argument '{n}' greater than 0"
-            )
-
-        transaction_history = self.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
-        if n > len(transaction_history):
-            raise ValueError(
-                f"validate n argument '{n}' less than or equal to the number of snapshots '{len(transaction_history)}'"
-            )
-        last_n_snapshots = transaction_history[-n:]
-
-        return last_n_snapshots
-
-
-    def _get_position_history(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False):
-        if with_wait:
-            self._wait_exists(cognito_user_id=cognito_user_id, allocation_id=allocation_id)
-        
-        try:
-            item = self.allocation_table_client.get_item(
-                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id},
-                projection_expression="position_history"
-            )
-        except DynamoDBClientError as e:
-            raise AllocationBadGatewayError(
-                source="DynamoDB",
-                operation="loading portfolio allocation",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=e,
-            ) from e
-
-        if not item:
-            raise AllocationNotFoundError(
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id
-            )
-
-        if "position_history" not in item:
-            raise AllocationUnprocessableEntityError(
-                operation="load position history",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=KeyError("position_history"),
-            )
-        if len(item["position_history"]) < 1:
-            raise AllocationUnprocessableEntityError(
-                operation="load position history",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=KeyError("position_history"),
-            )
-
-        return item
-
-
-    def get_portfolio_allocation_position_history(
-        self,
-        cognito_user_id: str,
-        allocation_id: str,
-        with_wait: bool = False,
-    ) -> List[PortfolioAllocationPositionSnapshot]:
-
-        item = self._get_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
-
-        return [
-            _parse_portfolio_allocation_position_snapshot(position_snapshot)
-            for position_snapshot in item["position_history"]
-        ]
-
-
-    def get_stock_allocation_position_history(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> List[StockAllocationPositionSnapshot]:
-    
-        item = self._get_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
-
-        return [
-            _parse_stock_allocation_position_snapshot(position_snapshot)
-            for position_snapshot in item["position_history"]
-        ]
-
-
-    def get_latest_portfolio_allocation_position_snapshot(
-        self,
-        cognito_user_id: str,
-        allocation_id: str,
-        with_wait: bool = False,
-    ) -> PortfolioAllocationPositionSnapshot:
-
-        position_history = self.get_portfolio_allocation_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
-
-        return position_history[-1]
-
-
-    def get_latest_stock_allocation_position_snapshot(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> StockAllocationPositionSnapshot:
-
-        position_history = self.get_stock_allocation_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
-
-        return position_history[-1]
-
-
-    def get_allocation_total_cost_basis(self, cognito_user_id: str, allocation_id: str) -> float:
-        """
-        """
-        try:
-            item = self.allocation_table_client.get_item(
-                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id},
-                projection_expression="total_cost_basis"
-            )
-        except DynamoDBClientError as e:
-            raise AllocationBadGatewayError(
-                source="DynamoDB",
-                operation="loading  allocation",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=e,
-            ) from e
-
-        if not item:
-            raise AllocationNotFoundError(
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id
-            )
-
-        try:
-            return float(item["total_cost_basis"])
-        except Exception as e:
-            raise AllocationUnprocessableEntityError(
-                operation="parse total cost basis",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=e,
-            ) from e
-
-
     def get_stock_allocation_transaction_history(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> List[StockAllocationTransactionSnapshot]:
         """
         Retrieve stock transaction snapshots for a user's allocation.
@@ -674,87 +631,113 @@ class AllocationRepository:
                 cause=e,
             ) from e
 
-    def get_n_last_stock_allocation_transaction_snapshots(self, cognito_user_id: str, allocation_id: str, n: int, with_wait: bool = False) -> List[StockAllocationTransactionSnapshot]:
+
+    def get_n_last_portfolio_allocation_transaction_snapshots(
+        self,
+        cognito_user_id: str,
+        allocation_id: str,
+        n: int,
+        with_wait: bool = False,
+    ) -> List[PortfolioAllocationTransactionSnapshot]:
         """
-        Retrieve the last n transaction snapshots for a user's stock allocation.
+        Retrieve the last n allocation snapshots for a user's portfolio.
+
+        Args:
+            cognito_user_id: User identifier.
+            allocation_id: Allocation identifier.
+            n: Number of trailing snapshots to return.
+
+        Returns:
+            List[PortfolioAllocationSnapshot]: Most recent n allocation
+            snapshots.
+
+        Raises:
+            ValueError: If n is out of range.
+            PortfolioAllocationUnprocessableEntityError: If stored allocation
+            history cannot be parsed.
+            PortfolioAllocationBadGatewayError: If DynamoDB fails while loading
+            allocation history.
+            PortfolioAllocationNotFoundError: If the allocation record does not
+            exist.
         """
+
         if n <= 0:
             raise ValueError(
                 f"validate n argument '{n}' greater than 0"
             )
 
-        transaction_history = self.get_stock_allocation_transaction_history(
-            cognito_user_id=cognito_user_id,
-            allocation_id=allocation_id,
-            with_wait=with_wait,
-        )
+        transaction_history = self.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
         if n > len(transaction_history):
             raise ValueError(
                 f"validate n argument '{n}' less than or equal to the number of snapshots '{len(transaction_history)}'"
             )
+        last_n_snapshots = transaction_history[-n:]
 
-        return transaction_history[-n:]
+        return last_n_snapshots
 
-    def get_allocations_by_cognito_user_id(self, cognito_user_id: str) -> List[PortfolioAllocation | StockAllocation]:
-        """
-        Load all allocations for a Cognito user.
-        """
-        try:
-            items = self.allocation_table_client.query(
-                key_condition=Key("cognito_user_id").eq(cognito_user_id),
-            )
-        except DynamoDBClientError as e:
-            raise AllocationBadGatewayError(
-                source="DynamoDB",
-                operation="querying allocations",
-                cognito_user_id=cognito_user_id,
-                cause=e,
-            ) from e
-
-        try:
-            return [_parse_allocation(item) for item in items]
-        except Exception as e:
-            raise AllocationUnprocessableEntityError(
-                operation="parse allocations for user",
-                cognito_user_id=cognito_user_id,
-                cause=e,
-            ) from e
-
-    def get_allocation(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> PortfolioAllocation | StockAllocation:
-        """
-        Load a full allocation aggregate for a user.
-        """
-        if with_wait:
-            self._wait_exists(cognito_user_id=cognito_user_id, allocation_id=allocation_id)
-
-        try:
-            item = self.allocation_table_client.get_item(
-                key={"cognito_user_id": cognito_user_id, "allocation_id": allocation_id}
-            )
-        except DynamoDBClientError as e:
-            raise AllocationBadGatewayError(
-                source="DynamoDB",
-                operation="loading allocation",
+    def get_n_last_stock_allocation_transaction_snapshots(self, cognito_user_id: str, allocation_id: str, n: int, with_wait: bool = False) -> List[StockAllocationTransactionSnapshot]:
+            """
+            Retrieve the last n transaction snapshots for a user's stock allocation.
+            """
+            if n <= 0:
+                raise ValueError(
+                    f"validate n argument '{n}' greater than 0"
+                )
+    
+            transaction_history = self.get_stock_allocation_transaction_history(
                 cognito_user_id=cognito_user_id,
                 allocation_id=allocation_id,
-                cause=e,
-            ) from e
-
-        if not item:
-            raise AllocationNotFoundError(
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
+                with_wait=with_wait,
             )
+            if n > len(transaction_history):
+                raise ValueError(
+                    f"validate n argument '{n}' less than or equal to the number of snapshots '{len(transaction_history)}'"
+                )
+    
+            return transaction_history[-n:]
 
-        try:
-            return _parse_allocation(item)
-        except Exception as e:
-            raise AllocationUnprocessableEntityError(
-                operation="parse allocation",
-                cognito_user_id=cognito_user_id,
-                allocation_id=allocation_id,
-                cause=e,
-            ) from e
+    def get_portfolio_allocation_position_history(
+        self,
+        cognito_user_id: str,
+        allocation_id: str,
+        with_wait: bool = False,
+    ) -> List[PortfolioAllocationPositionSnapshot]:
+
+        item = self._get_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
+
+        return [
+            _parse_portfolio_allocation_position_snapshot(position_snapshot)
+            for position_snapshot in item["position_history"]
+        ]
+
+
+    def get_stock_allocation_position_history(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> List[StockAllocationPositionSnapshot]:
+    
+        item = self._get_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
+
+        return [
+            _parse_stock_allocation_position_snapshot(position_snapshot)
+            for position_snapshot in item["position_history"]
+        ]
+
+
+    def get_latest_portfolio_allocation_position_snapshot(
+        self,
+        cognito_user_id: str,
+        allocation_id: str,
+        with_wait: bool = False,
+    ) -> PortfolioAllocationPositionSnapshot:
+
+        position_history = self.get_portfolio_allocation_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
+
+        return position_history[-1]
+
+
+    def get_latest_stock_allocation_position_snapshot(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> StockAllocationPositionSnapshot:
+
+        position_history = self.get_stock_allocation_position_history(cognito_user_id=cognito_user_id, allocation_id=allocation_id, with_wait=with_wait)
+
+        return position_history[-1]
 
     def get_stock_allocation(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> StockAllocation:
         """
@@ -774,27 +757,17 @@ class AllocationRepository:
             )
         return allocation
 
-    def set_allocation(self, allocation: PortfolioAllocation | StockAllocation) -> None:
-        """
-        Persist an allocation aggregate to storage.
-        """
-        try:
-            item = dataclass_to_dynamodb_item(allocation)
-        except Exception as e:
+    def get_portfolio_allocation(self, cognito_user_id: str, allocation_id: str, with_wait: bool = False) -> PortfolioAllocation:
+        allocation = self.get_allocation(
+            cognito_user_id=cognito_user_id,
+            allocation_id=allocation_id,
+            with_wait=with_wait
+        )
+        if not isinstance(allocation, PortfolioAllocation):
             raise AllocationUnprocessableEntityError(
-                operation="serialize allocation for persistence",
-                cognito_user_id=allocation.cognito_user_id,
-                allocation_id=allocation.allocation_id,
-                cause=e,
-            ) from e
-
-        try:
-            self.allocation_table_client.put_item(item=item)
-        except DynamoDBClientError as e:
-            raise AllocationBadGatewayError(
-                source="DynamoDB",
-                operation="persisting allocation",
-                cognito_user_id=allocation.cognito_user_id,
-                allocation_id=allocation.allocation_id,
-                cause=e,
-            ) from e
+                operation="load portfolio allocation",
+                cognito_user_id=cognito_user_id,
+                allocation_id=allocation_id,
+                cause=TypeError(f"expected PortfolioAllocation, got {type(allocation).__name__}"),
+            )
+        return allocation

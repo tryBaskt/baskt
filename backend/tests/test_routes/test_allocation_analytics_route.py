@@ -8,23 +8,22 @@ import pytest
 from conftest import OTHER_ALPACA_ACCOUNT_ID, OTHER_USER_ID, FakeAlpacaAccount
 from core.authentication import get_current_alpaca_account
 from core.deps import (
-    get_investment_analytics_service,
+    get_allocation_analytics_service,
     get_order_repository,
     get_allocation_repository,
     get_trade_execution_service,
 )
 from domain.allocation_domain import PortfolioAllocationTransactionSnapshot
-from domain.stock_domain import Stock
 from repository.allocation_repository import AllocationNotFoundError
-from routes.investment_analytics_route import router as investment_analytics_router
-from services.investment_analytics_service import InvestmentAnalyticsInternalServerError
+from routes.allocation_analytics_route import router as allocation_analytics_router
+from services.allocation_analytics_service import AllocationAnalyticsInternalServerError
 
 
 class FakeOrderRepository:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def get_portfolio_ids_of_unfilled_orders(self, cognito_user_id: str):
+    def get_allocation_ids_of_unfilled_orders(self, cognito_user_id: str):
         self.calls.append(cognito_user_id)
         return [("portfolio-1", "owner-user")]
 
@@ -37,7 +36,7 @@ class FakeTradeExecutionService:
         self.realize_calls.append(kwargs)
 
 
-class FakeInvestmentAnalyticsService:
+class FakeAllocationAnalyticsService:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.analytics_calls: list[tuple[str, str | None]] = []
@@ -57,9 +56,9 @@ class FakeInvestmentAnalyticsService:
 
     def _maybe_fail(self) -> None:
         if self.fail:
-            raise InvestmentAnalyticsInternalServerError("analytics failed")
+            raise AllocationAnalyticsInternalServerError("analytics failed")
 
-    def get_account_analytics(self, cognito_user_id: str, alpaca_account_id: str):
+    def get_all_active_allocation_analytics(self, cognito_user_id: str, alpaca_account_id: str):
         self._maybe_fail()
         self.analytics_calls.append((cognito_user_id, alpaca_account_id))
         return {
@@ -74,7 +73,7 @@ class FakeInvestmentAnalyticsService:
                     ],
                 }
             },
-            "portfolio_allocations": {
+            "allocations": {
                 "portfolio-1": {"equity": 125.0, "portfolio_name": "Growth"}
             },
         }
@@ -93,7 +92,7 @@ class FakeInvestmentAnalyticsService:
             "profit_loss_percent": 0.25,
         }
 
-    def get_portfolio_allocation_transactions(
+    def get_portfolio_allocation_transaction_history(
         self,
         cognito_user_id: str,
         portfolio_id: str,
@@ -101,17 +100,28 @@ class FakeInvestmentAnalyticsService:
         self.analytics_calls.append((cognito_user_id, portfolio_id))
         return [self.transaction]
 
-    def get_stock_by_stock_id(self, stock_id: str) -> Stock:
+    def get_stock_allocation_analytics(
+        self,
+        cognito_user_id: str,
+        stock_id: str,
+    ):
         self._maybe_fail()
-        return Stock(
-            symbol="AAPL",
-            tradable=True,
-            fractionable=True,
-            shortable=True,
-            marginable=True,
-            stock_id=stock_id,
-            stock_class="us_equity",
-        )
+        self.analytics_calls.append((cognito_user_id, stock_id))
+        return {
+            "total_cost_basis": 100.0,
+            "equity": 125.0,
+            "profit_loss": 25.0,
+            "profit_loss_percent": 0.25,
+            "direction": 1,
+        }
+
+    def get_stock_allocation_transaction_history(
+        self,
+        cognito_user_id: str,
+        stock_id: str,
+    ):
+        self.analytics_calls.append((cognito_user_id, stock_id))
+        return [self.transaction]
 
 
 class FakeAllocationRepository:
@@ -130,17 +140,17 @@ class FakeAllocationRepository:
 
 
 @pytest.fixture
-def investment_analytics_app(app_factory):
-    app = app_factory(investment_analytics_router)
+def allocation_analytics_app(app_factory):
+    app = app_factory(allocation_analytics_router)
     order_repository = FakeOrderRepository()
     trade_execution_service = FakeTradeExecutionService()
-    analytics_service = FakeInvestmentAnalyticsService()
+    analytics_service = FakeAllocationAnalyticsService()
     allocation_repository = FakeAllocationRepository()
     app.dependency_overrides[get_order_repository] = lambda: order_repository
     app.dependency_overrides[get_trade_execution_service] = (
         lambda: trade_execution_service
     )
-    app.dependency_overrides[get_investment_analytics_service] = (
+    app.dependency_overrides[get_allocation_analytics_service] = (
         lambda: analytics_service
     )
     app.dependency_overrides[get_allocation_repository] = (
@@ -156,78 +166,78 @@ def investment_analytics_app(app_factory):
 
 
 @pytest.fixture
-def investment_analytics_client(investment_analytics_app, client_for_app):
-    with client_for_app(investment_analytics_app["app"]) as client:
+def allocation_analytics_client(allocation_analytics_app, client_for_app):
+    with client_for_app(allocation_analytics_app["app"]) as client:
         yield client
 
 
 def test_account_analytics_realizes_unfilled_orders_and_returns_equity_graph(
-    investment_analytics_client,
-    investment_analytics_app,
+    allocation_analytics_client,
+    allocation_analytics_app,
 ) -> None:
-    response = investment_analytics_client.get("/account-analytics")
+    response = allocation_analytics_client.get("/allocation_analytics")
 
     assert response.status_code == 200, response.text
     assert response.json()["cash"] == 25.0
     assert response.json()["equity_graph"]["1M"]["equity"] == [100.0, 125.0]
-    assert investment_analytics_app["order_repository"].calls == [OTHER_USER_ID]
-    assert investment_analytics_app["trade_execution_service"].realize_calls == [
+    assert allocation_analytics_app["order_repository"].calls == [OTHER_USER_ID]
+    assert allocation_analytics_app["trade_execution_service"].realize_calls == [
         {
             "cognito_user_id": OTHER_USER_ID,
             "alpaca_account_id": OTHER_ALPACA_ACCOUNT_ID,
-            "portfolio_id": "portfolio-1",
+            "allocation_id": "portfolio-1",
             "lock_already_acquired": False,
         }
     ]
 
 
 def test_account_analytics_returns_empty_response_for_inactive_alpaca_account(
-    investment_analytics_client,
-    investment_analytics_app,
+    allocation_analytics_client,
+    allocation_analytics_app,
 ) -> None:
-    investment_analytics_app["app"].dependency_overrides[get_current_alpaca_account] = (
+    allocation_analytics_app["app"].dependency_overrides[get_current_alpaca_account] = (
         lambda: FakeAlpacaAccount(status="INACTIVE")
     )
 
-    response = investment_analytics_client.get("/account-analytics")
+    response = allocation_analytics_client.get("/allocation_analytics")
 
     assert response.status_code == 200, response.text
     assert response.json() == {
         "cash": 0.0,
         "equity": 0.0,
         "equity_graph": {},
-        "portfolio_allocations": {},
+        "allocations": {},
     }
-    assert investment_analytics_app["order_repository"].calls == []
+    assert allocation_analytics_app["order_repository"].calls == []
 
 
 def test_portfolio_allocation_analytics_returns_owned_allocation(
-    investment_analytics_client,
-    investment_analytics_app,
+    allocation_analytics_client,
+    allocation_analytics_app,
 ) -> None:
-    response = investment_analytics_client.get(
-        "/account-analytics/portfolios/portfolio-1/analytics"
+    response = allocation_analytics_client.get(
+        "/allocation_analytics/portfolios/portfolio-1/analytics"
     )
 
     assert response.status_code == 200, response.text
     assert response.json()["portfolio_id"] == "portfolio-1"
     assert response.json()["transaction_history"][0]["transaction_id"] == "transaction-1"
     assert response.json()["profit_loss_percent"] == 0.25
-    assert investment_analytics_app["allocation_repository"].calls == [
+    assert allocation_analytics_app["allocation_repository"].calls == [
         (OTHER_USER_ID, "portfolio-1")
     ]
 
 
 def test_user_cannot_read_another_users_portfolio_allocation_analytics(
-    investment_analytics_client,
-    investment_analytics_app,
+    allocation_analytics_client,
+    allocation_analytics_app,
 ) -> None:
-    investment_analytics_app["app"].dependency_overrides[
+    allocation_analytics_app["app"].dependency_overrides[
         get_allocation_repository
     ] = lambda: FakeAllocationRepository(missing=True)
 
-    response = investment_analytics_client.get(
-        "/account-analytics/portfolios/portfolio-1/analytics"
+    response = allocation_analytics_client.get(
+        "/allocation_analytics/portfolios/portfolio-1/analytics"
     )
 
     assert response.status_code == 200, response.text
@@ -239,15 +249,15 @@ def test_user_cannot_read_another_users_portfolio_allocation_analytics(
         "profit_loss": None,
         "profit_loss_percent": None,
     }
-    assert investment_analytics_app["analytics_service"].analytics_calls == []
-    assert investment_analytics_app["trade_execution_service"].realize_calls == []
+    assert allocation_analytics_app["analytics_service"].analytics_calls == []
+    assert allocation_analytics_app["trade_execution_service"].realize_calls == []
 
 
 def test_stock_allocation_analytics_returns_owned_allocation(
-    investment_analytics_client,
+    allocation_analytics_client,
 ) -> None:
-    response = investment_analytics_client.get(
-        "/account-analytics/stocks/asset-aapl/analytics"
+    response = allocation_analytics_client.get(
+        "/allocation_analytics/stocks/asset-aapl/analytics"
     )
 
     assert response.status_code == 200, response.text
@@ -256,23 +266,15 @@ def test_stock_allocation_analytics_returns_owned_allocation(
     assert response.json()["equity"] == 125.0
 
 
-def test_stock_metadata_route_returns_stock_details(investment_analytics_client) -> None:
-    response = investment_analytics_client.get("/account-analytics/stocks/asset-aapl")
-
-    assert response.status_code == 200, response.text
-    assert response.json()["symbol"] == "AAPL"
-    assert response.json()["stock_id"] == "asset-aapl"
-
-
-def test_investment_analytics_route_maps_service_errors(
-    investment_analytics_client,
-    investment_analytics_app,
+def test_allocation_analytics_route_maps_service_errors(
+    allocation_analytics_client,
+    allocation_analytics_app,
 ) -> None:
-    investment_analytics_app["app"].dependency_overrides[
-        get_investment_analytics_service
-    ] = lambda: FakeInvestmentAnalyticsService(fail=True)
+    allocation_analytics_app["app"].dependency_overrides[
+        get_allocation_analytics_service
+    ] = lambda: FakeAllocationAnalyticsService(fail=True)
 
-    response = investment_analytics_client.get("/account-analytics")
+    response = allocation_analytics_client.get("/allocation_analytics")
 
     assert response.status_code == 500
-    assert response.json()["detail"]["code"] == "INVESTMENT_ANALYTICS_SERVICE_ERROR"
+    assert response.json()["detail"]["code"] == "ALLOCATION_ANALYTICS_SERVICE_ERROR"

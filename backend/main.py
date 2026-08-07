@@ -28,10 +28,10 @@ from core.logging_config import configure_cloudwatch_logging
 from routes.backtest_route import router as backtest_router
 from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
-from routes.investment_analytics_route import router as investment_analytics_router
+from routes.allocation_analytics_route import router as allocation_analytics_router
 from routes.trade_execution_route import router as trade_execution_router
 from routes.model_portfolios_stocks_search_route import router as model_portfolios_stocks_search_router
-from routes.stock_analytics_route import router as stock_analytics_router
+from routes.stock_route import router as stock_router
 from routes.baskt_account_route import router as baskt_account_router
 
 
@@ -124,10 +124,10 @@ def create_app() -> FastAPI:
     app.include_router(backtest_router)
     app.include_router(model_portfolio_router)
     app.include_router(account_lifecycle_router)
-    app.include_router(investment_analytics_router)
+    app.include_router(allocation_analytics_router)
     app.include_router(trade_execution_router)
     app.include_router(model_portfolios_stocks_search_router)
-    app.include_router(stock_analytics_router)
+    app.include_router(stock_router)
     app.include_router(baskt_account_router)
 
     # Health check

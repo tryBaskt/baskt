@@ -1,4 +1,4 @@
-# backend/routes/account_analytics_route.py
+# backend/routes/allocation_analytics_route.py
 
 # Python imports
 from __future__ import annotations
@@ -17,7 +17,7 @@ from core.authentication import (
 
 )
 from core.deps import (
-	get_investment_analytics_service,
+	get_allocation_analytics_service,
 	get_trade_execution_service,
 	get_order_repository,
 	get_allocation_repository,
@@ -25,22 +25,17 @@ from core.deps import (
 from repository.order_repository import OrderRepository
 from repository.allocation_repository import AllocationRepository
 from domain.baskt_account_domain import BasktAccount
-from schema.investment_analytics_schema import (
-	AccountAnalyticsResponse,
-	EquityGraphResponse
-)
-from schema.stock_schema import (
-	StockResponse,
+from schema.allocation_analytics_schema import (
+	AllAllocationAnalyticsResponse,
+	AllEquityGraphResponse,
 	StockAllocationResponse,
-	StockAllocationTransactionResponse
-)
-from schema.portfolio_allocation_schema import (
+	StockAllocationTransactionResponse,
 	PortfolioAllocationTransactionResponse,
-	PortfolioAllocationResponse
+	PortfolioAllocationResponse,
 )
-from services.investment_analytics_service import (
-	InvestmentAnalyticsInternalServerError,
-	InvestmentAnalyticsService,
+from services.allocation_analytics_service import (
+	AllocationAnalyticsInternalServerError,
+	AllocationAnalyticsService,
 )
 from services.trade_execution_service import (
 	TradeExecutionInternalServerError,
@@ -49,16 +44,16 @@ from services.trade_execution_service import (
 
 
 
-router = APIRouter(prefix="/account-analytics", tags=["account-performance"])
+router = APIRouter(prefix="/allocation_analytics", tags=["allocation-performance"])
 
 
-def _raise_investment_analytics_http_exception(err: Exception) -> None:
+def _raise_allocation_analytics_http_exception(err: Exception) -> None:
     if isinstance(err, HTTPException):
         raise err
 
     if isinstance(
         err,
-        (InvestmentAnalyticsInternalServerError, TradeExecutionInternalServerError),
+        (AllocationAnalyticsInternalServerError, TradeExecutionInternalServerError),
     ):
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,57 +63,57 @@ def _raise_investment_analytics_http_exception(err: Exception) -> None:
     raise HTTPException(
         status_code=HTTP_500_INTERNAL_SERVER_ERROR,
         detail={
-            "message": f"Unexpected account analytics error: {err}",
-            "code": "INVESTMENT_ANALYTICS_UNEXPECTED_ERROR",
+            "message": f"Unexpected allocation analytics error: {err}",
+            "code": "ALLOCATION_ANALYTICS_UNEXPECTED_ERROR",
         },
     ) from err
 
 
-@router.get("", response_model= AccountAnalyticsResponse, status_code=HTTP_200_OK)
+@router.get("", response_model=AllAllocationAnalyticsResponse, status_code=HTTP_200_OK)
 def get_account_analytics(
 	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	alpaca_account: Account = Depends(get_current_alpaca_account),
-	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
+	service: AllocationAnalyticsService = Depends(get_allocation_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 	order_repository: OrderRepository = Depends(get_order_repository)
-) -> AccountAnalyticsResponse:
+) -> AllAllocationAnalyticsResponse:
 
 	try:
 		cognito_user_id = get_cognito_user_id(baskt_account)
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		if alpaca_account.status.name.upper() not in ('ACTIVE','APPROVED'):
-			return AccountAnalyticsResponse(
+			return AllAllocationAnalyticsResponse(
 				cash=0.0,
 				equity=0.0,
 				equity_graph={},
-				portfolio_allocations={}
+				allocations={}
 			)
 
-		portfolio_ids_owner_ids = order_repository.get_portfolio_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
+		allocation_ids_owner_ids = order_repository.get_allocation_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
 
-		for portfolio_id, _ in portfolio_ids_owner_ids:
+		for allocation_id, _ in allocation_ids_owner_ids:
 			trade_execution_service.realize_filled_orders(
 				cognito_user_id=cognito_user_id,
 				alpaca_account_id=alpaca_account_id,
-				portfolio_id=portfolio_id,
+				allocation_id=allocation_id,
 				lock_already_acquired=False
 			)
 
-		account_analytics_dict = service.get_account_analytics(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+		account_analytics_dict = service.get_all_active_allocation_analytics(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 
 		equity_graph_response = {}
 		for period in account_analytics_dict["equity_graph"]:
 			period_equity_graph = account_analytics_dict["equity_graph"][period]
-			equity_graph_response[period] = EquityGraphResponse(equity=period_equity_graph["equity"], timestamp=period_equity_graph["timestamp"])
+			equity_graph_response[period] = AllEquityGraphResponse(equity=period_equity_graph["equity"], timestamp=period_equity_graph["timestamp"])
 
-		return AccountAnalyticsResponse(
+		return AllAllocationAnalyticsResponse(
 			cash = account_analytics_dict["cash"],
 			equity=account_analytics_dict["equity"],
 			equity_graph=equity_graph_response,
-			portfolio_allocations=account_analytics_dict.get("portfolio_allocations", {})
+			allocations=account_analytics_dict.get("allocations", {})
 		)
 	except Exception as err:
-		_raise_investment_analytics_http_exception(err=err)
+		_raise_allocation_analytics_http_exception(err=err)
 
 
 
@@ -128,7 +123,7 @@ def get_portfolio_allocation_analytics(
 	portfolio_id: str,
 	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	alpaca_account: Account = Depends(get_current_alpaca_account),
-	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
+	service: AllocationAnalyticsService = Depends(get_allocation_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 	allocation_repository: AllocationRepository = Depends(get_allocation_repository),
 ) -> PortfolioAllocationResponse:
@@ -149,11 +144,11 @@ def get_portfolio_allocation_analytics(
 		trade_execution_service.realize_filled_orders(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
-			portfolio_id=portfolio_id
+			allocation_id=portfolio_id
 		)
 
 		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=portfolio_id)
-		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+		transactions = service.get_portfolio_allocation_transaction_history(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
 		if not analytics_dict and not transactions:
 			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
 
@@ -185,7 +180,7 @@ def get_portfolio_allocation_analytics(
 		)
 
 	except Exception as e:
-		_raise_investment_analytics_http_exception(err=e)
+		_raise_allocation_analytics_http_exception(err=e)
 
 
 @router.get("/stocks/{stock_id}/analytics", response_model=StockAllocationResponse, status_code=HTTP_200_OK)
@@ -193,7 +188,7 @@ def get_stock_allocation_analytics(
 	stock_id: str,
 	baskt_account: BasktAccount = Depends(get_current_baskt_account),
 	alpaca_account: Account = Depends(get_current_alpaca_account),
-	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
+	service: AllocationAnalyticsService = Depends(get_allocation_analytics_service),
 	trade_execution_service: TradeExecutionService = Depends(get_trade_execution_service),
 	allocation_repository: AllocationRepository = Depends(get_allocation_repository),
 ) -> StockAllocationResponse:
@@ -215,11 +210,11 @@ def get_stock_allocation_analytics(
 		trade_execution_service.realize_filled_orders(
 			cognito_user_id=cognito_user_id,
 			alpaca_account_id=alpaca_account_id,
-			portfolio_id=stock_id
+			allocation_id=stock_id
 		)
 
-		analytics_dict = service.get_portfolio_allocation_analytics(cognito_user_id=cognito_user_id,portfolio_id=stock_id)
-		transactions = service.get_portfolio_allocation_transactions(cognito_user_id=cognito_user_id, portfolio_id=stock_id)
+		analytics_dict = service.get_stock_allocation_analytics(cognito_user_id=cognito_user_id, stock_id=stock_id)
+		transactions = service.get_stock_allocation_transaction_history(cognito_user_id=cognito_user_id, stock_id=stock_id)
 		if not analytics_dict and not transactions:
 			return StockAllocationResponse(
 				stock_id=stock_id
@@ -252,26 +247,4 @@ def get_stock_allocation_analytics(
 		)
 
 	except Exception as e:
-		_raise_investment_analytics_http_exception(err=e)
-
-
-@router.get("/stocks/{stock_id}", response_model=StockResponse, status_code=HTTP_200_OK)
-def get_stock_metadata(
-	stock_id: str,
-	baskt_account: BasktAccount = Depends(get_current_baskt_account),
-	service: InvestmentAnalyticsService = Depends(get_investment_analytics_service),
-) -> StockResponse:
-	try:
-		stock = service.get_stock_by_stock_id(stock_id=stock_id)
-
-		return StockResponse(
-			symbol=stock.symbol,
-			tradable=stock.tradable,
-			fractionable=stock.fractionable,
-			shortable=stock.shortable,
-			marginable=stock.marginable,
-			stock_id=stock.stock_id,
-			stock_class=stock.stock_class,
-		)
-	except Exception as e:
-		_raise_investment_analytics_http_exception(err=e)
+		_raise_allocation_analytics_http_exception(err=e)

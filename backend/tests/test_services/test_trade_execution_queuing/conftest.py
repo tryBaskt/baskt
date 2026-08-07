@@ -271,7 +271,7 @@ class MockTradeExecutionLambda:
 
         if action == "stock_buy":
             self.trade_execution_service.execute_buy_to_stock(
-                asset_id=payload["asset_id"],
+                stock_id=payload["asset_id"],
                 transaction_id=payload["transaction_id"],
                 deposit_amount=float(payload["amount"]),
                 cognito_user_id=payload["cognito_user_id"],
@@ -281,7 +281,7 @@ class MockTradeExecutionLambda:
 
         if action == "stock_sell":
             self.trade_execution_service.execute_sell_to_stock(
-                asset_id=payload["asset_id"],
+                stock_id=payload["asset_id"],
                 transaction_id=payload["transaction_id"],
                 withdraw_amount=float(payload["amount"]),
                 alpaca_account_id=payload["alpaca_account_id"],
@@ -291,7 +291,7 @@ class MockTradeExecutionLambda:
 
         if action == "stock_close":
             self.trade_execution_service.execute_close_stock(
-                asset_id=payload["asset_id"],
+                stock_id=payload["asset_id"],
                 transaction_id=payload["transaction_id"],
                 alpaca_account_id=payload["alpaca_account_id"],
                 cognito_user_id=payload["cognito_user_id"],
@@ -1078,14 +1078,15 @@ class TestEngine:
         # Realize filled orders
         while True:
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
-            self.portfolio_allocation_history_size+=1
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1096,7 +1097,7 @@ class TestEngine:
             sleep(0.25)
 
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
         assert len(dep_orders) + len(self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"]) == len(rows2)
         rows2_dict_order_id = {
             row["order_id"]: {
@@ -1201,14 +1202,15 @@ class TestEngine:
 
             while True:
                 all_orders_fully_filled = True
-                self.trade_execution_service.realize_filled_orders(
+                num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                     cognito_user_id=cognito_user_id,
                     alpaca_account_id=alpaca_account_id,
-                    portfolio_id=portfolio_id,
+                    allocation_id=portfolio_id,
                 )
-                self.portfolio_allocation_history_size+=1
+                if num_newly_filled_orders > 0:
+                    self.portfolio_allocation_history_size+=1
 
-                baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
+                baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=portfolio_id, cognito_user_id=cognito_user_id)
                 for baskt_order_dict in baskt_orders_dict:
                     if baskt_order_dict["status"] != "FILLED":
                         all_orders_fully_filled = False
@@ -1219,7 +1221,7 @@ class TestEngine:
                 sleep(0.25)
 
             # match alpaca orders and order_db
-            rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+            rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
             assert len(ud_orders) + len(self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"]) == len(rows2)
             rows2_dict_order_id = {
                 row["order_id"]: {
@@ -1417,13 +1419,15 @@ class TestEngine:
         # Realize filled orders
         while True: 
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1433,10 +1437,8 @@ class TestEngine:
 
             sleep(0.25)
 
-        self.portfolio_allocation_history_size+=1
-
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
 
         assert len(self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"]) + len(wd_orders) == len(rows2)
         rows2_dict_order_id = {
@@ -1534,14 +1536,15 @@ class TestEngine:
         # Realize filled orders
         while True:
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=portfolio_id,
+                allocation_id=portfolio_id,
             )
-            self.portfolio_allocation_history_size+=1
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=portfolio_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=portfolio_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1552,7 +1555,7 @@ class TestEngine:
             sleep(0.25)
 
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=portfolio_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=portfolio_id)
         assert len(self.baskt_account_portfolio_positions[cognito_user_id][portfolio_id]["all_orders"]) + len(wd_orders) == len(rows2)
         rows2_dict_order_id = {
             row["order_id"]: {
@@ -1626,14 +1629,15 @@ class TestEngine:
         # Realize filled orders
         while True:
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=asset_id,
+                allocation_id=asset_id,
             )
-            self.portfolio_allocation_history_size+=1
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1644,7 +1648,7 @@ class TestEngine:
             sleep(0.25)
 
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=asset_id)
         assert len(dep_orders) + len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) == len(rows2)
         rows2_dict_order_id = {
             row["order_id"]: {
@@ -1753,14 +1757,15 @@ class TestEngine:
         # Realize filled orders
         while True:
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=asset_id,
+                allocation_id=asset_id,
             )
-            self.portfolio_allocation_history_size+=1
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1771,7 +1776,7 @@ class TestEngine:
             sleep(0.25)
 
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=asset_id)
 
         assert len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) + len(wd_orders) == len(rows2)
         rows2_dict_order_id = {
@@ -1867,14 +1872,15 @@ class TestEngine:
         # Realize filled orders
         while True:
             all_orders_fully_filled = True
-            self.trade_execution_service.realize_filled_orders(
+            num_newly_filled_orders = self.trade_execution_service.realize_filled_orders(
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
-                portfolio_id=asset_id,
+                allocation_id=asset_id,
             )
-            self.portfolio_allocation_history_size+=1
+            if num_newly_filled_orders > 0:
+                self.portfolio_allocation_history_size+=1
             
-            baskt_orders_dict = self.order_repository.get_orders_by_portfolio(portfolio_id=asset_id, cognito_user_id=cognito_user_id)
+            baskt_orders_dict = self.order_repository.get_orders_by_allocation(allocation_id=asset_id, cognito_user_id=cognito_user_id)
             for baskt_order_dict in baskt_orders_dict:
                 if baskt_order_dict["status"] != "FILLED":
                     all_orders_fully_filled = False
@@ -1885,7 +1891,7 @@ class TestEngine:
             sleep(0.25)
 
         # match alpaca orders and order_db
-        rows2 = self.order_repository.get_orders_by_portfolio(cognito_user_id=cognito_user_id, portfolio_id=asset_id)
+        rows2 = self.order_repository.get_orders_by_allocation(cognito_user_id=cognito_user_id, allocation_id=asset_id)
         assert len(self.baskt_account_portfolio_positions[cognito_user_id][asset_id]["all_orders"]) + len(wd_orders) == len(rows2)
         rows2_dict_order_id = {
             row["order_id"]: {
@@ -2003,9 +2009,9 @@ class TestEngine:
         """Delete order rows even when a test timed out before returning orders."""
         for cognito_user_id, _, portfolio_id in traded_accounts:
             try:
-                rows = self.order_repository.get_orders_by_portfolio(
+                rows = self.order_repository.get_orders_by_allocation(
                     cognito_user_id=cognito_user_id,
-                    portfolio_id=portfolio_id,
+                    allocation_id=portfolio_id,
                 )
             except Exception:
                 rows = []

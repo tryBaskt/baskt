@@ -146,9 +146,9 @@ Collect `employer_name`, `employer_address`, and `employment_position` only when
 
 Hydrate Home with one authenticated call:
 
-`GET /account-analytics`
+`GET /allocation_analytics`
 
-The `AccountAnalyticsResponse` supplies `cash`, `equity`, `equity_graph`, and `portfolio_allocations`.
+The `AllAllocationAnalyticsResponse` supplies `cash`, `equity`, `equity_graph`, and `allocations`.
 
 ### Account summary
 
@@ -172,12 +172,12 @@ The `AccountAnalyticsResponse` supplies `cash`, `equity`, `equity_graph`, and `p
 
 ### Invested allocations
 
-Convert the `portfolio_allocations` mapping into rows. Each entry is keyed by its portfolio/asset identifier and includes the fields needed to show:
+Convert the `allocations` mapping into rows. Each entry is keyed by its portfolio/asset identifier and includes the fields needed to show:
 
-- `portfolio_name`
+- `allocation_name`
 - `allocation_type`
-- `portfolio_allocation_equity`
-- `portfolio_allocation_equity_percent`
+- `allocation_equity`
+- `allocation_equity_percent`
 
 Map `MODEL_PORTFOLIO` to a user-facing Baskt type and `STOCK` to a Stock type. Show the sum of allocation equities as invested value. Do not display the raw portfolio/asset identifier. Rows must be keyboard operable and selectable:
 
@@ -304,7 +304,7 @@ Start the independent detail and model-performance requests without unnecessaril
 
 Request the user's investment allocation for the portfolio:
 
-`GET /account-analytics/portfolios/{portfolio_id}/analytics`
+`GET /allocation_analytics/portfolios/{portfolio_id}/analytics`
 
 ### Portfolio detail and snapshots
 
@@ -375,8 +375,8 @@ The stock detail route is `/stocks/{stock_id}`, where `stock_id` is Alpaca's sta
 
 On every open, request metadata and allocation independently:
 
-- `GET /account-analytics/stocks/{stock_id}`
-- `GET /account-analytics/stocks/{stock_id}/analytics`
+- `GET /stocks/{stock_id}`
+- `GET /allocation_analytics/stocks/{stock_id}/analytics`
 
 After metadata supplies the symbol, request:
 
