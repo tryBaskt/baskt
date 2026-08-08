@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 from uuid import uuid4
@@ -20,21 +21,22 @@ from services.allocation_analytics_service import (
     AllocationAnalyticsService,
 )
 
-DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-DEV_FUNDED_50000_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
-
-TEST_FUNDED_50000_ALPACA_ACCOUNT_ID = "c83885b1-e24a-4d3e-bbd6-1de518837938"
-TEST_FUNDED_50000_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
-
 load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _required_env_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required for allocation analytics tests.")
+    return value
 
 
 def _funded_account_ids() -> tuple[str, str]:
     env_prefix = get_settings().env.upper()
     return (
-        globals()[f"{env_prefix}_FUNDED_50000_ALPACA_ACCOUNT_ID"],
-        globals()[f"{env_prefix}_FUNDED_50000_COGNITO_USER_ID"],
+        _required_env_value(f"{env_prefix}_TEST_USER_1_ALPACA_ACCOUNT_ID"),
+        _required_env_value(f"{env_prefix}_TEST_USER_1_COGNITO_USER_ID"),
     )
 
 

@@ -7,8 +7,8 @@ from typing import List, Dict
 
 from alpaca.trading.models import Order
 
+from backend.tests.mock_alpaca.trading import MockSQSClient
 from .conftest import (
-    MockSQSClient, 
     TestEngine, 
 )
 

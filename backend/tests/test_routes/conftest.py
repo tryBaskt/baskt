@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -14,90 +16,64 @@ for import_path in (str(backend_dir), str(repo_root)):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
 
+load_dotenv(repo_root / ".env")
+
 from core.authentication import (
-    get_current_alpaca_account,
-    get_current_baskt_account,
     get_current_user,
 )
-from domain.baskt_account_domain import (
-    AgreementData,
-    BasktAccount,
-    ContactData,
-    DisclosuresData,
-    IdentityData,
-)
 
 
-OWNER_USER_ID = "owner-user"
-OTHER_USER_ID = "other-user"
-OWNER_ALPACA_ACCOUNT_ID = "owner-alpaca-account"
-OTHER_ALPACA_ACCOUNT_ID = "other-alpaca-account"
+@dataclass(frozen=True)
+class RouteTestUserIds:
+    cognito_user_id: str
+    alpaca_account_id: str
 
 
-class FakeAccountStatus:
-    def __init__(self, name: str = "ACTIVE") -> None:
-        self.name = name
+def _test_env_prefix() -> str:
+    return os.getenv("ENV", "dev").strip().upper()
 
 
-class FakeAlpacaAccount:
-    def __init__(
-        self,
-        *,
-        alpaca_account_id: str = OTHER_ALPACA_ACCOUNT_ID,
-        status: str = "ACTIVE",
-    ) -> None:
-        self.id = alpaca_account_id
-        self.status = FakeAccountStatus(status)
+def _required_env_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required for route tests")
+    return value
 
 
-def fake_baskt_account(
-    *,
-    cognito_user_id: str = OTHER_USER_ID,
-    alpaca_account_id: str = OTHER_ALPACA_ACCOUNT_ID,
-) -> BasktAccount:
-    return BasktAccount(
-        cognito_user_id=cognito_user_id,
-        display_name=f"display-{cognito_user_id}",
-        alpaca_account_id=alpaca_account_id,
-        alpaca_account_number=f"number-{alpaca_account_id}",
-        agreements_data=[
-            AgreementData(
-                agreement="customer_agreement",
-                signed_at=datetime.now(timezone.utc).isoformat(),
-                ip_address="127.0.0.1",
-            )
-        ],
-        disclosures_data=DisclosuresData(immediate_family_exposed=False),
-        identity_data=IdentityData(
-            given_name="Route",
-            family_name="Tester",
-            country_of_tax_residence="USA",
+def _test_user_ids(number: int) -> RouteTestUserIds:
+    env_prefix = _test_env_prefix()
+    return RouteTestUserIds(
+        cognito_user_id=_required_env_value(
+            f"{env_prefix}_TEST_USER_{number}_COGNITO_USER_ID"
         ),
-        contact_data=ContactData(
-            email_address=f"{cognito_user_id}@example.com",
-            phone_number=None,
-            street_address="123 Test St",
-            unit=None,
-            city="San Francisco",
-            state="CA",
-            postal_code="94105",
-            country="USA",
+        alpaca_account_id=_required_env_value(
+            f"{env_prefix}_TEST_USER_{number}_ALPACA_ACCOUNT_ID"
         ),
     )
 
 
+OWNER_TEST_USER = _test_user_ids(2)
+OTHER_TEST_USER = _test_user_ids(1)
+OWNER_USER_ID = OWNER_TEST_USER.cognito_user_id
+OTHER_USER_ID = OTHER_TEST_USER.cognito_user_id
+OWNER_ALPACA_ACCOUNT_ID = OWNER_TEST_USER.alpaca_account_id
+OTHER_ALPACA_ACCOUNT_ID = OTHER_TEST_USER.alpaca_account_id
+
+
 @pytest.fixture
 def app_factory():
-    def build_app(*routers):
+    def build_app(
+        *routers,
+        cognito_user_id: str = OTHER_USER_ID,
+        alpaca_account_id: str = OTHER_ALPACA_ACCOUNT_ID,
+    ):
         app = FastAPI()
         for router in routers:
             app.include_router(router)
         app.dependency_overrides[get_current_user] = lambda: {
-            "sub": OTHER_USER_ID,
-            "custom:alpaca_acct_id": OTHER_ALPACA_ACCOUNT_ID,
+            "sub": cognito_user_id,
+            "custom:alpaca_acct_id": alpaca_account_id,
         }
-        app.dependency_overrides[get_current_baskt_account] = lambda: fake_baskt_account()
-        app.dependency_overrides[get_current_alpaca_account] = lambda: FakeAlpacaAccount()
         return app
 
     return build_app

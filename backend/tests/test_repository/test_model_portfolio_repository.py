@@ -36,8 +36,9 @@ def _position(
 @pytest.mark.integration
 def test_model_portfolio_repository_create_get_update_and_history(
     model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
 ) -> None:
-    owner_cognito_user_id = f"repository-test-owner-{uuid4()}"
+    owner_cognito_user_id = test_user_1.cognito_user_id
     created_at = datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc)
     updated_at = created_at + timedelta(seconds=61)
     portfolio_id = None
@@ -132,10 +133,11 @@ def test_model_portfolio_repository_create_get_update_and_history(
 
 def test_model_portfolio_repository_rejects_invalid_weight_total(
     model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
 ) -> None:
     with pytest.raises(ModelPortfolioInvalidWeightError):
         model_portfolio_repository.create_model_portfolio(
-            portfolio_owner_cognito_user_id=f"repository-test-owner-{uuid4()}",
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             portfolio_name="Invalid Weight Portfolio",
             positions_request=[
                 _position(symbol="AAPL", target_weight=0.5),
@@ -236,8 +238,9 @@ def test_model_portfolio_repository_malformed_items_are_wrapped(
 @pytest.mark.integration
 def test_model_portfolio_repository_noop_cooldown_locked_and_zero_weight_paths(
     model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
 ) -> None:
-    owner_cognito_user_id = f"repository-test-owner-{uuid4()}"
+    owner_cognito_user_id = test_user_1.cognito_user_id
     created_at = datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc)
     positions = [_position(symbol="AAPL", target_weight=1.0)]
     portfolio_id = None

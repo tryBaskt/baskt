@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -25,6 +26,14 @@ from core.config import get_settings
 
 load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _test_user_alpaca_account_id(number: int) -> str:
+    variable_name = f"{get_settings().env.upper()}_TEST_USER_{number}_ALPACA_ACCOUNT_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for Cognito client tests.")
+    return value
 
 
 def _unique_account_data() -> dict:
@@ -90,6 +99,7 @@ def test_cognito_client_error_classes_set_codes() -> None:
 def test_cognito_client_formats_cognito_user_response(
     cognito_client: CognitoClient,
 ) -> None:
+    alpaca_account_id = _test_user_alpaca_account_id(1)
     created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
     updated_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
 
@@ -102,14 +112,14 @@ def test_cognito_client_formats_cognito_user_response(
             "UserLastModifiedDate": updated_at,
             "UserAttributes": [
                 {"Name": "email", "Value": "user@example.com"},
-                {"Name": "custom:alpaca_acct_id", "Value": "alpaca-id"},
+                {"Name": "custom:alpaca_acct_id", "Value": alpaca_account_id},
                 {"Name": "custom:alpaca_acct_num", "Value": "ABC123"},
             ],
         }
     )
 
     assert formatted["cognito_user_id"] == "cognito-user-id"
-    assert formatted["alpaca_account_id"] == "alpaca-id"
+    assert formatted["alpaca_account_id"] == alpaca_account_id
     assert formatted["alpaca_account_number"] == "ABC123"
     assert formatted["email_address"] == "user@example.com"
     assert formatted["cognito_enabled_status"] is True

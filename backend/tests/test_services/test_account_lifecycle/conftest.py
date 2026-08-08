@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 import pytest
@@ -26,12 +27,6 @@ from backend.domain.baskt_account_domain import (
     IdentityData,
 )
 
-DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-DEV_FUNDED_50000_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
-
-TEST_FUNDED_50000_ALPACA_ACCOUNT_ID = "c83885b1-e24a-4d3e-bbd6-1de518837938"
-TEST_FUNDED_50000_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
-
 load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
 
@@ -51,8 +46,16 @@ class AccountLifecycleTestAccountIds:
 
     def _get(self, name: str) -> str:
         env_prefix = self.env.upper()
-        variable_name = f"{env_prefix}_{name}"
-        value = globals().get(variable_name, "")
+        test_user_variables = {
+            "FUNDED_50000_ALPACA_ACCOUNT_ID": (
+                f"{env_prefix}_TEST_USER_1_ALPACA_ACCOUNT_ID"
+            ),
+            "FUNDED_50000_COGNITO_USER_ID": (
+                f"{env_prefix}_TEST_USER_1_COGNITO_USER_ID"
+            ),
+        }
+        variable_name = test_user_variables[name]
+        value = os.getenv(variable_name, "").strip()
         if not value:
             raise RuntimeError(
                 f"{variable_name} is required for account lifecycle tests."

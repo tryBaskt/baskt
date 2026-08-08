@@ -43,12 +43,14 @@ def _order_item(
 @pytest.mark.integration
 def test_order_repository_normalizes_and_filters_orders(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
     transaction_id = f"repository-transaction-{unique_suffix}"
-    cognito_user_id = f"repository-user-{unique_suffix}"
+    cognito_user_id = test_user_1.cognito_user_id
     allocation_id = f"repository-allocation-{unique_suffix}"
-    owner_id = f"repository-owner-{unique_suffix}"
+    owner_id = test_user_2.cognito_user_id
 
     filled_item = _order_item(
         transaction_id=transaction_id,
@@ -100,6 +102,8 @@ def test_order_repository_normalizes_and_filters_orders(
 @pytest.mark.integration
 def test_order_repository_put_orders_and_missing_records(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
     transaction_id = f"repository-transaction-{unique_suffix}"
@@ -127,10 +131,10 @@ def test_order_repository_put_orders_and_missing_records(
     try:
         assert order_repository.put_orders(
             allocation_id=f"repository-allocation-{unique_suffix}",
-            cognito_user_id=f"repository-user-{unique_suffix}",
+            cognito_user_id=test_user_1.cognito_user_id,
             transaction_id=transaction_id,
             orders=[order],
-            portfolio_owner_cognito_user_id=f"repository-owner-{unique_suffix}",
+            portfolio_owner_cognito_user_id=test_user_2.cognito_user_id,
         ) == 1
         stored = order_repository.order_table_client.get_item(
             key={"transaction_id": transaction_id, "order_id": order_id}
@@ -155,13 +159,15 @@ def test_order_repository_parse_errors_are_wrapped(
 @pytest.mark.integration
 def test_order_repository_missing_portfolio_and_empty_paths(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     assert order_repository.put_orders(
         allocation_id=f"repository-allocation-{uuid4()}",
-        cognito_user_id=f"repository-user-{uuid4()}",
+        cognito_user_id=test_user_1.cognito_user_id,
         transaction_id=f"repository-transaction-{uuid4()}",
         orders=[],
-        portfolio_owner_cognito_user_id=f"repository-owner-{uuid4()}",
+        portfolio_owner_cognito_user_id=test_user_2.cognito_user_id,
     ) == 0
 
     with pytest.raises(OrderNotFoundError):
@@ -184,11 +190,13 @@ def test_order_repository_missing_portfolio_and_empty_paths(
 @pytest.mark.integration
 def test_order_repository_allocation_ids_of_unfilled_orders_are_deduped(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
-    cognito_user_id = f"repository-user-{unique_suffix}"
+    cognito_user_id = test_user_1.cognito_user_id
     allocation_id = f"repository-allocation-{unique_suffix}"
-    owner_id = f"repository-owner-{unique_suffix}"
+    owner_id = test_user_2.cognito_user_id
     filled_item = _order_item(
         transaction_id=f"filled-transaction-{unique_suffix}",
         order_id=f"filled-order-{unique_suffix}",

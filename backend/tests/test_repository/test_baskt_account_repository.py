@@ -17,13 +17,13 @@ from repository.baskt_account_repository import (
 )
 
 
-def _account() -> BasktAccount:
+def _account(test_user) -> BasktAccount:
     unique_suffix = uuid4().hex
     return BasktAccount(
-        cognito_user_id=f"repository-user-{unique_suffix}",
+        cognito_user_id=test_user.cognito_user_id,
         display_name=f"Repository User {unique_suffix[:8]}",
         description="Original description",
-        alpaca_account_id=f"repository-alpaca-{unique_suffix}",
+        alpaca_account_id=test_user.alpaca_account_id,
         alpaca_account_number="ABC123",
         agreements_data=[
             AgreementData(
@@ -54,9 +54,13 @@ def _account() -> BasktAccount:
 @pytest.mark.integration
 def test_baskt_account_repository_write_get_update_and_delete(
     baskt_account_repository: BasktAccountRepository,
+    test_user_1,
 ) -> None:
-    account = _account()
+    account = _account(test_user_1)
     cognito_user_id = account.cognito_user_id
+    original_item = baskt_account_repository.dynamodb.get_item(
+        key={"cognito_user_id": cognito_user_id}
+    )
 
     try:
         baskt_account_repository.write_baskt_account(account)
@@ -100,14 +104,23 @@ def test_baskt_account_repository_write_get_update_and_delete(
         assert updated.description == "Updated description"
         assert updated.contact_data.email_address == updated_email
     finally:
-        baskt_account_repository.delete_baskt_account(cognito_user_id)
+        if original_item is None:
+            baskt_account_repository.delete_baskt_account(cognito_user_id)
+        else:
+            baskt_account_repository.dynamodb.put_item(original_item)
 
-    assert (
-        baskt_account_repository.dynamodb.get_item(
+    if original_item is None:
+        assert (
+            baskt_account_repository.dynamodb.get_item(
+                key={"cognito_user_id": cognito_user_id}
+            )
+            is None
+        )
+    else:
+        restored = baskt_account_repository.dynamodb.get_item(
             key={"cognito_user_id": cognito_user_id}
         )
-        is None
-    )
+        assert restored == original_item
 
 
 @pytest.mark.integration

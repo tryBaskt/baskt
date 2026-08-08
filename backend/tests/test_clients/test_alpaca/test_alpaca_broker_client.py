@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 import sys
@@ -21,22 +22,15 @@ from clients.alpaca_broker_client import (
 from core import deps as app_deps
 from core.config import get_settings
 
-DEV_FUNDED_50000_ALPACA_ACCOUNT_ID = "49243cf6-8cd6-4511-a5c0-00ac6bc1a27c"
-DEV_FUNDED_50000_COGNITO_USER_ID = "04484408-a0d1-70d6-fc4c-9b1d01f18fa2"
-DEV_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
-DEV_PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
-DEV_FUNDED_1000_ALPACA_ACCOUNT_ID = "857af291-0fac-4612-87d9-40dbab1a96c6"
-DEV_FUNDED_1000_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
-
-TEST_FUNDED_50000_ALPACA_ACCOUNT_ID = "c83885b1-e24a-4d3e-bbd6-1de518837938"
-TEST_FUNDED_50000_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
-TEST_PORTFOLIO_OWNER_ALPACA_ACCOUNT_ID = "1c7b2c9a-78f4-4b80-992f-b3ceac8ddfe8"
-TEST_PORTFOLIO_OWNER_COGNITO_USER_ID = "74c834b8-d0a1-707d-e14b-40f2e1be176b"
-TEST_FUNDED_1000_ALPACA_ACCOUNT_ID = "1c7b2c9a-78f4-4b80-992f-b3ceac8ddfe8"
-TEST_FUNDED_1000_COGNITO_USER_ID = "74c834b8-d0a1-707d-e14b-40f2e1be176b"
-
 load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _required_env_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required for Alpaca broker client tests.")
+    return value
 
 
 @pytest.fixture(scope="session")
@@ -49,8 +43,8 @@ def alpaca_broker_client() -> AlpacaBrokerClient:
 def funded_account_ids() -> tuple[str, str]:
     env_prefix = get_settings().env.upper()
     return (
-        globals()[f"{env_prefix}_FUNDED_50000_ALPACA_ACCOUNT_ID"],
-        globals()[f"{env_prefix}_FUNDED_50000_COGNITO_USER_ID"],
+        _required_env_value(f"{env_prefix}_TEST_USER_1_ALPACA_ACCOUNT_ID"),
+        _required_env_value(f"{env_prefix}_TEST_USER_1_COGNITO_USER_ID"),
     )
 
 

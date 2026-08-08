@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from fastapi import HTTPException
 
 backend_dir = Path(__file__).resolve().parents[2]
@@ -13,6 +15,8 @@ repo_root = Path(__file__).resolve().parents[3]
 for import_path in (str(backend_dir), str(repo_root)):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
+
+load_dotenv(repo_root / ".env")
 
 from core.authorization import (
     get_optional_portfolio_allocation_owner,
@@ -36,6 +40,28 @@ from repository.allocation_repository import AllocationNotFoundError
 
 
 AUDIT_LOGGER = "baskt.audit.authorization"
+
+
+def _required_env_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required for authorization tests.")
+    return value
+
+
+def _test_env_prefix() -> str:
+    return os.getenv("ENV", "dev").strip().upper()
+
+
+OWNER_USER_ID = _required_env_value(
+    f"{_test_env_prefix()}_TEST_USER_2_COGNITO_USER_ID"
+)
+OTHER_USER_ID = _required_env_value(
+    f"{_test_env_prefix()}_TEST_USER_1_COGNITO_USER_ID"
+)
+OWNER_ALPACA_ACCOUNT_ID = _required_env_value(
+    f"{_test_env_prefix()}_TEST_USER_2_ALPACA_ACCOUNT_ID"
+)
 
 
 class FakeModelPortfolioRepository:
@@ -85,14 +111,14 @@ class FakeAccountStatus:
 
 
 class FakeAlpacaAccount:
-    id = "alpaca-account-1"
+    id = OWNER_ALPACA_ACCOUNT_ID
     status = FakeAccountStatus()
 
 
 def _model_portfolio(
     *,
     portfolio_id: str = "portfolio-1",
-    owner_id: str = "owner-user",
+    owner_id: str = OWNER_USER_ID,
     visibility: str = "PUBLIC",
 ) -> ModelPortfolio:
     now = datetime.now(timezone.utc)
@@ -110,7 +136,7 @@ def _model_portfolio(
 def _portfolio_allocation(
     *,
     portfolio_id: str = "portfolio-1",
-    cognito_user_id: str = "owner-user",
+    cognito_user_id: str = OWNER_USER_ID,
 ) -> PortfolioAllocation:
     return PortfolioAllocation(
         allocation_id=portfolio_id,
@@ -127,8 +153,8 @@ def _portfolio_allocation(
 
 def _baskt_account(
     *,
-    cognito_user_id: str = "owner-user",
-    alpaca_account_id: str = "alpaca-account-1",
+    cognito_user_id: str = OWNER_USER_ID,
+    alpaca_account_id: str = OWNER_ALPACA_ACCOUNT_ID,
 ) -> BasktAccount:
     return BasktAccount(
         cognito_user_id=cognito_user_id,
@@ -173,13 +199,13 @@ def test_cross_user_model_portfolio_owner_is_denied_and_audited(
 ) -> None:
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
     repository = FakeModelPortfolioRepository(
-        {"portfolio-1": _model_portfolio(owner_id="owner-user")}
+        {"portfolio-1": _model_portfolio(owner_id=OWNER_USER_ID)}
     )
 
     with pytest.raises(HTTPException) as exc_info:
         require_model_portfolio_owner(
             portfolio_id="portfolio-1",
-            cognito_user_id="other-user",
+            cognito_user_id=OTHER_USER_ID,
             model_portfolio_repository=repository,
         )
 
@@ -192,15 +218,15 @@ def test_cross_user_model_portfolio_owner_claim_is_denied_and_audited(
 ) -> None:
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
     repository = FakeModelPortfolioRepository(
-        {"portfolio-1": _model_portfolio(owner_id="owner-user")}
+        {"portfolio-1": _model_portfolio(owner_id=OWNER_USER_ID)}
     )
 
     with pytest.raises(HTTPException) as exc_info:
         require_model_portfolio_owner_match(
             portfolio_id="portfolio-1",
-            portfolio_owner_cognito_user_id="other-user",
+            portfolio_owner_cognito_user_id=OTHER_USER_ID,
             model_portfolio_repository=repository,
-            cognito_user_id="caller-user",
+            cognito_user_id=OTHER_USER_ID,
         )
 
     assert exc_info.value.status_code == 403
@@ -208,12 +234,12 @@ def test_cross_user_model_portfolio_owner_claim_is_denied_and_audited(
 
 
 def test_model_portfolio_access_allows_owner_public_and_shared_private() -> None:
-    owner_private = _model_portfolio(owner_id="owner-user", visibility="PRIVATE")
-    public_portfolio = _model_portfolio(owner_id="owner-user", visibility="PUBLIC")
+    owner_private = _model_portfolio(owner_id=OWNER_USER_ID, visibility="PRIVATE")
+    public_portfolio = _model_portfolio(owner_id=OWNER_USER_ID, visibility="PUBLIC")
 
     owner_result = require_model_portfolio_access(
         portfolio_id="portfolio-1",
-        cognito_user_id="owner-user",
+        cognito_user_id=OWNER_USER_ID,
         model_portfolio_repository=FakeModelPortfolioRepository(
             {"portfolio-1": owner_private}
         ),
@@ -225,7 +251,7 @@ def test_model_portfolio_access_allows_owner_public_and_shared_private() -> None
 
     public_result = require_model_portfolio_access(
         portfolio_id="portfolio-1",
-        cognito_user_id="viewer-user",
+        cognito_user_id=OTHER_USER_ID,
         model_portfolio_repository=FakeModelPortfolioRepository(
             {"portfolio-1": public_portfolio}
         ),
@@ -237,7 +263,7 @@ def test_model_portfolio_access_allows_owner_public_and_shared_private() -> None
 
     shared_result = require_model_portfolio_access(
         portfolio_id="portfolio-1",
-        cognito_user_id="shared-user",
+        cognito_user_id=OTHER_USER_ID,
         model_portfolio_repository=FakeModelPortfolioRepository(
             {"portfolio-1": owner_private}
         ),
@@ -256,11 +282,11 @@ def test_model_portfolio_access_denies_unshared_private_portfolio(
     with pytest.raises(HTTPException) as exc_info:
         require_model_portfolio_access(
             portfolio_id="portfolio-1",
-            cognito_user_id="viewer-user",
+            cognito_user_id=OTHER_USER_ID,
             model_portfolio_repository=FakeModelPortfolioRepository(
                 {
                     "portfolio-1": _model_portfolio(
-                        owner_id="owner-user",
+                        owner_id=OWNER_USER_ID,
                         visibility="PRIVATE",
                     )
                 }
@@ -295,8 +321,8 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
     caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
     repository = FakeAllocationRepository(
         {
-            ("owner-user", "portfolio-1"): _portfolio_allocation(
-                cognito_user_id="owner-user",
+            (OWNER_USER_ID, "portfolio-1"): _portfolio_allocation(
+                cognito_user_id=OWNER_USER_ID,
                 portfolio_id="portfolio-1",
             )
         }
@@ -305,7 +331,7 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
     with pytest.raises(HTTPException) as exc_info:
         require_portfolio_allocation_owner(
             allocation_id="portfolio-1",
-            cognito_user_id="other-user",
+            cognito_user_id=OTHER_USER_ID,
             allocation_repository=repository,
         )
 
@@ -315,16 +341,16 @@ def test_cross_user_portfolio_allocation_is_hidden_and_audited(
 
 def test_optional_portfolio_allocation_owner_returns_owned_allocation() -> None:
     allocation = _portfolio_allocation(
-        cognito_user_id="owner-user",
+        cognito_user_id=OWNER_USER_ID,
         portfolio_id="portfolio-1",
     )
     repository = FakeAllocationRepository(
-        {("owner-user", "portfolio-1"): allocation}
+        {(OWNER_USER_ID, "portfolio-1"): allocation}
     )
 
     result = get_optional_portfolio_allocation_owner(
         allocation_id="portfolio-1",
-        cognito_user_id="owner-user",
+        cognito_user_id=OWNER_USER_ID,
         allocation_repository=repository,
     )
 
@@ -339,7 +365,7 @@ def test_optional_portfolio_allocation_owner_allows_missing_allocation(
 
     result = get_optional_portfolio_allocation_owner(
         allocation_id="portfolio-1",
-        cognito_user_id="viewer-user",
+        cognito_user_id=OTHER_USER_ID,
         allocation_repository=repository,
     )
 

@@ -1,3 +1,4 @@
+import os
 import sys
 from datetime import datetime, timezone
 from datetime import timedelta
@@ -42,6 +43,14 @@ get_settings.cache_clear()
 
 
 ALPACA_IEX_HISTORY_START = datetime(2021, 1, 1, tzinfo=timezone.utc)
+
+
+def _test_user_cognito_user_id(number: int) -> str:
+    variable_name = f"{get_settings().env.upper()}_TEST_USER_{number}_COGNITO_USER_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for analytics tests.")
+    return value
 
 
 @pytest.fixture(scope="session")
@@ -105,7 +114,10 @@ def model_portfolio_repository(
             app_deps.get_model_portfolio_access_repository(
                 model_portfolio_follower_repository=(
                     model_portfolio_follower_repository
-                )
+                ),
+                model_portfolio_update_lock_repository=(
+                    model_portfolio_update_lock_repository
+                ),
             )
         ),
     )
@@ -217,7 +229,7 @@ class TestEngine:
         creation_time: datetime,
     ) -> str:
         return self.model_portfolio_repository.create_model_portfolio(
-            portfolio_owner_cognito_user_id="analytics-integration-test-owner",
+            portfolio_owner_cognito_user_id=_test_user_cognito_user_id(2),
             portfolio_name=f"{symbol} Analytics Integration Test",
             positions_request=[
                 ModelPortfolioPositionRequest(

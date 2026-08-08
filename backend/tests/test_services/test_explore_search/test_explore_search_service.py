@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 from time import monotonic, sleep
 import uuid
 
@@ -11,12 +12,21 @@ from services.explore_search_service import (
     ExploreSearchService,
 )
 
-DEV_PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
-TEST_PORTFOLIO_OWNER_COGNITO_USER_ID = "e46834b8-6091-70a3-1135-bccdc6174b07"
-
 
 def _owner_cognito_user_id(test_engine: TestEngine) -> str:
-    return globals()[f"{test_engine.env.upper()}_PORTFOLIO_OWNER_COGNITO_USER_ID"]
+    variable_name = f"{test_engine.env.upper()}_TEST_USER_2_COGNITO_USER_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for explore search tests.")
+    return value
+
+
+def _viewer_cognito_user_id() -> str:
+    variable_name = f"{os.getenv('ENV', 'dev').strip().upper()}_TEST_USER_1_COGNITO_USER_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for explore search tests.")
+    return value
 
 
 def _account_data(*, display_name: str, email_address: str) -> dict:
@@ -370,6 +380,7 @@ class EmptyBasktAccountRepository:
 
 
 def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
+    viewer_cognito_user_id = _viewer_cognito_user_id()
     client = CapturingOpenSearchClient()
     service = ExploreSearchService(
         opensearch_client=client,
@@ -380,7 +391,7 @@ def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
 
     result = service.search_model_portfolios(
         query="growth",
-        cognito_user_id="viewer-user",
+        cognito_user_id=viewer_cognito_user_id,
         shared_portfolio_ids=["shared-portfolio-1", "shared-portfolio-2"],
     )
 
@@ -389,7 +400,7 @@ def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
     assert visibility_filter["minimum_should_match"] == 1
     assert visibility_filter["should"] == [
         {"term": {"visibility": "PUBLIC"}},
-        {"term": {"portfolio_owner_cognito_user_id": "viewer-user"}},
+        {"term": {"portfolio_owner_cognito_user_id": viewer_cognito_user_id}},
         {
             "terms": {
                 "portfolio_id": [

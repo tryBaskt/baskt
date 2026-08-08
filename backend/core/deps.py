@@ -189,6 +189,10 @@ def get_baskt_account_repository(
 def get_model_portfolio_update_lock_repository(
     model_portfolio_update_lock_dynamodb_client: DynamoDBClient = Depends(get_model_portfolio_update_lock_dynamodb_client)
 ) -> ModelPortfolioUpdateLockRepository:
+    if not isinstance(model_portfolio_update_lock_dynamodb_client, DynamoDBClient):
+        model_portfolio_update_lock_dynamodb_client = (
+            get_model_portfolio_update_lock_dynamodb_client()
+        )
     return ModelPortfolioUpdateLockRepository(dynamodb_client = model_portfolio_update_lock_dynamodb_client)
 
 def get_model_portfolio_follower_repository(
@@ -205,6 +209,9 @@ def get_model_portfolio_access_repository(
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(
         get_model_portfolio_follower_repository
     ),
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository = Depends(
+        get_model_portfolio_update_lock_repository
+    ),
 ) -> ModelPortfolioAccessRepository:
     if not isinstance(model_portfolio_access_dynamodb_client, DynamoDBClient):
         model_portfolio_access_dynamodb_client = (
@@ -214,10 +221,15 @@ def get_model_portfolio_access_repository(
         cognito_client = get_cognito_client()
     if not isinstance(model_portfolio_follower_repository, ModelPortfolioFollowerRepository):
         model_portfolio_follower_repository = get_model_portfolio_follower_repository()
+    if not isinstance(model_portfolio_update_lock_repository, ModelPortfolioUpdateLockRepository):
+        model_portfolio_update_lock_repository = (
+            get_model_portfolio_update_lock_repository()
+        )
     return ModelPortfolioAccessRepository(
         dynamodb_client=model_portfolio_access_dynamodb_client,
         cognito_client=cognito_client,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
     )
 
 def get_model_portfolio_repository(

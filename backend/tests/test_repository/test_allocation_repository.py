@@ -17,12 +17,12 @@ from repository.allocation_repository import (
 )
 
 
-def _allocation() -> PortfolioAllocation:
+def _allocation(cognito_user_id: str) -> PortfolioAllocation:
     unique_suffix = uuid4().hex
     timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
     return PortfolioAllocation(
         allocation_id=f"repository-portfolio-{unique_suffix}",
-        cognito_user_id=f"repository-user-{unique_suffix}",
+        cognito_user_id=cognito_user_id,
         position_history=[
             PortfolioAllocationPositionSnapshot(
                 positions=[
@@ -67,8 +67,9 @@ def _allocation() -> PortfolioAllocation:
 @pytest.mark.integration
 def test_allocation_repository_persists_and_loads_all_views(
     allocation_repository: AllocationRepository,
+    test_user_1,
 ) -> None:
-    allocation = _allocation()
+    allocation = _allocation(test_user_1.cognito_user_id)
 
     try:
         allocation_repository.set_allocation(allocation)
@@ -113,8 +114,9 @@ def test_allocation_repository_persists_and_loads_all_views(
 @pytest.mark.integration
 def test_allocation_repository_calculates_values_and_weights(
     allocation_repository: AllocationRepository,
+    test_user_1,
 ) -> None:
-    snapshot = _allocation().position_history[0]
+    snapshot = _allocation(test_user_1.cognito_user_id).position_history[0]
 
     values, total_value, quotes = allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
         position_snapshot=snapshot,
@@ -138,8 +140,9 @@ def test_allocation_repository_calculates_values_and_weights(
 @pytest.mark.integration
 def test_allocation_repository_missing_and_invalid_n_paths(
     allocation_repository: AllocationRepository,
+    test_user_1,
 ) -> None:
-    allocation = _allocation()
+    allocation = _allocation(test_user_1.cognito_user_id)
     missing_cognito_user_id = f"missing-user-{uuid4()}"
     missing_portfolio_id = f"missing-portfolio-{uuid4()}"
 
