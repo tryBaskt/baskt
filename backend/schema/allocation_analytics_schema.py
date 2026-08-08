@@ -46,26 +46,6 @@ class StockAllocationResponse(BaseModel):
     profit_loss_percent: Optional[float] = None
     direction: Optional[float] = None
 
-class StockAnalyticsPeriodResponse(BaseModel):
-    """Performance series and metrics for one stock analytics period."""
-    timeframe: str
-    timestamp: List[datetime]
-    prices: List[float]
-    final_cumulative_return: float
-    cagr: Optional[float] = None
-    annualized_volatility: Optional[float] = None
-    leverage_adjusted_direction: Optional[float] = None
-    alpha: Optional[float] = None
-    beta: Optional[float] = None
-    sharpe_ratio: Optional[float] = None
-    maximum_drawdown: Optional[float] = None
-    maximum_drawdown_duration: Optional[float] = None
-
-
-class StockAnalyticsResponse(RootModel[Dict[str,StockAnalyticsPeriodResponse]]):
-    """Stock analytics keyed by period label."""
-    pass
-
 
 #################################
 ## MODEL PORTFOLIO ALLOCATIONS ##

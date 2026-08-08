@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, Sequence, TypedDict
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
@@ -15,7 +15,7 @@ from repository.baskt_account_repository import (
 )
 
 
-class ModelPortfoliosStocksSearchInternalServerError(Exception):
+class ExploreSearchInternalServerError(Exception):
     """Raised when model portfolio or stock search operations fail."""
 
     def __init__(self, message: str, code: str) -> None:
@@ -32,7 +32,7 @@ class ModelPortfoliosStocksSearchInternalServerError(Exception):
         self.code = code
 
 
-class ModelPortfoliosStocksSearchService:
+class ExploreSearchService:
     """Coordinate searches across model portfolios and stocks."""
 
     def __init__(
@@ -64,6 +64,8 @@ class ModelPortfoliosStocksSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
+        cognito_user_id: str | None = None,
+        shared_portfolio_ids: Sequence[str] | None = None,
     ) -> Any:
         """Search model portfolios and stocks using the same query.
 
@@ -73,11 +75,11 @@ class ModelPortfoliosStocksSearchService:
             offset: Number of matching model portfolios to skip.
 
         Returns:
-            ModelPortfoliosStocksSearchResponse: Model portfolio search
+            ExploreSearchResponse: Model portfolio search
             results and any exact stock-symbol match.
 
         Raises:
-            ModelPortfoliosStocksSearchInternalServerError: If either underlying
+            ExploreSearchInternalServerError: If either underlying
                 search operation fails.
         """
         return {
@@ -85,6 +87,8 @@ class ModelPortfoliosStocksSearchService:
                 query=query,
                 limit=limit,
                 offset=offset,
+                cognito_user_id=cognito_user_id,
+                shared_portfolio_ids=shared_portfolio_ids,
             ),
             "stocks_search_result": self.search_stocks(query=query),
             "baskt_accounts_opensearch_result": self.search_baskt_accounts(
@@ -106,12 +110,12 @@ class ModelPortfoliosStocksSearchService:
 
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message="Baskt account search limit must be between 1 and 50",
                 code="BASKT_ACCOUNT_SEARCH_INVALID_LIMIT",
             )
         if offset < 0:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message="Baskt account search offset cannot be negative",
                 code="BASKT_ACCOUNT_SEARCH_INVALID_OFFSET",
             )
@@ -192,12 +196,12 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset
             )
         except OpenSearchClientError as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to search Baskt accounts for query '{normalized_query}': {error}",
                 code="BASKT_ACCOUNT_SEARCH_OPENSEARCH_FAILED",
             ) from error
         except (KeyError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to parse Baskt account search results: {error}",
                 code="BASKT_ACCOUNT_SEARCH_RESPONSE_INVALID",
             ) from error
@@ -218,7 +222,7 @@ class ModelPortfoliosStocksSearchService:
             otherwise an empty list.
 
         Raises:
-            ModelPortfoliosStocksSearchInternalServerError: If Alpaca fails while
+            ExploreSearchInternalServerError: If Alpaca fails while
                 looking up the symbol or the returned asset cannot be parsed.
         """
         normalized_query = query.strip().upper()
@@ -244,12 +248,12 @@ class ModelPortfoliosStocksSearchService:
                 )
             ]
         except AlpacaBrokerClientError as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to search stocks for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_ALPACA_FAILED",
             ) from error
         except (AttributeError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to parse stock search result for symbol '{normalized_query}': {error}",
                 code="STOCKS_SEARCH_RESPONSE_INVALID",
             ) from error
@@ -260,6 +264,8 @@ class ModelPortfoliosStocksSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
+        cognito_user_id: str | None = None,
+        shared_portfolio_ids: Sequence[str] | None = None,
     ) -> ModelPortfoliosOpenSearchResult:
         """Search model portfolios by portfolio name or description.
 
@@ -277,17 +283,17 @@ class ModelPortfoliosStocksSearchService:
             information. A blank query returns an empty result set.
 
         Raises:
-            ModelPortfoliosStocksSearchInternalServerError: If pagination arguments are invalid,
+            ExploreSearchInternalServerError: If pagination arguments are invalid,
                 OpenSearch fails, or its response cannot be parsed.
         """
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message="Model portfolio search limit must be between 1 and 50",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT",
             )
         if offset < 0:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message="Model portfolio search offset cannot be negative",
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
             )
@@ -300,6 +306,31 @@ class ModelPortfoliosStocksSearchService:
             )
 
         try:
+            visibility_should: List[Dict[str, Any]] = [
+                {"term": {"visibility": "PUBLIC"}},
+            ]
+            normalized_cognito_user_id = str(cognito_user_id or "").strip()
+            if normalized_cognito_user_id:
+                visibility_should.append(
+                    {
+                        "term": {
+                            "portfolio_owner_cognito_user_id": (
+                                normalized_cognito_user_id
+                            )
+                        }
+                    }
+                )
+
+            normalized_shared_portfolio_ids = [
+                str(portfolio_id).strip()
+                for portfolio_id in (shared_portfolio_ids or [])
+                if str(portfolio_id).strip()
+            ]
+            if normalized_shared_portfolio_ids:
+                visibility_should.append(
+                    {"terms": {"portfolio_id": normalized_shared_portfolio_ids}}
+                )
+
             search_body = {
                 "from": offset,
                 "size": limit,
@@ -315,6 +346,14 @@ class ModelPortfoliosStocksSearchService:
                 ],
                 "query": {
                     "bool": {
+                        "filter": [
+                            {
+                                "bool": {
+                                    "should": visibility_should,
+                                    "minimum_should_match": 1,
+                                }
+                            },
+                        ],
                         "should": [
                             {
                                 "match_phrase_prefix": {
@@ -398,12 +437,12 @@ class ModelPortfoliosStocksSearchService:
                 offset=offset
             )
         except OpenSearchClientError as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to search model portfolios for query '{normalized_query}': {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_OPENSEARCH_FAILED",
             ) from error
         except (KeyError, TypeError, ValueError) as error:
-            raise ModelPortfoliosStocksSearchInternalServerError(
+            raise ExploreSearchInternalServerError(
                 message=f"Failed to parse model portfolio search results: {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_RESPONSE_INVALID",
             ) from error

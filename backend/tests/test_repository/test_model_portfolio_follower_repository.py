@@ -3,7 +3,6 @@ from uuid import uuid4
 import pytest
 
 from repository.model_portfolio_follower_repository import (
-    ModelPortfolioFollowerNotFoundError,
     ModelPortfolioFollowerRepository,
 )
 
@@ -60,10 +59,9 @@ def test_model_portfolio_follower_repository_put_get_and_delete(
             )
             is False
         )
-        with pytest.raises(ModelPortfolioFollowerNotFoundError):
-            model_portfolio_follower_repository.get_model_portfolio_followers(
-                portfolio_id=portfolio_id,
-            )
+        assert model_portfolio_follower_repository.get_model_portfolio_followers(
+            portfolio_id=portfolio_id,
+        ) == []
     finally:
         model_portfolio_follower_repository.dynamodb.delete_item(
             key={

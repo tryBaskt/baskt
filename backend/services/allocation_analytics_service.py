@@ -70,7 +70,7 @@ class AllocationAnalyticsService:
         except Exception as e:
             raise AllocationAnalyticsInternalServerError(
                 message=f"Failed to get allocation analytics for model portfolio '{portfolio_id}' for cognito user id '{cognito_user_id}': {e}",
-                code="ALLOCATION_ANALYTICS_GET_PORTFOLIO_ALLOCATION_ANALYTICS_FAILED"
+                code="ALLOCATION_ANALYTICS_GET_PORTFOLIO_FAILED"
             ) from e
 
     def get_stock_allocation_analytics(self, cognito_user_id: str, stock_id: str) -> Dict[str, Any]:
@@ -87,7 +87,7 @@ class AllocationAnalyticsService:
                     "total_cost_basis": 0.00,
                     "equity": 0.00,
                     "profit_loss": 0.00,
-                    "profit_loss_percent": 0.0
+                    "profit_loss_percent": 0.0,
                 }
             
             total_cost_basis = stock_allocation.total_cost_basis
@@ -103,7 +103,7 @@ class AllocationAnalyticsService:
         except Exception as e:
             raise AllocationAnalyticsInternalServerError(
                 message=f"Failed to get allocation analytics for stock id '{stock_id}' for cognito user id '{cognito_user_id}': {e}",
-                code="ALLOCATION_ANALYTICS_GET_STOCK_ALLOCATION_ANALYTICS_FAILED"
+                code="ALLOCATION_ANALYTICS_GET_STOCK_FAILED"
             ) from e
 
     def get_portfolio_allocation_transaction_history(self, cognito_user_id: str, portfolio_id: str) -> List[PortfolioAllocationTransactionSnapshot]:

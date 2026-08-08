@@ -60,7 +60,7 @@ class BasktAccountsOpenSearchResultResponse(BaseModel):
 
 
 
-class ModelPortfoliosStocksOpenSearchResponse(BaseModel):
+class ExploreSearchOpenSearchResponse(BaseModel):
     """Combined model portfolio and stock search response."""
     model_portfolios: ModelPortfoliosOpenSearchResultResponse
     stocks: StocksSearchResultResponse

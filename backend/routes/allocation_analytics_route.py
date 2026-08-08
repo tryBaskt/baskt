@@ -219,7 +219,7 @@ def get_stock_allocation_analytics(
 			return StockAllocationResponse(
 				stock_id=stock_id
 			)
-
+		print(analytics_dict)
 		return StockAllocationResponse(
 			stock_id=stock_id,
 			transaction_history=[

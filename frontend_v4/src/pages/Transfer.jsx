@@ -333,7 +333,7 @@ export default function Transfer() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>Deposit or withdraw funds</h2>
+            <h2>Transfer Funds</h2>
           </div>
         </div>
         <form className="transfer-form" onSubmit={submitTransfer}>

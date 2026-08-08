@@ -7,6 +7,7 @@ output "table_arns" {
     aws_dynamodb_table.allocation.arn,
     aws_dynamodb_table.baskt_account.arn,
     aws_dynamodb_table.model_portfolio.arn,
+    aws_dynamodb_table.model_portfolio_access.arn,
     aws_dynamodb_table.model_portfolio_follower.arn,
     aws_dynamodb_table.model_portfolio_update_lock.arn,
     aws_dynamodb_table.order.arn,
@@ -19,6 +20,7 @@ output "table_names" {
     allocation                  = aws_dynamodb_table.allocation.name
     baskt_account               = aws_dynamodb_table.baskt_account.name
     model_portfolio             = aws_dynamodb_table.model_portfolio.name
+    model_portfolio_access      = aws_dynamodb_table.model_portfolio_access.name
     model_portfolio_follower    = aws_dynamodb_table.model_portfolio_follower.name
     model_portfolio_update_lock = aws_dynamodb_table.model_portfolio_update_lock.name
     order                       = aws_dynamodb_table.order.name

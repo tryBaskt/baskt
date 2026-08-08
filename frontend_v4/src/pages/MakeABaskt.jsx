@@ -73,6 +73,7 @@ function formatWeightInputValue(targetWeight) {
 export default function MakeABaskt({ editingPortfolioId, onSaved }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState("PUBLIC");
   const [positions, setPositions] = useState([]);
   const [stockSearch, setStockSearch] = useState("");
   const [backtestStartDate, setBacktestStartDate] = useState(getDefaultBacktestStartDate);
@@ -118,6 +119,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
     if (!editingPortfolioId) {
       setName("");
       setDescription("");
+      setVisibility("PUBLIC");
       setPositions([]);
       setIsPortfolioLoading(false);
       return () => controller.abort();
@@ -132,6 +134,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
         });
         setName(payload.portfolio_name || "");
         setDescription(payload.description || "");
+        setVisibility(payload.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC");
         setPositions(
           payload.position_history?.at(-1)?.positions?.map(normalizePosition) || []
         );
@@ -334,8 +337,8 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
     try {
       setIsSaving(true);
       const payload = editingPortfolioId
-        ? { positions: validPositions, description }
-        : { name: name.trim(), description, positions: validPositions };
+        ? { positions: validPositions, description, visibility }
+        : { name: name.trim(), description, positions: validPositions, visibility };
 
       await apiRequest(
         editingPortfolioId ? `/model-portfolios/${editingPortfolioId}` : "/model-portfolios",
@@ -398,6 +401,25 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
               rows="3"
             />
           </label>
+          <div className="visibility-toggle">
+            <span>Visibility</span>
+            <div className="segmented-control" aria-label="Baskt visibility">
+              <button
+                type="button"
+                className={visibility === "PUBLIC" ? "active" : ""}
+                onClick={() => setVisibility("PUBLIC")}
+              >
+                Public
+              </button>
+              <button
+                type="button"
+                className={visibility === "PRIVATE" ? "active" : ""}
+                onClick={() => setVisibility("PRIVATE")}
+              >
+                Private
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="allocation-toolbar">

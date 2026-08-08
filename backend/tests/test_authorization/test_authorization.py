@@ -17,6 +17,7 @@ for import_path in (str(backend_dir), str(repo_root)):
 from core.authorization import (
     get_optional_portfolio_allocation_owner,
     require_active_alpaca_account,
+    require_model_portfolio_access,
     require_model_portfolio_owner,
     require_model_portfolio_owner_match,
     require_portfolio_allocation_owner,
@@ -66,6 +67,19 @@ class FakeAllocationRepository:
             ) from err
 
 
+class FakeModelPortfolioAccessRepository:
+    def __init__(self, *, has_access: bool = False) -> None:
+        self._has_access = has_access
+
+    def has_access(
+        self,
+        *,
+        portfolio_id: str,
+        shared_with_cognito_user_id: str,
+    ) -> bool:
+        return self._has_access
+
+
 class FakeAccountStatus:
     name = "SUBMITTED"
 
@@ -79,6 +93,7 @@ def _model_portfolio(
     *,
     portfolio_id: str = "portfolio-1",
     owner_id: str = "owner-user",
+    visibility: str = "PUBLIC",
 ) -> ModelPortfolio:
     now = datetime.now(timezone.utc)
     return ModelPortfolio(
@@ -88,6 +103,7 @@ def _model_portfolio(
         position_history=[],
         created_at=now,
         updated_at=now,
+        visibility=visibility,
     )
 
 
@@ -189,6 +205,73 @@ def test_cross_user_model_portfolio_owner_claim_is_denied_and_audited(
 
     assert exc_info.value.status_code == 403
     _assert_audit_denial(caplog, "supplied_owner_does_not_match_portfolio")
+
+
+def test_model_portfolio_access_allows_owner_public_and_shared_private() -> None:
+    owner_private = _model_portfolio(owner_id="owner-user", visibility="PRIVATE")
+    public_portfolio = _model_portfolio(owner_id="owner-user", visibility="PUBLIC")
+
+    owner_result = require_model_portfolio_access(
+        portfolio_id="portfolio-1",
+        cognito_user_id="owner-user",
+        model_portfolio_repository=FakeModelPortfolioRepository(
+            {"portfolio-1": owner_private}
+        ),
+        model_portfolio_access_repository=FakeModelPortfolioAccessRepository(
+            has_access=False
+        ),
+    )
+    assert owner_result is owner_private
+
+    public_result = require_model_portfolio_access(
+        portfolio_id="portfolio-1",
+        cognito_user_id="viewer-user",
+        model_portfolio_repository=FakeModelPortfolioRepository(
+            {"portfolio-1": public_portfolio}
+        ),
+        model_portfolio_access_repository=FakeModelPortfolioAccessRepository(
+            has_access=False
+        ),
+    )
+    assert public_result is public_portfolio
+
+    shared_result = require_model_portfolio_access(
+        portfolio_id="portfolio-1",
+        cognito_user_id="shared-user",
+        model_portfolio_repository=FakeModelPortfolioRepository(
+            {"portfolio-1": owner_private}
+        ),
+        model_portfolio_access_repository=FakeModelPortfolioAccessRepository(
+            has_access=True
+        ),
+    )
+    assert shared_result is owner_private
+
+
+def test_model_portfolio_access_denies_unshared_private_portfolio(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger=AUDIT_LOGGER)
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_model_portfolio_access(
+            portfolio_id="portfolio-1",
+            cognito_user_id="viewer-user",
+            model_portfolio_repository=FakeModelPortfolioRepository(
+                {
+                    "portfolio-1": _model_portfolio(
+                        owner_id="owner-user",
+                        visibility="PRIVATE",
+                    )
+                }
+            ),
+            model_portfolio_access_repository=FakeModelPortfolioAccessRepository(
+                has_access=False
+            ),
+        )
+
+    assert exc_info.value.status_code == 403
+    _assert_audit_denial(caplog, "private_model_portfolio_access_missing")
 
 
 def test_inactive_alpaca_account_is_denied_and_audited(

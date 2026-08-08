@@ -19,7 +19,13 @@ from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockInternalServerError,
 )
 from repository.model_portfolio_follower_repository import (
+    ModelPortfolioFollowerInternalServerError,
+    ModelPortfolioFollowerNotFoundError,
     ModelPortfolioFollowerRepository,
+)
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessRepository,
+    ModelPortfolioAccessRepositoryError,
 )
 from clients.dynamodb_client import (
     DynamoDBClient,
@@ -242,6 +248,7 @@ class ModelPortfolioRepository:
         alpaca_broker_client: AlpacaBrokerClient,
         model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+        model_portfolio_access_repository: ModelPortfolioAccessRepository
     ) -> None:
         """
         Initialize model portfolio repository dependencies.
@@ -266,6 +273,7 @@ class ModelPortfolioRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.model_portfolio_access_repository = model_portfolio_access_repository
 
     @staticmethod
     def _validate_target_weight_total(
@@ -569,7 +577,7 @@ class ModelPortfolioRepository:
         )
 
 
-    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time: Optional[datetime] = None, description: Optional[str] = None) -> str:
+    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], visibility: str, creation_time: Optional[datetime] = None, description: Optional[str] = None) -> str:
         """
         Create and persist a new model portfolio with an initial snapshot.
 
@@ -640,7 +648,8 @@ class ModelPortfolioRepository:
                 position_history=[snapshot],
                 created_at=creation_time,
                 updated_at=creation_time,
-                description=description
+                description=description,
+                visibility=visibility
             )
 
             # Write model portfolio object to dynamodb
@@ -664,7 +673,7 @@ class ModelPortfolioRepository:
         return portfolio_id
 
 
-    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: Optional[datetime] = None, description: Optional[str] = None) -> Tuple[bool, str | None]:
+    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], visibility: str, update_time: Optional[datetime] = None, description: Optional[str] = None) -> Tuple[bool, str | None]:
         """
         Append a new snapshot and persist updates to an existing model portfolio.
 
@@ -705,6 +714,7 @@ class ModelPortfolioRepository:
             key=lambda position: position.symbol,
         )
         curr_model_portfolio_description = existing.description
+        curr_model_portfolio_visibility = existing.visibility
         new_positions = sorted(
             positions_request,
             key=lambda position: position.symbol
@@ -723,7 +733,14 @@ class ModelPortfolioRepository:
             )
         )
         description_unchanged = curr_model_portfolio_description == description
-        if description_unchanged and positions_unchanged:
+
+        visibility_unchanged = curr_model_portfolio_visibility == visibility
+
+        if (
+            description_unchanged and 
+            positions_unchanged and 
+            visibility_unchanged
+        ):
             return False, None
 
         # Acquire lock
@@ -755,36 +772,35 @@ class ModelPortfolioRepository:
             )
 
         try:
-            if not update_time:
-                update_time = datetime.now(timezone.utc)
-
-            # Enforce 1-minute cooldown based on last updated_at
-            last_updated = existing.updated_at
-            elapsed = (update_time - last_updated).total_seconds()
-            if elapsed < 60:
-                raise ModelPortfolioTooManyRequestsError(
-                    retry_after_seconds=int(60 - elapsed)
-                )
-            
-            new_snapshot_id: Optional[str] = None
-            updated_history = existing.position_history
-
-            if not positions_unchanged:
-                symbols = [position.symbol for position in positions_request]
-                try:
-                    quotes = self.alpaca_broker_client.get_latest_price(
-                        symbols=symbols
-                    )
-                except AlpacaBrokerClientError as e:
-                    raise ModelPortfolioBadGatewayError(
-                        source="Alpaca",
-                        operation="fetching latest prices during update",
-                        portfolio_id=portfolio_id,
-                        cause=e,
-                    ) from e
-
             try:
+                if not update_time:
+                    update_time = datetime.now(timezone.utc)
+
+                # Enforce 1-minute cooldown based on last updated_at.
+                last_updated = existing.updated_at
+                elapsed = (update_time - last_updated).total_seconds()
+                if elapsed < 60:
+                    raise ModelPortfolioTooManyRequestsError(
+                        retry_after_seconds=int(60 - elapsed)
+                    )
+
+                new_snapshot_id: Optional[str] = None
+                updated_history = existing.position_history
+
                 if not positions_unchanged:
+                    symbols = [position.symbol for position in positions_request]
+                    try:
+                        quotes = self.alpaca_broker_client.get_latest_price(
+                            symbols=symbols
+                        )
+                    except AlpacaBrokerClientError as e:
+                        raise ModelPortfolioBadGatewayError(
+                            source="Alpaca",
+                            operation="fetching latest prices during update",
+                            portfolio_id=portfolio_id,
+                            cause=e,
+                        ) from e
+
                     model_portfolio_positions: List[ModelPortfolioPosition] = []
                     model_allocation = 10000.00
                     for position_request in positions_request:
@@ -814,20 +830,57 @@ class ModelPortfolioRepository:
                 portfolio = ModelPortfolio(
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
-                    portfolio_name=existing.portfolio_name,  # Name cannot be changed
+                    portfolio_name=existing.portfolio_name,
                     position_history=updated_history,
                     created_at=existing.created_at,
                     updated_at=update_time,
                     description=description,
+                    visibility=visibility,
                 )
 
                 item = dataclass_to_dynamodb_item(portfolio)
+            except ModelPortfolioInternalServerError:
+                raise
             except Exception as e:
                 raise ModelPortfolioUnprocessableEntityError(
                     operation="creating updated model portfolio",
                     portfolio_id=portfolio_id,
                     cause=e,
                 ) from e
+
+            try:
+                if visibility_unchanged is False and visibility == "PRIVATE":
+                    model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
+                    model_portfolio_current_accesses = self.model_portfolio_access_repository.get_accesses_for_portfolio(portfolio_id=portfolio_id)
+                    follower_ids = {
+                        follower["cognito_user_id"]
+                        for follower in model_portfolio_followers
+                    }
+                    current_access_ids = {
+                        current_access["shared_with_cognito_user_id"]
+                        for current_access in model_portfolio_current_accesses
+                    }
+
+                    for cognito_user_id in follower_ids - current_access_ids:
+                        self.model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+                            portfolio_id=portfolio_id,
+                            portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
+                            shared_with_cognito_user_id=cognito_user_id,
+                        )
+            except (ModelPortfolioFollowerInternalServerError, ModelPortfolioAccessRepositoryError) as error:
+                raise ModelPortfolioBadGatewayError(
+                    source="DynamoDB/Cognito",
+                    operation="syncing private model portfolio access from followers",
+                    portfolio_id=portfolio_id,
+                    owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
+                    cause=error,
+                ) from error
+            except (KeyError, TypeError, ValueError) as error:
+                raise ModelPortfolioUnprocessableEntityError(
+                    operation="syncing private model portfolio access from followers",
+                    portfolio_id=portfolio_id,
+                    cause=error,
+                ) from error
 
             try:
                 self.dynamodb.put_item(item)
@@ -838,8 +891,8 @@ class ModelPortfolioRepository:
                     portfolio_id=portfolio_id,
                     cause=e,
                 ) from e
-            return True, new_snapshot_id
 
+            return True, new_snapshot_id
         finally:
             # Release lock
             try:
@@ -926,6 +979,7 @@ class ModelPortfolioRepository:
                 created_at=to_utc_from_iso(item["created_at"]),
                 updated_at=to_utc_from_iso(item["updated_at"]),
                 description=item.get("description"),
+                visibility=item.get("visibility", "PRIVATE")
             )
         except Exception as e:
             raise ModelPortfolioUnprocessableEntityError(
@@ -960,7 +1014,8 @@ class ModelPortfolioRepository:
                 IndexName="portfolio_owner_cognito_user_id_index",
                 ProjectionExpression=(
                     "portfolio_id, portfolio_owner_cognito_user_id, "
-                    "portfolio_name, description, created_at, updated_at"
+                    "portfolio_name, description, created_at, updated_at, "
+                    "visibility"
                 ),
             )
         except DynamoDBClientError as e:
@@ -984,7 +1039,8 @@ class ModelPortfolioRepository:
                     "portfolio_name": item["portfolio_name"],
                     "created_at": item["created_at"],
                     "updated_at": item["updated_at"],
-                    "description": item.get("description")
+                    "description": item.get("description"),
+                    "visibility": item.get("visibility", "PRIVATE")
                 } 
                 for item in items
             ]
@@ -995,3 +1051,60 @@ class ModelPortfolioRepository:
                 portfolio_id=None,
                 cause=e
             )
+
+    def get_model_portfolio_metadata_by_portfolio_id(self, portfolio_id: str) -> Dict:
+        """
+        Load model portfolio metadata for one portfolio ID.
+
+        Args:
+            portfolio_id: Identifier of the portfolio to load.
+
+        Returns:
+            Dict: Portfolio metadata containing portfolio_id, owner, name,
+            description, timestamps, and visibility.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading
+            metadata.
+            ModelPortfolioNotFoundError: If the portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If the stored metadata
+            cannot be parsed.
+        """
+        try:
+            item = self.dynamodb.get_item(
+                key={"portfolio_id": portfolio_id},
+                projection_expression=(
+                    "portfolio_id, portfolio_owner_cognito_user_id, "
+                    "portfolio_name, description, created_at, updated_at, "
+                    "visibility"
+                ),
+            )
+        except DynamoDBClientError as e:
+            raise ModelPortfolioBadGatewayError(
+                source="DynamoDB",
+                operation="loading model portfolio metadata",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise ModelPortfolioNotFoundError(portfolio_id=portfolio_id)
+
+        try:
+            return {
+                "portfolio_id": item["portfolio_id"],
+                "portfolio_owner_cognito_user_id": item[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                "portfolio_name": item["portfolio_name"],
+                "created_at": item["created_at"],
+                "updated_at": item["updated_at"],
+                "description": item.get("description"),
+                "visibility": item.get("visibility", "PRIVATE"),
+            }
+        except Exception as e:
+            raise ModelPortfolioUnprocessableEntityError(
+                operation="Failed to parse model portfolio metadata",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e

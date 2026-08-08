@@ -18,7 +18,7 @@ from core.config import get_settings
 from clients.opensearch_client import OpenSearchClient
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.cognito_client import CognitoClient
-from services.model_portfolios_stocks_search_service import ModelPortfoliosStocksSearchService
+from services.explore_search_service import ExploreSearchService
 from services.account_lifecycle_service import AccountLifecycleService
 from repository.baskt_account_repository import BasktAccountRepository
 from repository.model_portfolio_repository import ModelPortfolioRepository
@@ -64,7 +64,16 @@ def baskt_account_repository() -> BasktAccountRepository:
 @pytest.fixture(scope="session")
 def model_portfolio_repository(
     alpaca_broker_client: AlpacaBrokerClient,
+    cognito_client: CognitoClient,
 ) -> ModelPortfolioRepository:
+    model_portfolio_follower_repository = (
+        app_deps.get_model_portfolio_follower_repository(
+            model_portfolio_follower_dynamodb_client=(
+                app_deps.get_model_portfolio_follower_dynamodb_client()
+            ),
+            alpaca_broker_client=alpaca_broker_client,
+        )
+    )
     return app_deps.get_model_portfolio_repository(
         dynamodb=app_deps.get_model_portfolio_dynamodb_client(),
         alpaca_broker_client=alpaca_broker_client,
@@ -75,12 +84,16 @@ def model_portfolio_repository(
                 )
             )
         ),
-        model_portfolio_follower_repository=(
-            app_deps.get_model_portfolio_follower_repository(
-                model_portfolio_follower_dynamodb_client=(
-                    app_deps.get_model_portfolio_follower_dynamodb_client()
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=(
+            app_deps.get_model_portfolio_access_repository(
+                model_portfolio_access_dynamodb_client=(
+                    app_deps.get_model_portfolio_access_dynamodb_client()
                 ),
-                alpaca_broker_client=alpaca_broker_client,
+                cognito_client=cognito_client,
+                model_portfolio_follower_repository=(
+                    model_portfolio_follower_repository
+                ),
             )
         ),
     )
@@ -102,12 +115,12 @@ def account_lifecycle_service(
     )
 
 @pytest.fixture(scope="session")
-def model_portfolios_stocks_search_service(
+def explore_search_service(
     opensearch_client: OpenSearchClient,
     alpaca_broker_client: AlpacaBrokerClient,
     baskt_account_repository: BasktAccountRepository,
-) -> ModelPortfoliosStocksSearchService:
-    return app_deps.get_model_portfolios_stocks_search_service(
+) -> ExploreSearchService:
+    return app_deps.get_explore_search_service(
         opensearch_client=opensearch_client,
         alpaca_broker_client=alpaca_broker_client,
         baskt_account_repository=baskt_account_repository,
@@ -124,12 +137,12 @@ class TestEngine:
     def __init__(
         self,
         *,
-        model_portfolios_stocks_search_service: ModelPortfoliosStocksSearchService,
+        explore_search_service: ExploreSearchService,
         account_lifecycle_service: AccountLifecycleService,
         baskt_account_repository: BasktAccountRepository,
         model_portfolio_repository: ModelPortfolioRepository,
     ) -> None:
-        self.model_portfolios_stocks_search_service = model_portfolios_stocks_search_service
+        self.explore_search_service = explore_search_service
         self.account_lifecycle_service = account_lifecycle_service
         self.baskt_account_repository = baskt_account_repository
         self.model_portfolio_repository = model_portfolio_repository
@@ -143,13 +156,13 @@ class TestEngine:
         return _test_settings().alpaca_env
 
     def test_search_model_portfolios(self,*,query: str,limit: int = 20,offset: int = 0):
-        return self.model_portfolios_stocks_search_service.search_model_portfolios(query=query, limit=limit, offset=offset)
+        return self.explore_search_service.search_model_portfolios(query=query, limit=limit, offset=offset)
 
     def test_search_stocks(self, *, query: str):
-        return self.model_portfolios_stocks_search_service.search_stocks(query=query)
+        return self.explore_search_service.search_stocks(query=query)
     
     def test_search_baskt_accounts(self, *, query: str):
-        return self.model_portfolios_stocks_search_service.search_baskt_accounts(query=query)
+        return self.explore_search_service.search_baskt_accounts(query=query)
 
     def test_search_model_portfolios_and_stocks(
         self,
@@ -158,7 +171,7 @@ class TestEngine:
         limit: int = 20,
         offset: int = 0,
     ):
-        return self.model_portfolios_stocks_search_service.search_model_portfolios_and_stocks(
+        return self.explore_search_service.search_model_portfolios_and_stocks(
             query=query,
             limit=limit,
             offset=offset,
@@ -168,13 +181,13 @@ class TestEngine:
 
 @pytest.fixture(scope="session")
 def test_engine(
-    model_portfolios_stocks_search_service: ModelPortfoliosStocksSearchService,
+    explore_search_service: ExploreSearchService,
     account_lifecycle_service: AccountLifecycleService,
     baskt_account_repository: BasktAccountRepository,
     model_portfolio_repository: ModelPortfolioRepository,
 ) -> TestEngine:
     return TestEngine(
-        model_portfolios_stocks_search_service=model_portfolios_stocks_search_service,
+        explore_search_service=explore_search_service,
         account_lifecycle_service=account_lifecycle_service,
         baskt_account_repository=baskt_account_repository,
         model_portfolio_repository=model_portfolio_repository,

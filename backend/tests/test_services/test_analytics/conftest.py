@@ -101,6 +101,13 @@ def model_portfolio_repository(
         model_portfolio_follower_repository=(
             model_portfolio_follower_repository
         ),
+        model_portfolio_access_repository=(
+            app_deps.get_model_portfolio_access_repository(
+                model_portfolio_follower_repository=(
+                    model_portfolio_follower_repository
+                )
+            )
+        ),
     )
 
 
@@ -220,6 +227,7 @@ class TestEngine:
                     leverage=1.0,
                 )
             ],
+            visibility="PUBLIC",
             creation_time=creation_time,
             description=(
                 "Created by analytics integration test and deleted during "

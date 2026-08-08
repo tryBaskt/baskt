@@ -671,6 +671,13 @@ def model_portfolio_repository(
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=(
+            app_deps.get_model_portfolio_access_repository(
+                model_portfolio_follower_repository=(
+                    model_portfolio_follower_repository
+                )
+            )
+        ),
     )
 
 
@@ -1028,6 +1035,7 @@ class TestEngine:
             portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             portfolio_name=portfolio_name,
             positions_request=positions_request,
+            visibility="PUBLIC",
         )
         self.model_portfolio_update_times[portfolio_id].append(datetime.now(timezone.utc))
 
@@ -1310,6 +1318,7 @@ class TestEngine:
         updated, new_snapshot_id = self.model_portfolio_repository.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=new_positions,
+            visibility="PUBLIC",
             update_time=update_time
         )
         if not updated or new_snapshot_id is None:

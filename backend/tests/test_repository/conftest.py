@@ -153,4 +153,11 @@ def model_portfolio_repository(
         model_portfolio_follower_repository=(
             model_portfolio_follower_repository
         ),
+        model_portfolio_access_repository=(
+            app_deps.get_model_portfolio_access_repository(
+                model_portfolio_follower_repository=(
+                    model_portfolio_follower_repository
+                )
+            )
+        ),
     )

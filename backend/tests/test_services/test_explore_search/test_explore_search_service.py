@@ -6,8 +6,9 @@ import pytest
 
 from .conftest import TestEngine
 from backend.schema.model_portfolio_schema import ModelPortfolioPositionRequest
-from services.model_portfolios_stocks_search_service import (
-    ModelPortfoliosStocksSearchInternalServerError,
+from services.explore_search_service import (
+    ExploreSearchInternalServerError,
+    ExploreSearchService,
 )
 
 DEV_PORTFOLIO_OWNER_COGNITO_USER_ID = "b4b8a418-a081-704c-377b-3acfedba3e34"
@@ -120,6 +121,7 @@ def test_created_accounts_and_model_portfolios_are_searchable(
                         leverage=1.0,
                     )
                 ],
+                visibility="PUBLIC",
                 description=portfolio_description,
             )
             created_portfolio_ids.append(portfolio_id)
@@ -220,7 +222,7 @@ def test_created_accounts_and_model_portfolios_are_searchable(
 
 
 def test_search_service_error_class_sets_code() -> None:
-    error = ModelPortfoliosStocksSearchInternalServerError(
+    error = ExploreSearchInternalServerError(
         "failed",
         code="SEARCH_CUSTOM_CODE",
     )
@@ -232,7 +234,7 @@ def test_search_service_error_class_sets_code() -> None:
 def test_search_service_validation_and_blank_query_paths(
     test_engine: TestEngine,
 ) -> None:
-    service = test_engine.model_portfolios_stocks_search_service
+    service = test_engine.explore_search_service
 
     assert service.search_stocks(query="   ") == []
 
@@ -244,19 +246,19 @@ def test_search_service_validation_and_blank_query_paths(
     assert empty_baskt_accounts.baskt_accounts == []
     assert empty_baskt_accounts.total == 0
 
-    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as mp_limit:
+    with pytest.raises(ExploreSearchInternalServerError) as mp_limit:
         service.search_model_portfolios(query="aapl", limit=0)
     assert mp_limit.value.code == "MODEL_PORTFOLIOS_SEARCH_INVALID_LIMIT"
 
-    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as mp_offset:
+    with pytest.raises(ExploreSearchInternalServerError) as mp_offset:
         service.search_model_portfolios(query="aapl", offset=-1)
     assert mp_offset.value.code == "MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET"
 
-    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as acct_limit:
+    with pytest.raises(ExploreSearchInternalServerError) as acct_limit:
         service.search_baskt_accounts(query="john_doe_3", limit=0)
     assert acct_limit.value.code == "BASKT_ACCOUNT_SEARCH_INVALID_LIMIT"
 
-    with pytest.raises(ModelPortfoliosStocksSearchInternalServerError) as acct_offset:
+    with pytest.raises(ExploreSearchInternalServerError) as acct_offset:
         service.search_baskt_accounts(query="john_doe_3", offset=-1)
     assert acct_offset.value.code == "BASKT_ACCOUNT_SEARCH_INVALID_OFFSET"
 
@@ -283,6 +285,7 @@ def test_search_service_finds_stock_existing_account_and_created_model_portfolio
                     leverage=1.0,
                 )
             ],
+            visibility="PUBLIC",
             creation_time=datetime.now(timezone.utc),
             description=portfolio_description,
         )
@@ -346,3 +349,53 @@ def test_search_service_finds_stock_existing_account_and_created_model_portfolio
             test_engine.model_portfolio_repository.dynamodb.delete_item(
                 key={"portfolio_id": portfolio_id}
             )
+
+
+class CapturingOpenSearchClient:
+    def __init__(self) -> None:
+        self.last_body = None
+
+    def search(self, *, body):
+        self.last_body = body
+        return {"hits": {"total": {"value": 0}, "hits": []}}
+
+
+class EmptyAlpacaBrokerClient:
+    pass
+
+
+class EmptyBasktAccountRepository:
+    def get_display_name(self, *, cognito_user_id: str):
+        return f"display-{cognito_user_id}"
+
+
+def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
+    client = CapturingOpenSearchClient()
+    service = ExploreSearchService(
+        opensearch_client=client,
+        alpaca_broker_client=EmptyAlpacaBrokerClient(),
+        baskt_account_repository=EmptyBasktAccountRepository(),
+        baskt_account_search_index="baskt-accounts",
+    )
+
+    result = service.search_model_portfolios(
+        query="growth",
+        cognito_user_id="viewer-user",
+        shared_portfolio_ids=["shared-portfolio-1", "shared-portfolio-2"],
+    )
+
+    assert result.model_portfolios == []
+    visibility_filter = client.last_body["query"]["bool"]["filter"][0]["bool"]
+    assert visibility_filter["minimum_should_match"] == 1
+    assert visibility_filter["should"] == [
+        {"term": {"visibility": "PUBLIC"}},
+        {"term": {"portfolio_owner_cognito_user_id": "viewer-user"}},
+        {
+            "terms": {
+                "portfolio_id": [
+                    "shared-portfolio-1",
+                    "shared-portfolio-2",
+                ]
+            }
+        },
+    ]

@@ -49,18 +49,23 @@ export default function StockPage({ stockId, onBack }) {
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined;
   const allocationDirection = Number(allocationAnalytics?.direction);
+  const hasPositionDirection =
+    Number.isFinite(allocationDirection) && allocationDirection !== 0;
   const hasOpenPosition =
-    hasAllocation &&
-    Number.isFinite(allocationDirection) &&
-    allocationDirection !== 0 &&
-    Number(allocationAnalytics.equity) > 0;
+    hasAllocation && hasPositionDirection;
+  const isLongPosition = hasOpenPosition && allocationDirection > 0;
+  const isShortPosition = hasOpenPosition && allocationDirection < 0;
   const sellLimit = hasOpenPosition ? Math.max(0, Number(allocationAnalytics.equity)) : 0;
   const allocationDirectionLabel = hasOpenPosition
-    ? allocationDirection < 0
+    ? isShortPosition
       ? "Short"
       : "Long"
-    : "No open position";
-  const secondaryTradeLabel = hasOpenPosition ? "Sell" : "Short";
+    : "";
+  const secondaryTradeLabel = hasAllocation ? "Sell" : "Short";
+  const primaryTradeLabel = "Buy";
+  const closeTab = isLongPosition ? "sell" : isShortPosition ? "buy" : null;
+  const activeTradeLabel = activeTradeTab === "sell" ? secondaryTradeLabel : primaryTradeLabel;
+  const showCloseButton = hasOpenPosition && activeTradeTab === closeTab;
   const isSecondaryTradeUnavailable =
     !stock?.tradable || (!hasOpenPosition && !stock?.shortable);
   const isSecondaryTradeDisabled = isSubmitting || isSecondaryTradeUnavailable;
@@ -370,14 +375,16 @@ export default function StockPage({ stockId, onBack }) {
           <section className="rail-panel">
             {isAllocationLoading ? (
               <strong>Loading...</strong>
-            ) : hasOpenPosition ? (
+            ) : hasAllocation ? (
               <div className="rail-metric-stack">
                 <div>
                   <span className="rail-metric-heading">
-                    <span>Position value</span>
-                    <strong className={allocationDirection < 0 ? "direction-badge short" : "direction-badge long"}>
-                      {allocationDirectionLabel}
-                    </strong>
+                    <span>{hasOpenPosition ? "Position value" : "Allocation equity"}</span>
+                    {hasOpenPosition ? (
+                      <strong className={`direction-badge ${isShortPosition ? "short" : "long"}`}>
+                        {allocationDirectionLabel}
+                      </strong>
+                    ) : null}
                   </span>
                   <strong>{currency(allocationAnalytics.equity, "Not available")}</strong>
                   <small>Cost basis {currency(allocationAnalytics.total_cost_basis, "Not available")}</small>
@@ -414,7 +421,7 @@ export default function StockPage({ stockId, onBack }) {
                 type="button"
                 onClick={() => setActiveTradeTab("buy")}
               >
-                Buy {stock.symbol}
+                {primaryTradeLabel} {stock.symbol}
               </button>
               <button
                 className={activeTradeTab === "sell" ? "active" : ""}
@@ -445,9 +452,11 @@ export default function StockPage({ stockId, onBack }) {
                 disabled={activeTradeTab === "sell" ? isSecondaryTradeDisabled : isSubmitting || !stock.tradable}
                 onClick={() => executeTrade(activeTradeTab === "sell" ? "sell" : "buy")}
               >
-                {activeTradeTab === "sell" ? secondaryTradeLabel : "Buy"}
+                {activeTradeLabel}
               </button>
-              <button className="danger-button" type="button" disabled={isSubmitting || !hasOpenPosition} onClick={() => executeTrade("close")}>Close position</button>
+              {showCloseButton ? (
+                <button className="danger-button" type="button" disabled={isSubmitting} onClick={() => executeTrade("close")}>Close position</button>
+              ) : null}
             </div>
           </section>
 

@@ -50,6 +50,7 @@ def test_model_portfolio_repository_create_get_update_and_history(
                 _position(symbol="AAPL", target_weight=0.6),
                 _position(symbol="MSFT", target_weight=0.4),
             ],
+            visibility="PUBLIC",
             creation_time=created_at,
             description="Created by repository integration test.",
         )
@@ -61,6 +62,7 @@ def test_model_portfolio_repository_create_get_update_and_history(
         assert portfolio.portfolio_owner_cognito_user_id == owner_cognito_user_id
         assert portfolio.portfolio_name == "Repository Test Portfolio"
         assert portfolio.description == "Created by repository integration test."
+        assert portfolio.visibility == "PUBLIC"
         assert portfolio.created_at == created_at
         assert portfolio.updated_at == created_at
         assert len(portfolio.position_history) == 1
@@ -73,6 +75,16 @@ def test_model_portfolio_repository_create_get_update_and_history(
             portfolio_owner_cognito_user_id=owner_cognito_user_id,
         )
         assert any(item["portfolio_id"] == portfolio_id for item in metadata)
+        portfolio_metadata = next(
+            item for item in metadata if item["portfolio_id"] == portfolio_id
+        )
+        assert portfolio_metadata["visibility"] == "PUBLIC"
+        assert (
+            model_portfolio_repository.get_model_portfolio_metadata_by_portfolio_id(
+                portfolio_id=portfolio_id,
+            )["visibility"]
+            == "PUBLIC"
+        )
 
         updated, snapshot_id = model_portfolio_repository.update_model_portfolio(
             portfolio_id=portfolio_id,
@@ -81,11 +93,18 @@ def test_model_portfolio_repository_create_get_update_and_history(
                 _position(symbol="MSFT", target_weight=0.3),
                 _position(symbol="GOOG", target_weight=0.2, direction=-1),
             ],
+            visibility="PRIVATE",
             update_time=updated_at,
             description="Updated by repository integration test.",
         )
         assert updated is True
         assert snapshot_id is not None
+        assert (
+            model_portfolio_repository.get_model_portfolio(
+                portfolio_id=portfolio_id,
+            ).visibility
+            == "PRIVATE"
+        )
 
         history = model_portfolio_repository.get_position_history(
             portfolio_id=portfolio_id,
@@ -122,6 +141,7 @@ def test_model_portfolio_repository_rejects_invalid_weight_total(
                 _position(symbol="AAPL", target_weight=0.5),
                 _position(symbol="MSFT", target_weight=0.4),
             ],
+            visibility="PUBLIC",
             creation_time=datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc),
         )
 
@@ -228,6 +248,7 @@ def test_model_portfolio_repository_noop_cooldown_locked_and_zero_weight_paths(
             portfolio_owner_cognito_user_id=owner_cognito_user_id,
             portfolio_name="Repository Branch Portfolio",
             positions_request=positions,
+            visibility="PUBLIC",
             creation_time=created_at,
             description="Original description",
         )
@@ -235,6 +256,7 @@ def test_model_portfolio_repository_noop_cooldown_locked_and_zero_weight_paths(
         assert model_portfolio_repository.update_model_portfolio(
             portfolio_id=portfolio_id,
             positions_request=positions,
+            visibility="PUBLIC",
             update_time=created_at + timedelta(seconds=1),
             description="Original description",
         ) == (False, None)
@@ -243,6 +265,7 @@ def test_model_portfolio_repository_noop_cooldown_locked_and_zero_weight_paths(
             model_portfolio_repository.update_model_portfolio(
                 portfolio_id=portfolio_id,
                 positions_request=positions,
+                visibility="PUBLIC",
                 update_time=created_at + timedelta(seconds=30),
                 description="Changed too soon",
             )
@@ -258,6 +281,7 @@ def test_model_portfolio_repository_noop_cooldown_locked_and_zero_weight_paths(
                 positions_request=[
                     _position(symbol="MSFT", target_weight=1.0),
                 ],
+                visibility="PUBLIC",
                 update_time=created_at + timedelta(seconds=120),
                 description="Locked update",
             )

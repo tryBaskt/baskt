@@ -43,6 +43,7 @@ class ModelPortfolio:
     created_at: datetime
     updated_at: datetime
     description: Optional[str] = None
+    visibility: str = "PRIVATE" # PUBLIC | PRIVATE
 
 @dataclass(frozen=True)
 class ModelPortfolioAnalyticsPosition:

@@ -30,7 +30,7 @@ from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
 from routes.allocation_analytics_route import router as allocation_analytics_router
 from routes.trade_execution_route import router as trade_execution_router
-from routes.model_portfolios_stocks_search_route import router as model_portfolios_stocks_search_router
+from routes.explore_search_route import router as explore_search_router
 from routes.stock_route import router as stock_router
 from routes.baskt_account_route import router as baskt_account_router
 
@@ -126,7 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(account_lifecycle_router)
     app.include_router(allocation_analytics_router)
     app.include_router(trade_execution_router)
-    app.include_router(model_portfolios_stocks_search_router)
+    app.include_router(explore_search_router)
     app.include_router(stock_router)
     app.include_router(baskt_account_router)
 

@@ -1469,6 +1469,27 @@ textarea:focus {
   font-weight: 800;
 }
 
+.visibility-toggle {
+  display: grid;
+  gap: 8px;
+}
+
+.visibility-toggle > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.visibility-toggle .segmented-control {
+  min-width: 190px;
+}
+
+.visibility-toggle .segmented-control button {
+  min-height: 36px;
+}
+
 .insights-panel {
   position: sticky;
   top: 116px;
@@ -2484,7 +2505,7 @@ th, td { border-color: #26232a !important; }
 
 .investment-hero-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(96px, auto));
+  grid-template-columns: repeat(4, minmax(82px, auto));
   gap: 10px;
 }
 
@@ -2507,6 +2528,14 @@ th, td { border-color: #26232a !important; }
   font: 650 13px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.investment-hero-meta .visibility-value.private {
+  color: #ff9aa5;
+}
+
+.investment-hero-meta .visibility-value.public {
+  color: #64d39c;
 }
 
 .investment-performance-console {
@@ -2642,6 +2671,51 @@ th, td { border-color: #26232a !important; }
 
 .rail-button-stack button {
   width: 100%;
+}
+
+.share-access-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.share-access-form {
+  display: grid;
+  gap: 10px;
+}
+
+.share-access-form .primary-button {
+  width: 100%;
+}
+
+.share-access-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.share-access-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.share-access-row:last-child {
+  border-bottom: 0;
+}
+
+.share-access-row span {
+  min-width: 0;
+  color: #eeeaf2;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.share-access-row .danger-button {
+  min-height: 34px;
+  padding: 0 12px;
 }
 
 .stock-trade-tabs {

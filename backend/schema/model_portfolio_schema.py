@@ -18,12 +18,27 @@ class CreateModelPortfolioRequest(BaseModel):
     name: str
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
+    visibility: str
 
 
 class UpdateModelPortfolioRequest(BaseModel):
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
+    visibility: str
 
+
+class AddAccessModelPortfolioRequest(BaseModel):
+    email_address: str
+
+class RemoveAccessModelPortfolioRequest(BaseModel):
+    cognito_user_id: str
+
+class SharedWithUserModelPortfolioResponse(BaseModel):
+    cognito_user_id: str
+    email_address: str
+
+class SharedWithUsersModelPortfolioResponse(RootModel[List[SharedWithUserModelPortfolioResponse]]):
+    pass
 
 class ModelPortfolioPositionResponse(BaseModel):
     symbol: str
@@ -44,6 +59,7 @@ class ModelPortfolioResponse(BaseModel):
     portfolio_owner_display_name: Optional[str] = None
     portfolio_name: str
     description: Optional[str] = None
+    visibility: str
     position_history: List[ModelPortfolioSnapshotResponse]
     created_at: str
     updated_at: str
@@ -76,6 +92,7 @@ class ModelPortfolioMetadataResponse(BaseModel):
     created_at: str
     updated_at: str
     description: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class ModelPortfoliosMetadataResponse(RootModel[List[ModelPortfolioMetadataResponse]]):

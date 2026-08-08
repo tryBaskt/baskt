@@ -68,6 +68,10 @@ class Settings(BaseSettings):
         default="-model-portfolio-follower-dynamodb",
         alias="MODEL_PORTFOLIO_FOLLOWER_DYNAMODB"
     )
+    model_portfolio_access_dynamodb_suffix: str = Field(
+        default="-model-portfolio-access-dynamodb",
+        alias="MODEL_PORTFOLIO_ACCESS_DYNAMODB",
+    )
     user_trade_lock_dynamodb_suffix: str = Field(
         default="-user-trade-lock-dynamodb",
         alias="USER_TRADE_LOCK_DYNAMODB"
@@ -209,6 +213,11 @@ class Settings(BaseSettings):
     def model_portfolio_follower_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
         return f"{self.env}{self.model_portfolio_follower_dynamodb_suffix}"
+
+    @property
+    def model_portfolio_access_dynamodb(self) -> str:
+        """Full table name with environment prefix: {env}{suffix}"""
+        return f"{self.env}{self.model_portfolio_access_dynamodb_suffix}"
     
     @property
     def user_trade_lock_dynamodb(self) -> str:

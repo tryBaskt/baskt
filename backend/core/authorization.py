@@ -19,6 +19,11 @@ from repository.model_portfolio_repository import (
     ModelPortfolioNotFoundError,
     ModelPortfolioRepository,
 )
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessBadGatewayError,
+    ModelPortfolioAccessRepository,
+    ModelPortfolioAccessRepositoryError,
+)
 from repository.allocation_repository import (
     AllocationBadGatewayError,
     AllocationNotFoundError,
@@ -132,6 +137,73 @@ def require_model_portfolio_owner(
         )
 
     return model_portfolio
+
+
+def require_model_portfolio_access(
+    *,
+    portfolio_id: str,
+    cognito_user_id: str,
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+) -> ModelPortfolio:
+    """Load a model portfolio and ensure the Cognito user can view/use it."""
+    try:
+        model_portfolio = model_portfolio_repository.get_model_portfolio(
+            portfolio_id=portfolio_id
+        )
+    except ModelPortfolioNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model portfolio not found.",
+        ) from err
+    except ModelPortfolioBadGatewayError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+    except ModelPortfolioInternalServerError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+
+    if model_portfolio.portfolio_owner_cognito_user_id == cognito_user_id:
+        return model_portfolio
+
+    visibility = str(getattr(model_portfolio, "visibility", "PRIVATE")).upper()
+    if visibility == "PUBLIC":
+        return model_portfolio
+
+    try:
+        has_access = model_portfolio_access_repository.has_access(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=cognito_user_id,
+        )
+    except ModelPortfolioAccessBadGatewayError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+    except ModelPortfolioAccessRepositoryError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": str(err), "code": err.code},
+        ) from err
+
+    if has_access:
+        return model_portfolio
+
+    _audit_denied_access(
+        action="model_portfolio.access",
+        user_id=cognito_user_id,
+        resource_type="model_portfolio",
+        resource_id=portfolio_id,
+        reason="private_model_portfolio_access_missing",
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Authenticated user is not allowed to access this model portfolio.",
+    )
 
 
 def require_model_portfolio_owner_match(
