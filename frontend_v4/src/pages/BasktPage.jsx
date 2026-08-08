@@ -186,6 +186,21 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     };
   }, [isShareOpen, isOwner, portfolioId]);
 
+  useEffect(() => {
+    if (!isShareOpen) return undefined;
+
+    function closeOnEscape(event) {
+      if (event.key === "Escape") {
+        setIsShareOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isShareOpen]);
+
   async function addAccess(event) {
     event.preventDefault();
     const normalizedEmail = shareEmail.trim();
@@ -280,7 +295,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
         <button className="ghost-button" type="button" onClick={onBack}>Back</button>
         {isOwner ? (
           <>
-            <button className="ghost-button" type="button" onClick={() => setIsShareOpen((current) => !current)}>Share</button>
+            <button className="ghost-button" type="button" onClick={() => setIsShareOpen(true)}>Share</button>
             <button className="primary-button" type="button" onClick={onUpdate}>Update</button>
           </>
         ) : null}
@@ -314,6 +329,70 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
               <span>Visibility <strong className={baskt.visibility === "PRIVATE" ? "visibility-value private" : "visibility-value public"}>{baskt.visibility === "PRIVATE" ? "Private" : "Public"}</strong></span>
             </div>
           </section>
+
+          {isOwner && isShareOpen ? (
+            <div className="share-modal-backdrop" role="presentation" onMouseDown={() => setIsShareOpen(false)}>
+              <section
+                className="share-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="share-modal-title"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="share-modal-header">
+                  <div>
+                    <h2 id="share-modal-title">Share {baskt.portfolio_name}</h2>
+                    <p>{baskt.visibility === "PRIVATE" ? "Only people with access can view this Baskt." : "Anyone can discover this public Baskt."}</p>
+                  </div>
+                  <button className="icon-button share-modal-close" type="button" aria-label="Close share dialog" onClick={() => setIsShareOpen(false)}>
+                    ×
+                  </button>
+                </div>
+
+                <form className="share-modal-form" onSubmit={addAccess}>
+                  <input
+                    type="email"
+                    value={shareEmail}
+                    onChange={(event) => setShareEmail(event.target.value)}
+                    placeholder="Add people by email"
+                    autoComplete="email"
+                    aria-label="Email address"
+                  />
+                  <button className="primary-button" type="submit" disabled={isAccessSubmitting || !shareEmail.trim()}>
+                    {isAccessSubmitting ? "Sharing..." : "Share"}
+                  </button>
+                </form>
+
+                {shareError ? <ErrorBanner message={shareError} /> : null}
+
+                <div className="share-modal-accesses" aria-live="polite">
+                  <h3>People with access</h3>
+                  {isAccessLoading ? (
+                    <p className="muted">Loading access...</p>
+                  ) : accesses.length ? (
+                    accesses.map((access) => (
+                      <div className="share-modal-access-row" key={access.cognito_user_id}>
+                        <div className="share-modal-avatar" aria-hidden="true">
+                          {(access.email_address || "?").slice(0, 1).toUpperCase()}
+                        </div>
+                        <span>{access.email_address}</span>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={removingAccessId === access.cognito_user_id}
+                          onClick={() => removeAccess(access.cognito_user_id)}
+                        >
+                          {removingAccessId === access.cognito_user_id ? "Removing..." : "Remove"}
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted">No shared access yet.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
 
           <section className="investment-performance-console">
             <div className="investment-console-heading">
@@ -458,53 +537,6 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
         </main>
 
         <aside className="investment-rail">
-          {isOwner && isShareOpen ? (
-            <section className="rail-panel share-access-panel">
-              <div className="section-heading compact-heading">
-                <div>
-                  <h2>Share access</h2>
-                </div>
-              </div>
-              <form className="share-access-form" onSubmit={addAccess}>
-                <label className="field">
-                  <span>Email address</span>
-                  <input
-                    type="email"
-                    value={shareEmail}
-                    onChange={(event) => setShareEmail(event.target.value)}
-                    placeholder="member@example.com"
-                    autoComplete="email"
-                  />
-                </label>
-                <button className="primary-button" type="submit" disabled={isAccessSubmitting || !shareEmail.trim()}>
-                  {isAccessSubmitting ? "Sharing..." : "Add access"}
-                </button>
-              </form>
-              {shareError ? <ErrorBanner message={shareError} /> : null}
-              <div className="share-access-list" aria-live="polite">
-                {isAccessLoading ? (
-                  <p className="muted">Loading access...</p>
-                ) : accesses.length ? (
-                  accesses.map((access) => (
-                    <div className="share-access-row" key={access.cognito_user_id}>
-                      <span>{access.email_address}</span>
-                      <button
-                        className="danger-button"
-                        type="button"
-                        disabled={removingAccessId === access.cognito_user_id}
-                        onClick={() => removeAccess(access.cognito_user_id)}
-                      >
-                        {removingAccessId === access.cognito_user_id ? "Removing..." : "Remove"}
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <p className="muted">No shared access yet.</p>
-                )}
-              </div>
-            </section>
-          ) : null}
-
           <section className="rail-panel">
             {isAllocationLoading ? (
               <strong>Loading...</strong>

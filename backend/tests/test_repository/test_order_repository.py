@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
@@ -38,6 +39,21 @@ def _order_item(
         "side": "BUY",
         "status": status,
     }
+
+
+def _wait_for_order(
+    *,
+    load_orders,
+    order_id: str,
+    timeout_seconds: float = 10.0,
+) -> dict:
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        for order in load_orders():
+            if order["order_id"] == order_id:
+                return order
+        sleep(0.25)
+    raise AssertionError(f"Order '{order_id}' was not visible before timeout.")
 
 
 @pytest.mark.integration
@@ -80,15 +96,24 @@ def test_order_repository_normalizes_and_filters_orders(
         }
         assert orders[0]["created_at"] == datetime(2024, 1, 1, tzinfo=timezone.utc)
         assert orders[0]["qty"] == 1.0
-        assert order_repository.get_unfilled_orders_by_transaction(transaction_id)[0][
-            "order_id"
-        ] == open_item["order_id"]
-        assert order_repository.get_unfilled_orders_by_cognito_user_id(
-            cognito_user_id
-        )[0]["order_id"] == open_item["order_id"]
-        assert order_repository.get_unfilled_orders_by_allocation_id(allocation_id)[0][
-            "order_id"
-        ] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_transaction(
+                transaction_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_cognito_user_id(
+                cognito_user_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_allocation_id(
+                allocation_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
     finally:
         for item in (filled_item, open_item):
             order_repository.order_table_client.delete_item(

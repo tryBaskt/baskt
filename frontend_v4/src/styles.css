@@ -1472,6 +1472,7 @@ textarea:focus {
 .visibility-toggle {
   display: grid;
   gap: 8px;
+  justify-items: start;
 }
 
 .visibility-toggle > span {
@@ -1483,11 +1484,15 @@ textarea:focus {
 }
 
 .visibility-toggle .segmented-control {
-  min-width: 190px;
+  width: max-content;
+  min-width: 0;
+  justify-self: start;
 }
 
 .visibility-toggle .segmented-control button {
+  min-width: 68px;
   min-height: 36px;
+  padding-inline: 12px;
 }
 
 .insights-panel {
@@ -2538,6 +2543,118 @@ th, td { border-color: #26232a !important; }
   color: #64d39c;
 }
 
+.share-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: start center;
+  padding: 88px 20px 28px;
+  background: rgba(0, 0, 0, .58);
+}
+
+.share-modal {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 18px;
+  border: 1px solid #3b3543;
+  border-radius: 8px;
+  padding: 22px;
+  background: #0d0d10;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+}
+
+.share-modal-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+
+.share-modal-header h2 {
+  margin: 0;
+  color: #f4f1f7;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.share-modal-header p {
+  margin: 6px 0 0;
+  color: #9b94a1;
+  font-size: 13px;
+}
+
+.share-modal-close {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.share-modal-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.share-modal-form input {
+  min-height: 42px;
+}
+
+.share-modal-form .primary-button {
+  min-width: 88px;
+}
+
+.share-modal-accesses {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.share-modal-accesses h3 {
+  margin: 0 0 8px;
+  color: #f1edf5;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.share-modal-access-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  min-height: 50px;
+}
+
+.share-modal-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #493c5a;
+  border-radius: 50%;
+  background: #191321;
+  color: #cbb8ff;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.share-modal-access-row span {
+  min-width: 0;
+  color: #eeeaf2;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.share-modal-access-row .ghost-button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .investment-performance-console {
   display: grid;
   gap: 18px;
@@ -2846,6 +2963,32 @@ th, td { border-color: #26232a !important; }
 }
 
 @media (max-width: 720px) {
+  .share-modal-backdrop {
+    align-items: start;
+    padding: 72px 14px 18px;
+  }
+
+  .share-modal {
+    padding: 18px;
+  }
+
+  .share-modal-form {
+    grid-template-columns: 1fr;
+  }
+
+  .share-modal-form .primary-button {
+    width: 100%;
+  }
+
+  .share-modal-access-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .share-modal-access-row .ghost-button {
+    grid-column: 2;
+    width: max-content;
+  }
+
   .investment-hero-meta {
     grid-template-columns: 1fr;
   }
