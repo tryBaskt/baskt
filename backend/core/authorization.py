@@ -146,7 +146,7 @@ def require_model_portfolio_access(
     model_portfolio_repository: ModelPortfolioRepository,
     model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> ModelPortfolio:
-    """Load a model portfolio and ensure the Cognito user can view/use it."""
+    """Load a model portfolio and ensure the Cognito user can view/use it or is the owner."""
     try:
         model_portfolio = model_portfolio_repository.get_model_portfolio(
             portfolio_id=portfolio_id
@@ -204,89 +204,6 @@ def require_model_portfolio_access(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Authenticated user is not allowed to access this model portfolio.",
     )
-
-
-def require_model_portfolio_owner_match(
-    *,
-    portfolio_id: str,
-    portfolio_owner_cognito_user_id: str,
-    model_portfolio_repository: ModelPortfolioRepository,
-    cognito_user_id: Optional[str] = None,
-) -> ModelPortfolio:
-    """Load a model portfolio and ensure the supplied owner id is truthful."""
-    try:
-        model_portfolio = model_portfolio_repository.get_model_portfolio(
-            portfolio_id=portfolio_id
-        )
-    except ModelPortfolioNotFoundError as err:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Model portfolio not found.",
-        ) from err
-    except ModelPortfolioBadGatewayError as err:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"message": str(err), "code": err.code},
-        ) from err
-    except ModelPortfolioInternalServerError as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": str(err), "code": err.code},
-        ) from err
-
-    if (
-        model_portfolio.portfolio_owner_cognito_user_id
-        != portfolio_owner_cognito_user_id
-    ):
-        _audit_denied_access(
-            action="model_portfolio.owner_match",
-            user_id=cognito_user_id,
-            resource_type="model_portfolio",
-            resource_id=portfolio_id,
-            reason="supplied_owner_does_not_match_portfolio",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Portfolio owner does not match the requested model portfolio.",
-        )
-
-    return model_portfolio
-
-
-def require_portfolio_allocation_owner(
-    *,
-    allocation_id: str,
-    cognito_user_id: str,
-    allocation_repository: AllocationRepository,
-) -> PortfolioAllocation:
-    """Load a portfolio allocation owned by the Cognito user."""
-    try:
-        return allocation_repository.get_allocation(
-            cognito_user_id=cognito_user_id,
-            allocation_id=allocation_id,
-        )
-    except AllocationNotFoundError as err:
-        _audit_denied_access(
-            action="portfolio_allocation.owner",
-            user_id=cognito_user_id,
-            resource_type="portfolio_allocation",
-            resource_id=allocation_id,
-            reason="allocation_not_found_or_not_owned",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Portfolio allocation not found.",
-        ) from err
-    except AllocationBadGatewayError as err:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"message": str(err), "code": err.code},
-        ) from err
-    except AllocationRepositoryError as err:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": str(err), "code": err.code},
-        ) from err
 
 
 def get_optional_portfolio_allocation_owner(

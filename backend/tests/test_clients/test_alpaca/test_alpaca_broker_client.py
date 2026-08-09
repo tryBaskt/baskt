@@ -56,17 +56,19 @@ def _assert_client_error(exc_info: pytest.ExceptionInfo, code: str) -> None:
 def test_alpaca_broker_client_fetches_real_tradeable_fractionable_us_assets(
     alpaca_broker_client: AlpacaBrokerClient,
 ) -> None:
+    """Fetch real Alpaca US equity assets and verify they are tradable and fractionable."""
     assets = alpaca_broker_client.get_tradeable_fractionable_US_assets()
 
     assert assets
-    assert all(asset.tradable for asset in assets[:25])
-    assert all(asset.fractionable for asset in assets[:25])
+    assert all(asset.tradable for asset in assets)
+    assert all(asset.fractionable for asset in assets)
 
 
 @pytest.mark.integration
 def test_alpaca_broker_client_get_stock_by_symbol_and_asset_id(
     alpaca_broker_client: AlpacaBrokerClient,
 ) -> None:
+    """Resolve a real stock by symbol and asset ID, and reject blank symbols."""
     stock = alpaca_broker_client.get_stock_by_symbol(symbol="AAPL")
 
     assert stock is not None
@@ -88,6 +90,7 @@ def test_alpaca_broker_client_get_stock_by_symbol_and_asset_id(
 def test_alpaca_broker_client_market_calendar_and_price_data(
     alpaca_broker_client: AlpacaBrokerClient,
 ) -> None:
+    """Fetch real market sessions, historical prices, and point-in-time prices."""
     sessions = alpaca_broker_client.get_stock_market_calendar(
         start_date=date(2024, 1, 2),
         end_date=date(2024, 1, 3),
@@ -123,6 +126,7 @@ def test_alpaca_broker_client_market_calendar_and_price_data(
 def test_alpaca_broker_client_rejects_invalid_market_data_inputs(
     alpaca_broker_client: AlpacaBrokerClient,
 ) -> None:
+    """Reject invalid calendar ranges and timezone-naive market data requests."""
     with pytest.raises(AlpacaBrokerClientError) as calendar_error:
         alpaca_broker_client.get_stock_market_calendar(
             start_date=date(2024, 1, 3),
@@ -170,6 +174,7 @@ def test_alpaca_broker_client_account_read_wrappers(
     alpaca_broker_client: AlpacaBrokerClient,
     funded_account_ids: tuple[str, str],
 ) -> None:
+    """Read a real Alpaca account, trade account, and portfolio history wrapper."""
     alpaca_account_id, cognito_user_id = funded_account_ids
 
     account = alpaca_broker_client.get_alpaca_account_by_id(
@@ -194,6 +199,7 @@ def test_alpaca_broker_client_position_and_relationship_reads(
     alpaca_broker_client: AlpacaBrokerClient,
     funded_account_ids: tuple[str, str],
 ) -> None:
+    """Read real positions, ACH relationships, banks, and transfers as collections."""
     alpaca_account_id, cognito_user_id = funded_account_ids
 
     assert isinstance(
@@ -231,6 +237,7 @@ def test_alpaca_broker_client_missing_position_and_latest_price_paths(
     alpaca_broker_client: AlpacaBrokerClient,
     funded_account_ids: tuple[str, str],
 ) -> None:
+    """Cover latest-price reads and missing-position behavior for a real account."""
     alpaca_account_id, cognito_user_id = funded_account_ids
     stock = alpaca_broker_client.get_stock_by_symbol(symbol="AAPL")
 
