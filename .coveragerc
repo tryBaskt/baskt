@@ -2,8 +2,8 @@
 source =
     backend
 omit =
-    backend/routes/*
     backend/tests/*
+    backend/tests_v2/*
     backend/new_tests/*
     backend/schema/*
     backend/domain/*
@@ -11,7 +11,6 @@ omit =
     backend/main.py
     tests/*
     new_tests/*
-    routes/*
     schema/*
     domain/*
     **/__init__.py
@@ -20,8 +19,8 @@ omit =
 [report]
 show_missing = true
 omit =
-    backend/routes/*
     backend/tests/*
+    backend/tests_v2/*
     backend/new_tests/*
     backend/schema/*
     backend/domain/*
@@ -29,7 +28,6 @@ omit =
     backend/main.py
     tests/*
     new_tests/*
-    routes/*
     schema/*
     domain/*
     **/__init__.py

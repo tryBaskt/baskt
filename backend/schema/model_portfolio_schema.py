@@ -2,40 +2,40 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, RootModel
 from datetime import datetime
 
 
 class ModelPortfolioPositionRequest(BaseModel):
-    symbol: str
+    symbol: str = Field(min_length=1)
     target_weight: float = Field(ge=0, le=1)
-    direction: int
-    leverage: float
+    direction: Literal[1, -1]
+    leverage: Literal[1]
 
 
 class CreateModelPortfolioRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
-    visibility: str
+    visibility: Literal["PUBLIC", "PRIVATE"]
 
 
 class UpdateModelPortfolioRequest(BaseModel):
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
-    visibility: str
+    visibility: Literal["PUBLIC", "PRIVATE"]
 
 
 class AddAccessModelPortfolioRequest(BaseModel):
-    email_address: str
+    email_address: str = Field(min_length=1)
 
 class RemoveAccessModelPortfolioRequest(BaseModel):
-    cognito_user_id: str
+    cognito_user_id: str = Field(min_length=1)
 
 class SharedWithUserModelPortfolioResponse(BaseModel):
-    cognito_user_id: str
-    email_address: str
+    cognito_user_id: str = Field(min_length=1)
+    email_address: str = Field(min_length=1)
 
 class SharedWithUsersModelPortfolioResponse(RootModel[List[SharedWithUserModelPortfolioResponse]]):
     pass

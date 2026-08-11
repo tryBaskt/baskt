@@ -172,16 +172,19 @@ class ModelPortfolioUnprocessableEntityError(ModelPortfolioInternalServerError):
         )
 
 
-class ModelPortfolioInvalidWeightError(ModelPortfolioUnprocessableEntityError):
-    def __init__(self, total_weight: Decimal) -> None:
-        formatted_total = format(total_weight * Decimal("100"), "f").rstrip("0").rstrip(".") or "0"
-        ModelPortfolioInternalServerError.__init__(
-            self,
-            message=(
-                "Model portfolio position target weights must total 100%. "
-                f"Current total is {formatted_total}%."
+class ModelPortfolioInvalidPositionRequest(ModelPortfolioUnprocessableEntityError):
+    def __init__(
+        self,
+        *,
+        attribute: str,
+        allowed: str,
+        actual: object,
+    ) -> None:
+        super().__init__(
+            operation=(
+                "validating position request: "
+                f"{attribute} must be {allowed}; got {actual!r}"
             ),
-            code="MODEL_PORTFOLIO_INVALID_TARGET_WEIGHT_TOTAL",
         )
 
 
@@ -276,15 +279,73 @@ class ModelPortfolioRepository:
         self.model_portfolio_access_repository = model_portfolio_access_repository
 
     @staticmethod
-    def _validate_target_weight_total(
+    def _validate_position_request(
         positions_request: List[ModelPortfolioPositionRequest],
     ) -> None:
-        total_weight = sum(
-            Decimal(str(position.target_weight))
-            for position in positions_request
-        )
-        if abs(total_weight - Decimal("1")) > Decimal("0.0001"):
-            raise ModelPortfolioInvalidWeightError(total_weight=total_weight)
+        total_weight = 0.0
+        for position_request in positions_request:
+            if not isinstance(position_request.symbol, str):
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute="symbol",
+                    allowed="a non-empty string",
+                    actual=position_request.symbol,
+                )
+
+            symbol = position_request.symbol.strip()
+            if not symbol:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute="symbol",
+                    allowed="a non-empty string",
+                    actual=position_request.symbol,
+                )
+
+            try:
+                direction = int(position_request.direction)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"direction for symbol '{symbol}'",
+                    allowed="1 or -1",
+                    actual=position_request.direction,
+                ) from error
+
+            if direction not in (1, -1):
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"direction for symbol '{symbol}'",
+                    allowed="1 or -1",
+                    actual=position_request.direction,
+                )
+
+            try:
+                leverage = float(position_request.leverage)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"leverage for symbol '{symbol}'",
+                    allowed="1.0",
+                    actual=position_request.leverage,
+                ) from error
+
+            if leverage != 1.0:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"leverage for symbol '{symbol}'",
+                    allowed="1.0",
+                    actual=position_request.leverage,
+                )
+
+            try:
+                total_weight += float(position_request.target_weight)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"target_weight for symbol '{symbol}'",
+                    allowed="a number that contributes to a total of 1.0",
+                    actual=position_request.target_weight,
+                ) from error
+
+        if abs(total_weight - 1.0) > 1e-9:
+            raise ModelPortfolioInvalidPositionRequest(
+                attribute="total target_weight",
+                allowed="1.0",
+                actual=total_weight,
+            )
 
     def _wait_until_portfolio_update_lock_is_released(
         self,
@@ -598,7 +659,7 @@ class ModelPortfolioRepository:
             snapshot or DynamoDB item cannot be created.
         """
 
-        self._validate_target_weight_total(positions_request)
+        self._validate_position_request(positions_request)
 
         # Generate new portfolio id
         portfolio_id = str(uuid4())
@@ -701,7 +762,7 @@ class ModelPortfolioRepository:
             ModelPortfolioUnprocessableEntityError: If the updated portfolio
             snapshot or DynamoDB item cannot be created.
         """
-        self._validate_target_weight_total(positions_request)
+        self._validate_position_request(positions_request)
 
         # Ensure portfolio does exist
         existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id, wait_seconds=0)
@@ -851,7 +912,10 @@ class ModelPortfolioRepository:
             try:
                 if visibility_unchanged is False and visibility == "PRIVATE":
                     model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-                    model_portfolio_current_accesses = self.model_portfolio_access_repository.get_accesses_for_portfolio(portfolio_id=portfolio_id)
+                    model_portfolio_current_accesses = self.model_portfolio_access_repository.get_accesses_for_portfolio(
+                        portfolio_id=portfolio_id,
+                        wait_for_lock=False,
+                    )
                     follower_ids = {
                         follower["cognito_user_id"]
                         for follower in model_portfolio_followers
@@ -862,12 +926,15 @@ class ModelPortfolioRepository:
                     }
 
                     for cognito_user_id in follower_ids - current_access_ids:
-                        self.model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+                        self.model_portfolio_access_repository.write_access_item_without_lock_by_cognito_user_id(
                             portfolio_id=portfolio_id,
                             portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
                             shared_with_cognito_user_id=cognito_user_id,
                         )
-            except (ModelPortfolioFollowerInternalServerError, ModelPortfolioAccessRepositoryError) as error:
+            except (
+                ModelPortfolioFollowerInternalServerError,
+                ModelPortfolioAccessRepositoryError,
+            ) as error:
                 raise ModelPortfolioBadGatewayError(
                     source="DynamoDB/Cognito",
                     operation="syncing private model portfolio access from followers",

@@ -12,7 +12,9 @@ from core.authentication import (
 	get_current_alpaca_account,
 	get_current_baskt_account,
 	get_alpaca_account_id,
-	get_cognito_user_id
+	get_cognito_user_id,
+    authenticate_email,
+    authenticate_cognito_user_id
 
 )
 from core.deps import (
@@ -26,7 +28,6 @@ from domain.model_portfolio_domain import ModelPortfolioSnapshot
 from domain.baskt_account_domain import BasktAccount
 from repository.baskt_account_repository import (
     BasktAccountRepository,
-    BasktAccountRepositoryError,
 )
 from repository.model_portfolio_repository import (
     ModelPortfolioRepository,
@@ -39,6 +40,7 @@ from repository.model_portfolio_repository import (
 )
 from repository.model_portfolio_access_repository import (
     ModelPortfolioAccessBadGatewayError,
+    ModelPortfolioAccessNotFoundError,
     ModelPortfolioAccessRepository,
     ModelPortfolioAccessRepositoryError,
     ModelPortfolioAccessUnprocessableEntityError,
@@ -89,6 +91,8 @@ def _raise_model_portfolio_http_exception(err: Exception) -> None:
 
     if isinstance(err, ModelPortfolioAccessRepositoryError):
         if isinstance(err, ModelPortfolioAccessUserNotFoundError):
+            status_code = status.HTTP_404_NOT_FOUND
+        elif isinstance(err, ModelPortfolioAccessNotFoundError):
             status_code = status.HTTP_404_NOT_FOUND
         elif isinstance(err, ModelPortfolioAccessUserIsFollowerError):
             status_code = status.HTTP_409_CONFLICT
@@ -205,6 +209,13 @@ def get_model_portfolio(
         position history, and current weights for the latest snapshot.
     """
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+    
         cognito_user_id = get_cognito_user_id(baskt_account)
         model_portfolio = require_model_portfolio_access(
             portfolio_id=portfolio_id,
@@ -219,12 +230,9 @@ def get_model_portfolio(
     except Exception as e:
         _raise_model_portfolio_http_exception(e)
     
-    try:
-        portfolio_owner_display_name = baskt_account_repository.get_display_name(
-            cognito_user_id=model_portfolio.portfolio_owner_cognito_user_id
-        )
-    except BasktAccountRepositoryError:
-        portfolio_owner_display_name = None
+    portfolio_owner_display_name = baskt_account_repository.get_display_name(
+        cognito_user_id=model_portfolio.portfolio_owner_cognito_user_id
+    )
 
     return ModelPortfolioResponse(
         portfolio_id=model_portfolio.portfolio_id,
@@ -309,8 +317,14 @@ def update_model_portfolio(
     Returns:
         None.
     """
-
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+        
         cognito_user_id = get_cognito_user_id(baskt_account)
         require_model_portfolio_owner(
             portfolio_id=portfolio_id,
@@ -353,7 +367,22 @@ def add_model_portfolio_access(
 ) -> None:
     """Grant another Baskt user access to a model portfolio by email."""
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+        email_address = str(request.email_address).strip()
+        if not email_address:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="email_address is required.",
+            )
+
         cognito_user_id = get_cognito_user_id(baskt_account)
+        authenticated_email_address = authenticate_email(email_address=request.email_address)
+
         require_model_portfolio_owner(
             portfolio_id=portfolio_id,
             cognito_user_id=cognito_user_id,
@@ -362,7 +391,7 @@ def add_model_portfolio_access(
         model_portfolio_access_repository.add_access_for_user(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=cognito_user_id,
-            shared_with_email=request.email_address,
+            shared_with_email=authenticated_email_address
         )
         return
     except HTTPException:
@@ -385,7 +414,22 @@ def remove_model_portfolio_access(
 ) -> None:
     """Remove a user's access grant from a model portfolio."""
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+        shared_with_cognito_user_id = str(request.cognito_user_id).strip()
+        if not shared_with_cognito_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="cognito_user_id to be removed is required.",
+            )
+        
         cognito_user_id = get_cognito_user_id(baskt_account)
+        shared_with_cognito_user_id = authenticate_cognito_user_id(cognito_user_id=shared_with_cognito_user_id)
+
         require_model_portfolio_owner(
             portfolio_id=portfolio_id,
             cognito_user_id=cognito_user_id,
@@ -393,7 +437,7 @@ def remove_model_portfolio_access(
         )
         model_portfolio_access_repository.remove_access_for_user(
             portfolio_id=portfolio_id,
-            shared_with_cognito_user_id=request.cognito_user_id,
+            shared_with_cognito_user_id=shared_with_cognito_user_id,
         )
         return
     except HTTPException:
@@ -419,6 +463,13 @@ def get_model_portfolio_accesses(
 ) -> SharedWithUsersModelPortfolioResponse:
     """List users with explicit access to a model portfolio."""
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+        
         cognito_user_id = get_cognito_user_id(baskt_account)
         require_model_portfolio_owner(
             portfolio_id=portfolio_id,
@@ -497,6 +548,13 @@ def get_model_portfolio_analytics(
         ModelPortfolioAnalyticsResponse: Return series keyed by period.
     """
     try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id: 
+            raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portfolio_id is required.",
+        )
+
         cognito_user_id = get_cognito_user_id(baskt_account)
         require_model_portfolio_access(
             portfolio_id=portfolio_id,

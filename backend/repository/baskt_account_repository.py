@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from decimal import Decimal
+from typing import Any, Optional
 from dataclasses import is_dataclass
 
 from boto3.dynamodb.conditions import Key
@@ -21,6 +22,22 @@ from domain.baskt_account_domain import (
     IdentityData,
     AgreementData
 )
+
+
+def _validate_dynamodb_section_value(value: Any) -> None:
+    if value is None or isinstance(value, (str, int, bool)):
+        return
+    if isinstance(value, (float, Decimal)):
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_dynamodb_section_value(item)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _validate_dynamodb_section_value(item)
+        return
+    raise TypeError(f"unsupported DynamoDB section value: {type(value).__name__}")
 
 
 class BasktAccountRepositoryError(Exception):
@@ -279,6 +296,12 @@ class BasktAccountRepository:
             BasktAccountBadGatewayError: If DynamoDB rejects the update.
         """
 
+        display_name = str(display_name).strip()
+        if not display_name:
+            raise BasktAccountUnprocessableEntityError(
+                message=f"Display name cannot be empty. Display name: {display_name}"
+            )
+
         try:
             self.dynamodb.table.update_item(
                 Key={"cognito_user_id": cognito_user_id},
@@ -355,6 +378,14 @@ class BasktAccountRepository:
             )
 
         try:
+            attribute_value = to_dynamodb_value(updated_data)
+            _validate_dynamodb_section_value(attribute_value)
+        except Exception as error:
+            raise BasktAccountUnprocessableEntityError(
+                f"Failed to serialize {attribute_name}: {error}"
+            ) from error
+
+        try:
             self.dynamodb.table.update_item(
                 Key={"cognito_user_id": cognito_user_id},
                 UpdateExpression="SET #attribute_name = :attribute_value",
@@ -363,7 +394,7 @@ class BasktAccountRepository:
                     "#attribute_name": attribute_name,
                 },
                 ExpressionAttributeValues={
-                    ":attribute_value": to_dynamodb_value(updated_data),
+                    ":attribute_value": attribute_value,
                 },
             )
         except ClientError as error:

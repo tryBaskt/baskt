@@ -10,9 +10,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
+from clients.cognito_client import CognitoClient
 from core.config import get_settings
 from core.security import CognitoTokenVerifier
-from core.deps import get_baskt_account_repository
+from core.deps import get_baskt_account_repository, get_cognito_client
 from repository.baskt_account_repository import (
     BasktAccountBadGatewayError,
     BasktAccountNotFoundError,
@@ -161,4 +162,71 @@ def get_current_alpaca_account(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to verify Alpaca account: {err}",
+        ) from err
+
+def authenticate_email(
+    email_address: str,
+    cognito_client: CognitoClient = Depends(get_cognito_client),
+    baskt_account_repository: BasktAccountRepository = Depends(get_baskt_account_repository)
+) -> str:
+    """Verify email belongs to a persisted Baskt account."""
+    if not isinstance(cognito_client, CognitoClient):
+        cognito_client = get_cognito_client()
+    if not isinstance(baskt_account_repository, BasktAccountRepository):
+        baskt_account_repository = get_baskt_account_repository()
+
+    try:
+        cognito_user_dict = cognito_client.get_cognito_user_by_email_address(email_address=email_address)
+        baskt_account_repository.get_baskt_account(cognito_user_id=cognito_user_dict["cognito_user_id"])
+        return cognito_user_dict["email_address"]
+    except BasktAccountNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated user does not have a Baskt account.",
+        ) from err
+    except BasktAccountBadGatewayError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify Baskt account.",
+        ) from err
+    except BasktAccountUnprocessableEntityError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored Baskt account is invalid.",
+        ) from err
+    except BasktAccountRepositoryError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify Baskt account.",
+        ) from err
+
+def authenticate_cognito_user_id(
+    cognito_user_id: str,
+    baskt_account_repository: BasktAccountRepository = Depends(get_baskt_account_repository)
+) -> str:
+    if not isinstance(baskt_account_repository, BasktAccountRepository):
+        baskt_account_repository = get_baskt_account_repository()
+
+    try:
+        baskt_account = baskt_account_repository.get_baskt_account(cognito_user_id=cognito_user_id)
+        return baskt_account.cognito_user_id
+    except BasktAccountNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated user does not have a Baskt account.",
+        ) from err
+    except BasktAccountBadGatewayError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify Baskt account.",
+        ) from err
+    except BasktAccountUnprocessableEntityError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored Baskt account is invalid.",
+        ) from err
+    except BasktAccountRepositoryError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify Baskt account.",
         ) from err
