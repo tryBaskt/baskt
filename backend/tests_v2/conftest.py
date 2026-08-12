@@ -17,22 +17,7 @@ for import_path in (str(backend_dir), str(repo_root)):
 
 load_dotenv(repo_root / ".env")
 
-from clients.alpaca_broker_client import AlpacaBrokerClient
-from clients.cognito_client import CognitoClient
-from clients.dynamodb_client import DynamoDBClient
-from core import deps as app_deps
 from core.config import get_settings
-from repository.baskt_account_repository import BasktAccountRepository
-from repository.model_portfolio_access_repository import (
-    ModelPortfolioAccessRepository,
-)
-from repository.model_portfolio_repository import ModelPortfolioRepository
-from repository.model_portfolio_follower_repository import (
-    ModelPortfolioFollowerRepository,
-)
-from repository.model_portfolio_update_lock_repository import (
-    ModelPortfolioUpdateLockRepository,
-)
 
 
 get_settings.cache_clear()
@@ -43,6 +28,15 @@ class RepositoryTestUser:
     cognito_user_id: str
     alpaca_account_id: str
     email_address: str
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--mock_alpaca",
+        action="store_true",
+        default=False,
+        help="Use in-memory mock Alpaca/SQS clients where tests support them.",
+    )
 
 
 def _required_env_value(name: str) -> str:
@@ -75,111 +69,3 @@ def test_user_1() -> RepositoryTestUser:
 @pytest.fixture(scope="session")
 def test_user_2() -> RepositoryTestUser:
     return _test_user(2)
-
-
-@pytest.fixture(scope="session")
-def alpaca_broker_client() -> AlpacaBrokerClient:
-    return app_deps.get_alpaca_broker_client()
-
-
-@pytest.fixture(scope="session")
-def cognito_client() -> CognitoClient:
-    return app_deps.get_cognito_client()
-
-
-@pytest.fixture(scope="session")
-def baskt_account_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_baskt_account_dynamodb_client()
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_model_portfolio_dynamodb_client()
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_access_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_model_portfolio_access_dynamodb_client()
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_follower_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_model_portfolio_follower_dynamodb_client()
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_update_lock_dynamodb_client() -> DynamoDBClient:
-    return app_deps.get_model_portfolio_update_lock_dynamodb_client()
-
-
-@pytest.fixture(scope="session")
-def baskt_account_repository(
-    baskt_account_dynamodb_client: DynamoDBClient,
-) -> BasktAccountRepository:
-    return app_deps.get_baskt_account_repository(
-        baskt_account_dynamodb_client=baskt_account_dynamodb_client,
-    )
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_update_lock_repository(
-    model_portfolio_update_lock_dynamodb_client: DynamoDBClient,
-) -> ModelPortfolioUpdateLockRepository:
-    return app_deps.get_model_portfolio_update_lock_repository(
-        model_portfolio_update_lock_dynamodb_client=(
-            model_portfolio_update_lock_dynamodb_client
-        ),
-    )
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_follower_repository(
-    model_portfolio_follower_dynamodb_client: DynamoDBClient,
-    alpaca_broker_client: AlpacaBrokerClient,
-) -> ModelPortfolioFollowerRepository:
-    return app_deps.get_model_portfolio_follower_repository(
-        model_portfolio_follower_dynamodb_client=(
-            model_portfolio_follower_dynamodb_client
-        ),
-        alpaca_broker_client=alpaca_broker_client,
-    )
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_access_repository(
-    model_portfolio_access_dynamodb_client: DynamoDBClient,
-    cognito_client: CognitoClient,
-    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
-) -> ModelPortfolioAccessRepository:
-    return app_deps.get_model_portfolio_access_repository(
-        model_portfolio_access_dynamodb_client=(
-            model_portfolio_access_dynamodb_client
-        ),
-        cognito_client=cognito_client,
-        model_portfolio_follower_repository=model_portfolio_follower_repository,
-        model_portfolio_update_lock_repository=(
-            model_portfolio_update_lock_repository
-        ),
-    )
-
-
-@pytest.fixture(scope="session")
-def model_portfolio_repository(
-    model_portfolio_dynamodb_client: DynamoDBClient,
-    alpaca_broker_client: AlpacaBrokerClient,
-    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
-    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-    model_portfolio_access_repository: ModelPortfolioAccessRepository,
-) -> ModelPortfolioRepository:
-    return app_deps.get_model_portfolio_repository(
-        dynamodb=model_portfolio_dynamodb_client,
-        alpaca_broker_client=alpaca_broker_client,
-        model_portfolio_update_lock_repository=(
-            model_portfolio_update_lock_repository
-        ),
-        model_portfolio_follower_repository=(
-            model_portfolio_follower_repository
-        ),
-        model_portfolio_access_repository=model_portfolio_access_repository,
-    )

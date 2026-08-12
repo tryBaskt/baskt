@@ -10,10 +10,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
-from clients.cognito_client import CognitoClient
+from clients.cognito_client import CognitoClientCognitoUserNotFound, CognitoClientError
 from core.config import get_settings
 from core.security import CognitoTokenVerifier
-from core.deps import get_baskt_account_repository, get_cognito_client
+from core.deps import (
+    get_baskt_account_dynamodb_client,
+    get_baskt_account_repository,
+    get_cognito_client,
+)
 from repository.baskt_account_repository import (
     BasktAccountBadGatewayError,
     BasktAccountNotFoundError,
@@ -166,19 +170,32 @@ def get_current_alpaca_account(
 
 def authenticate_email(
     email_address: str,
-    cognito_client: CognitoClient = Depends(get_cognito_client),
-    baskt_account_repository: BasktAccountRepository = Depends(get_baskt_account_repository)
 ) -> str:
     """Verify email belongs to a persisted Baskt account."""
-    if not isinstance(cognito_client, CognitoClient):
-        cognito_client = get_cognito_client()
-    if not isinstance(baskt_account_repository, BasktAccountRepository):
-        baskt_account_repository = get_baskt_account_repository()
+    cognito_client = get_cognito_client()
+    baskt_account_repository = get_baskt_account_repository(
+        baskt_account_dynamodb_client=get_baskt_account_dynamodb_client()
+    )
+
+    if not email_address:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="email_address is required.",
+        )
 
     try:
         cognito_user_dict = cognito_client.get_cognito_user_by_email_address(email_address=email_address)
         baskt_account_repository.get_baskt_account(cognito_user_id=cognito_user_dict["cognito_user_id"])
         return cognito_user_dict["email_address"]
+    except CognitoClientCognitoUserNotFound as err:
+        raise BasktAccountNotFoundError(
+            message="Authenticated user does not have a Baskt account.",
+        ) from err
+    except CognitoClientError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify Cognito user.",
+        ) from err
     except BasktAccountNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -202,14 +219,33 @@ def authenticate_email(
 
 def authenticate_cognito_user_id(
     cognito_user_id: str,
-    baskt_account_repository: BasktAccountRepository = Depends(get_baskt_account_repository)
 ) -> str:
-    if not isinstance(baskt_account_repository, BasktAccountRepository):
-        baskt_account_repository = get_baskt_account_repository()
+    cognito_client = get_cognito_client()
+    baskt_account_repository = get_baskt_account_repository(
+        baskt_account_dynamodb_client=get_baskt_account_dynamodb_client()
+    )
+
+    if not cognito_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cognito_user_id to be removed is required.",
+        )
 
     try:
+        cognito_client.get_cognito_user_by_cognito_user_id(
+            cognito_user_id=cognito_user_id
+        )
         baskt_account = baskt_account_repository.get_baskt_account(cognito_user_id=cognito_user_id)
         return baskt_account.cognito_user_id
+    except CognitoClientCognitoUserNotFound as err:
+        raise BasktAccountNotFoundError(
+            message="Authenticated user does not have a Baskt account.",
+        ) from err
+    except CognitoClientError as err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify Cognito user.",
+        ) from err
     except BasktAccountNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

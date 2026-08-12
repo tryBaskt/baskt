@@ -2,19 +2,22 @@
 
 # Python imports
 from __future__ import annotations
-from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
+from starlette.status import (
+	HTTP_200_OK,
+	HTTP_400_BAD_REQUEST,
+	HTTP_500_INTERNAL_SERVER_ERROR,
+)
 # Fastapi imports
 from fastapi import APIRouter, Depends, HTTPException
 # Alpaca imports
 from alpaca.broker.models import Account
 # Baskt imports
-from core.authorization import get_optional_portfolio_allocation_owner
+from core.authorization import get_optional_allocation_owner
 from core.authentication import (
 	get_current_alpaca_account,
 	get_current_baskt_account,
 	get_alpaca_account_id,
-	get_cognito_user_id
-
+	get_cognito_user_id,
 )
 from core.deps import (
 	get_allocation_analytics_service,
@@ -129,11 +132,18 @@ def get_portfolio_allocation_analytics(
 ) -> PortfolioAllocationResponse:
 
 	try:
+		portfolio_id = str(portfolio_id).strip()
+		if not portfolio_id:
+			raise HTTPException(
+				status_code=HTTP_400_BAD_REQUEST,
+				detail="portfolio_id is required.",
+			)
+
 		cognito_user_id = get_cognito_user_id(baskt_account)
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		if alpaca_account.status.name.upper() != "ACTIVE":
 			return PortfolioAllocationResponse(portfolio_id=portfolio_id)
-		allocation = get_optional_portfolio_allocation_owner(
+		allocation = get_optional_allocation_owner(
 			allocation_id=portfolio_id,
 			cognito_user_id=cognito_user_id,
 			allocation_repository=allocation_repository,
@@ -194,11 +204,18 @@ def get_stock_allocation_analytics(
 ) -> StockAllocationResponse:
 
 	try:
+		stock_id = str(stock_id).strip()
+		if not stock_id:
+			raise HTTPException(
+				status_code=HTTP_400_BAD_REQUEST,
+				detail="stock_id is required.",
+			)
+
 		cognito_user_id = get_cognito_user_id(baskt_account)
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		if alpaca_account.status.name.upper() != "ACTIVE":
 			return StockAllocationResponse(stock_id=stock_id)
-		allocation = get_optional_portfolio_allocation_owner(
+		allocation = get_optional_allocation_owner(
 			allocation_id=stock_id,
 			cognito_user_id=cognito_user_id,
 			allocation_repository=allocation_repository,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -21,6 +22,7 @@ from repository.model_portfolio_access_repository import (
 from repository.model_portfolio_follower_repository import (
     ModelPortfolioFollowerRepository,
 )
+from repository import model_portfolio_repository as model_portfolio_repository_module
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockRepository,
@@ -40,22 +42,33 @@ integration repositories.
 Coverage goals:
 - create/list workflow: create public and private model portfolios through the
   route and verify owned metadata is listed with visibility.
+- owner list isolation workflow: portfolios created by different owners only
+  appear in the authenticated owner's metadata list.
 - request validation workflow: assert route/schema-level validation for invalid
   create and update payloads before repository work should happen.
 - get authorization workflow: owners and public viewers can fetch a portfolio,
   unshared private viewers are denied, and shared private viewers are allowed.
+- detail response workflow: fetched portfolios include mapped owner display
+  names, snapshots, timestamps, and latest current weights.
 - update workflow: route updates description, visibility, and positions; changed
   positions enqueue one portfolio update message; missing, non-owner, and
   too-soon updates map to the expected HTTP errors.
+- no-op update workflow: unchanged description, visibility, and positions return
+  successfully without adding a snapshot or queueing a portfolio update.
 - access workflow: owners can add access by email, list accesses, see the shared
   portfolio from the recipient account, remove access, and then the recipient is
   denied again.
+- shared-with-me workflow: explicit grants appear in the recipient's shared list,
+  removed grants disappear, and public-only readable portfolios are not listed.
 - access error workflow: non-owners cannot manage accesses, missing portfolios
-  return not found, empty access lists return an empty response, and follower
-  users cannot have access removed.
+  return not found, empty access lists return an empty response, nonexistent
+  shared users by email and Cognito user id cannot be authenticated, and
+  follower users cannot have access removed.
 - public-to-private follower workflow: changing a public portfolio with a
   follower to private preserves the follower, grants explicit access to that
   follower, and does not add a new snapshot when positions are unchanged.
+- private-to-public access workflow: changing a shared private portfolio to
+  public keeps direct reads working even after explicit access is removed.
 
 The analytics route is intentionally excluded. Every portfolio, access,
 follower, and update-lock item created here is cleaned up in finally blocks.
@@ -63,6 +76,28 @@ follower, and update-lock item created here is cleaned up in finally blocks.
 
 
 CREATED_AT = datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc)
+
+
+def _put_model_portfolio_at(
+    *,
+    client: TestClient,
+    portfolio_id: str,
+    payload: dict[str, Any],
+    update_time: datetime,
+):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return update_time.replace(tzinfo=None)
+            return update_time.astimezone(tz)
+
+    with patch.object(
+        model_portfolio_repository_module,
+        "datetime",
+        FixedDateTime,
+    ):
+        return client.put(f"/model-portfolios/{portfolio_id}", json=payload)
 
 
 class QueueRecorder:
@@ -101,24 +136,24 @@ def _client_for_user(
     app = FastAPI()
     app.include_router(model_portfolio_route.router)
     app.dependency_overrides[get_current_user] = lambda: _claims_for_user(test_user)
-    app.dependency_overrides[
-        model_portfolio_route.get_model_portfolio_repository
-    ] = lambda: model_portfolio_repository
+    app.dependency_overrides[model_portfolio_route.get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
     app.dependency_overrides[
         model_portfolio_route.get_model_portfolio_access_repository
     ] = lambda: model_portfolio_access_repository
-    app.dependency_overrides[
-        model_portfolio_route.get_baskt_account_repository
-    ] = lambda: baskt_account_repository
-    app.dependency_overrides[
-        get_model_portfolio_repository
-    ] = lambda: model_portfolio_repository
-    app.dependency_overrides[
-        get_model_portfolio_access_repository
-    ] = lambda: model_portfolio_access_repository
-    app.dependency_overrides[
-        get_baskt_account_repository
-    ] = lambda: baskt_account_repository
+    app.dependency_overrides[model_portfolio_route.get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
+    app.dependency_overrides[get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    app.dependency_overrides[get_model_portfolio_access_repository] = (
+        lambda: model_portfolio_access_repository
+    )
+    app.dependency_overrides[get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
 
     if queue_recorder is not None:
         app.dependency_overrides[
@@ -275,9 +310,7 @@ def _delete_portfolio(
     model_portfolio_update_lock_repository.lock_table_client.delete_item(
         key={"portfolio_id": portfolio_id}
     )
-    model_portfolio_repository.dynamodb.delete_item(
-        key={"portfolio_id": portfolio_id}
-    )
+    model_portfolio_repository.dynamodb.delete_item(key={"portfolio_id": portfolio_id})
 
 
 def test_model_portfolio_route_create_and_list_owned_public_and_private_workflow(
@@ -330,6 +363,68 @@ def test_model_portfolio_route_create_and_list_owned_public_and_private_workflow
         assert listed[private_id]["visibility"] == "PRIVATE"
     finally:
         for portfolio_id in created_ids:
+            _delete_portfolio(
+                model_portfolio_repository=model_portfolio_repository,
+                model_portfolio_access_repository=model_portfolio_access_repository,
+                model_portfolio_follower_repository=model_portfolio_follower_repository,
+                model_portfolio_update_lock_repository=(
+                    model_portfolio_update_lock_repository
+                ),
+                portfolio_id=portfolio_id,
+            )
+
+
+def test_model_portfolio_route_owned_list_is_scoped_to_authenticated_owner_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    """Only list model portfolio metadata owned by the authenticated user."""
+    user_1_client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    user_2_client = _client_for_user(
+        test_user=test_user_2,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    user_1_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-owner-1-{uuid4()}",
+        visibility="PUBLIC",
+    )
+    user_2_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_2.cognito_user_id,
+        portfolio_name=f"workflow-owner-2-{uuid4()}",
+        visibility="PUBLIC",
+    )
+
+    try:
+        user_1_list = {
+            portfolio["portfolio_id"]
+            for portfolio in user_1_client.get("/model-portfolios").json()
+        }
+        user_2_list = {
+            portfolio["portfolio_id"]
+            for portfolio in user_2_client.get("/model-portfolios").json()
+        }
+
+        assert user_1_id in user_1_list
+        assert user_2_id not in user_1_list
+        assert user_2_id in user_2_list
+        assert user_1_id not in user_2_list
+    finally:
+        for portfolio_id in (user_1_id, user_2_id):
             _delete_portfolio(
                 model_portfolio_repository=model_portfolio_repository,
                 model_portfolio_access_repository=model_portfolio_access_repository,
@@ -480,6 +575,68 @@ def test_model_portfolio_route_get_authorization_workflow(
             )
 
 
+def test_model_portfolio_route_get_detail_response_and_current_weights_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    """Return mapped portfolio detail fields and latest normalized weights."""
+    client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    portfolio_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-detail-{uuid4()}",
+        visibility="PUBLIC",
+        description="Detail response workflow",
+        positions=[
+            _repository_position(symbol="AAPL", target_weight=0.75),
+            _repository_position(symbol="MSFT", target_weight=0.25),
+        ],
+    )
+
+    try:
+        response = client.get(f"/model-portfolios/{portfolio_id}")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["portfolio_id"] == portfolio_id
+        assert body["portfolio_owner_cognito_user_id"] == test_user_1.cognito_user_id
+        assert body["portfolio_owner_display_name"]
+        assert body["portfolio_name"].startswith("workflow-detail-")
+        assert body["description"] == "Detail response workflow"
+        assert body["visibility"] == "PUBLIC"
+        assert body["created_at"] == CREATED_AT.isoformat()
+        assert body["updated_at"] == CREATED_AT.isoformat()
+
+        assert len(body["position_history"]) == 1
+        snapshot = body["position_history"][0]
+        assert snapshot["timestamp"] == CREATED_AT.isoformat()
+        assert {position["symbol"] for position in snapshot["positions"]} == {
+            "AAPL",
+            "MSFT",
+        }
+
+        current_weights = body["positions_current_weight"]
+        assert set(current_weights) == {"AAPL", "MSFT"}
+        assert sum(current_weights.values()) == pytest.approx(1.0)
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
 def test_model_portfolio_route_update_description_visibility_positions_workflow(
     model_portfolio_repository: ModelPortfolioRepository,
     model_portfolio_access_repository: ModelPortfolioAccessRepository,
@@ -505,12 +662,14 @@ def test_model_portfolio_route_update_description_visibility_positions_workflow(
     )
 
     try:
-        description_response = client.put(
-            f"/model-portfolios/{portfolio_id}",
-            json=_update_payload(
+        description_response = _put_model_portfolio_at(
+            client=client,
+            portfolio_id=portfolio_id,
+            payload=_update_payload(
                 description="Route updated description",
                 visibility="PRIVATE",
             ),
+            update_time=CREATED_AT.replace(minute=2),
         )
         assert description_response.status_code == 201
         after_description = client.get(f"/model-portfolios/{portfolio_id}").json()
@@ -518,12 +677,14 @@ def test_model_portfolio_route_update_description_visibility_positions_workflow(
         assert len(after_description["position_history"]) == 1
         assert queue_recorder.calls == []
 
-        visibility_response = client.put(
-            f"/model-portfolios/{portfolio_id}",
-            json=_update_payload(
+        visibility_response = _put_model_portfolio_at(
+            client=client,
+            portfolio_id=portfolio_id,
+            payload=_update_payload(
                 description="Route updated description",
                 visibility="PUBLIC",
             ),
+            update_time=CREATED_AT.replace(minute=4),
         )
         assert visibility_response.status_code == 201
         after_visibility = client.get(f"/model-portfolios/{portfolio_id}").json()
@@ -531,9 +692,10 @@ def test_model_portfolio_route_update_description_visibility_positions_workflow(
         assert len(after_visibility["position_history"]) == 1
         assert queue_recorder.calls == []
 
-        positions_response = client.put(
-            f"/model-portfolios/{portfolio_id}",
-            json=_update_payload(
+        positions_response = _put_model_portfolio_at(
+            client=client,
+            portfolio_id=portfolio_id,
+            payload=_update_payload(
                 description="Route updated description",
                 visibility="PUBLIC",
                 positions=[
@@ -541,6 +703,7 @@ def test_model_portfolio_route_update_description_visibility_positions_workflow(
                     _position(symbol="MSFT", target_weight=0.4),
                 ],
             ),
+            update_time=CREATED_AT.replace(minute=6),
         )
         assert positions_response.status_code == 201
         after_positions = client.get(f"/model-portfolios/{portfolio_id}").json()
@@ -550,6 +713,56 @@ def test_model_portfolio_route_update_description_visibility_positions_workflow(
         assert queue_recorder.calls[0]["portfolio_snapshot_id"] == (
             after_positions["position_history"][-1]["snapshot_id"]
         )
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_model_portfolio_route_no_op_update_does_not_snapshot_or_queue_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    """Return successfully for unchanged updates without side effects."""
+    queue_recorder = QueueRecorder()
+    client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+        queue_recorder=queue_recorder,
+    )
+    portfolio_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-no-op-{uuid4()}",
+        visibility="PRIVATE",
+        description="No-op route portfolio",
+    )
+
+    try:
+        before = client.get(f"/model-portfolios/{portfolio_id}").json()
+        response = client.put(
+            f"/model-portfolios/{portfolio_id}",
+            json=_update_payload(
+                description="No-op route portfolio",
+                visibility="PRIVATE",
+            ),
+        )
+        after = client.get(f"/model-portfolios/{portfolio_id}").json()
+
+        assert response.status_code == 201
+        assert after["updated_at"] == before["updated_at"]
+        assert after["position_history"] == before["position_history"]
+        assert queue_recorder.calls == []
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,
@@ -752,10 +965,107 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
             json={"cognito_user_id": test_user_2.cognito_user_id},
         )
         assert remove_response.status_code == 200
-        assert owner_client.get(f"/model-portfolios/{portfolio_id}/accesses").json() == []
+        assert (
+            owner_client.get(f"/model-portfolios/{portfolio_id}/accesses").json() == []
+        )
+        shared_after_remove = shared_client.get("/model-portfolios/shared-with-me")
+        assert shared_after_remove.status_code == 200
+        assert portfolio_id not in {
+            portfolio["portfolio_id"] for portfolio in shared_after_remove.json()
+        }
 
         denied_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
         assert denied_after_remove.status_code == 403
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_model_portfolio_route_shared_with_me_excludes_public_only_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    """Do not list public-only portfolios as explicitly shared with the viewer."""
+    public_client = _client_for_user(
+        test_user=test_user_2,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    portfolio_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-public-only-{uuid4()}",
+        visibility="PUBLIC",
+    )
+
+    try:
+        direct_response = public_client.get(f"/model-portfolios/{portfolio_id}")
+        shared_response = public_client.get("/model-portfolios/shared-with-me")
+
+        assert direct_response.status_code == 200
+        assert shared_response.status_code == 200
+        assert portfolio_id not in {
+            portfolio["portfolio_id"] for portfolio in shared_response.json()
+        }
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_model_portfolio_route_access_email_whitespace_normalization_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    """Trim access email input and persist the authenticated email address."""
+    owner_client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    portfolio_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-access-email-{uuid4()}",
+        visibility="PRIVATE",
+    )
+
+    try:
+        add_response = owner_client.post(
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"email_address": f"  {test_user_2.email_address}  "},
+        )
+        accesses_response = owner_client.get(
+            f"/model-portfolios/{portfolio_id}/accesses"
+        )
+
+        assert add_response.status_code == 201
+        assert accesses_response.status_code == 200
+        assert {
+            "cognito_user_id": test_user_2.cognito_user_id,
+            "email_address": test_user_2.email_address,
+        } in accesses_response.json()
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,
@@ -817,6 +1127,19 @@ def test_model_portfolio_route_access_error_workflow(
         )
         assert empty_email.status_code == 422
 
+        missing_email_user = owner_client.post(
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"email_address": f"missing-{uuid4()}@example.invalid"},
+        )
+        assert missing_email_user.status_code == 403
+
+        missing_cognito_user = owner_client.request(
+            "DELETE",
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"cognito_user_id": str(uuid4())},
+        )
+        assert missing_cognito_user.status_code == 403
+
         not_found_remove = owner_client.request(
             "DELETE",
             f"/model-portfolios/{portfolio_id}/accesses",
@@ -842,6 +1165,82 @@ def test_model_portfolio_route_access_error_workflow(
             json={"cognito_user_id": test_user_2.cognito_user_id},
         )
         assert follower_remove.status_code == 409
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_model_portfolio_route_private_to_public_keeps_read_after_access_removed_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    """Allow shared readers to continue reading after private portfolio becomes public."""
+    owner_client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+        queue_recorder=QueueRecorder(),
+    )
+    shared_client = _client_for_user(
+        test_user=test_user_2,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+    portfolio_id = _create_portfolio_direct(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        portfolio_name=f"workflow-private-public-{uuid4()}",
+        visibility="PRIVATE",
+        description="Private to public workflow",
+    )
+
+    try:
+        add_response = owner_client.post(
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"email_address": test_user_2.email_address},
+        )
+        assert add_response.status_code == 201
+        assert shared_client.get(f"/model-portfolios/{portfolio_id}").status_code == 200
+
+        update_response = _put_model_portfolio_at(
+            client=owner_client,
+            portfolio_id=portfolio_id,
+            payload=_update_payload(
+                description="Private to public workflow",
+                visibility="PUBLIC",
+            ),
+            update_time=CREATED_AT.replace(minute=2),
+        )
+        assert update_response.status_code == 201
+
+        remove_response = owner_client.request(
+            "DELETE",
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"cognito_user_id": test_user_2.cognito_user_id},
+        )
+        assert remove_response.status_code == 200
+
+        shared_after_remove = shared_client.get("/model-portfolios/shared-with-me")
+        direct_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
+
+        assert shared_after_remove.status_code == 200
+        assert portfolio_id not in {
+            portfolio["portfolio_id"] for portfolio in shared_after_remove.json()
+        }
+        assert direct_after_remove.status_code == 200
+        assert direct_after_remove.json()["visibility"] == "PUBLIC"
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,
