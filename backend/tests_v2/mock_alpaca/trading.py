@@ -89,7 +89,14 @@ class MockSQSClient:
                 raise TimeoutError("Mock SQS did not finish processing before timeout.")
             sleep(0.01)
         if self.processing_errors:
-            raise self.processing_errors[0]
+            raise self.processing_errors.pop(0)
+
+    def reset(self) -> None:
+        """Clear queued/processed mock SQS state between integrated tests."""
+        with self._processor_lock:
+            self.messages.clear()
+            self.processed_messages.clear()
+            self.processing_errors.clear()
 
     def receive_message(
         self,
@@ -500,6 +507,10 @@ def build_mock_alpaca_broker_client(
         state["positions"][alpaca_account_id].clear()
         return True
 
+    def reset_trading_state() -> None:
+        state["positions"].clear()
+        state["orders"].clear()
+
     def get_orders_for_account(
         account_id: str,
         filter: GetOrdersRequest | None = None,
@@ -541,6 +552,7 @@ def build_mock_alpaca_broker_client(
     mock.get_latest_price.side_effect = get_latest_price
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position
+    mock.reset_trading_state = reset_trading_state
     mock.client.get_orders_for_account.side_effect = get_orders_for_account
     mock.client.cancel_order_for_account_by_id.side_effect = cancel_order_for_account_by_id
     mock.get_stock_by_asset_id.side_effect = get_stock_by_asset_id

@@ -237,15 +237,15 @@ def get_optional_allocation_owner(
         ) from err
 
 
-def get_optional_portfolio_allocation_owner(
-    *,
-    allocation_id: str,
-    cognito_user_id: str,
-    allocation_repository: AllocationRepository,
-) -> Optional[PortfolioAllocation | StockAllocation]:
-    """Backward-compatible alias for allocation ownership checks."""
-    return get_optional_allocation_owner(
-        allocation_id=allocation_id,
-        cognito_user_id=cognito_user_id,
-        allocation_repository=allocation_repository,
-    )
+# def get_optional_portfolio_allocation_owner(
+#     *,
+#     allocation_id: str,
+#     cognito_user_id: str,
+#     allocation_repository: AllocationRepository,
+# ) -> Optional[PortfolioAllocation | StockAllocation]:
+#     """Backward-compatible alias for allocation ownership checks."""
+#     return get_optional_allocation_owner(
+#         allocation_id=allocation_id,
+#         cognito_user_id=cognito_user_id,
+#         allocation_repository=allocation_repository,
+#     )

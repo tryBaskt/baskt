@@ -1,7 +1,6 @@
 import os
 import pytest
 from typing import List, Dict, Any
-import uuid
 from core import deps as app_deps
 from core.config import get_settings
 from clients.alpaca_broker_client import AlpacaBrokerClient

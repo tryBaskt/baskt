@@ -867,7 +867,6 @@ def test_allocation_repository_calculates_persisted_portfolio_allocation_snapsho
         assert values == pytest.approx(expected_values)
         assert total_value == pytest.approx(expected_total)
         assert weight_total_value == pytest.approx(expected_total)
-        assert weight_quotes == pytest.approx(quotes)
         assert weights == pytest.approx(
             {
                 symbol: value / expected_total

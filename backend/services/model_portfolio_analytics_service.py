@@ -52,7 +52,7 @@ class ModelPortfolioAnalyticsService:
         """Resolve the market session represented by the 1D period.
 
         Args:
-            current_datetime: Timezone-aware timestamp used as "now."
+            current_datetime: UTC timestamp used as "now."
 
         Returns:
             Tuple[datetime, datetime]: UTC start and end timestamps. During a
@@ -60,19 +60,20 @@ class ModelPortfolioAnalyticsService:
             cover the most recent completed trading session.
 
         Raises:
-            ModelPortfolioAnalyticsInternalServerError: If current_datetime is naive
-            or Alpaca returns no usable recent market session.
+            ModelPortfolioAnalyticsInternalServerError: If current_datetime is
+            not timezone-aware UTC or Alpaca returns no usable recent market
+            session.
         """
         if (
             current_datetime.tzinfo is None
-            or current_datetime.utcoffset() is None
+            or current_datetime.utcoffset() != timedelta(0)
         ):
             raise ModelPortfolioAnalyticsInternalServerError(
-                message="current_datetime must be timezone-aware",
+                message="current_datetime must be timezone-aware UTC",
                 code="MODEL_PORTFOLIO_ANALYTICS_TIMEZONE_REQUIRED",
             )
 
-        current_utc = current_datetime.astimezone(timezone.utc)
+        current_utc = current_datetime
         market_timezone = ZoneInfo("America/New_York")
         current_market_date = current_utc.astimezone(market_timezone).date()
         sessions = self.asset_analytics_service.get_market_calendar(
@@ -84,10 +85,11 @@ class ModelPortfolioAnalyticsService:
         for session in sessions:
             session_open = session.open
             session_close = session.close
-            if session_open.tzinfo is None:
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
                 session_open = session_open.replace(tzinfo=market_timezone)
-            if session_close.tzinfo is None:
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
                 session_close = session_close.replace(tzinfo=market_timezone)
+
             normalized_sessions.append(
                 (
                     session_open.astimezone(timezone.utc),
@@ -143,12 +145,22 @@ class ModelPortfolioAnalyticsService:
                 symbols=symbols,
                 timestamp=end_datetime,
             )
-            symbol_prices_start = (
-                symbol_prices_start_df.set_index("symbol")["price"].to_dict()
-            )
-            symbol_prices_end = (
-                symbol_prices_end_df.set_index("symbol")["price"].to_dict()
-            )
+            symbol_prices_start = {
+                str(symbol): float(price)
+                for symbol, price in (
+                    symbol_prices_start_df.set_index("symbol")["price"]
+                    .to_dict()
+                    .items()
+                )
+            }
+            symbol_prices_end = {
+                str(symbol): float(price)
+                for symbol, price in (
+                    symbol_prices_end_df.set_index("symbol")["price"]
+                    .to_dict()
+                    .items()
+                )
+            }
 
             start_position_values: Dict[str, float] = {}
             end_position_values: Dict[str, float] = {}
