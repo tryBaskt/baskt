@@ -77,6 +77,8 @@ Coverage goals:
   portfolio can withdraw after it becomes private; withdraw-all removes their
   follower relationship and therefore their implicit access. The owner never
   grants explicit access in that case.
+- Authentication: token Alpaca-account mismatches and unknown token Cognito user
+  ids are rejected by the real Baskt account auth dependency before queueing.
 
 Every portfolio, follower, access, allocation, order, and trade-lock item
 created here is cleaned up in finally blocks. Live mode also attempts to cancel
@@ -156,6 +158,20 @@ def _claims_for_user(test_user: Any) -> dict[str, str]:
     }
 
 
+def _claims_with_mismatched_alpaca_account(test_user: Any) -> dict[str, str]:
+    return {
+        "sub": test_user.cognito_user_id,
+        "custom:alpaca_acct_id": f"tests-v2-wrong-alpaca-{uuid4()}",
+    }
+
+
+def _claims_with_mismatched_cognito_user_id(test_user: Any) -> dict[str, str]:
+    return {
+        "sub": f"tests-v2-wrong-cognito-{uuid4()}",
+        "custom:alpaca_acct_id": test_user.alpaca_account_id,
+    }
+
+
 def _client_for_user(
     *,
     test_user: Any,
@@ -210,6 +226,43 @@ def _client_for_user(
     app.dependency_overrides[model_portfolio_route.get_baskt_account_repository] = (
         lambda: baskt_account_repository
     )
+    app.dependency_overrides[get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
+    return TestClient(app)
+
+
+def _client_for_claims(
+    *,
+    claims: dict[str, str],
+    trade_execution_queuing_service: TradeExecutionQueuingService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    allocation_repository: AllocationRepository,
+    baskt_account_repository: BasktAccountRepository,
+) -> TestClient:
+    app = FastAPI()
+    app.include_router(trade_execution_route.router)
+    app.dependency_overrides[get_current_user] = lambda: claims
+    app.dependency_overrides[
+        trade_execution_route.get_trade_execution_queuing_service
+    ] = lambda: trade_execution_queuing_service
+    app.dependency_overrides[get_trade_execution_queuing_service] = (
+        lambda: trade_execution_queuing_service
+    )
+    app.dependency_overrides[trade_execution_route.get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    app.dependency_overrides[get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    app.dependency_overrides[
+        trade_execution_route.get_model_portfolio_access_repository
+    ] = lambda: model_portfolio_access_repository
+    app.dependency_overrides[get_model_portfolio_access_repository] = (
+        lambda: model_portfolio_access_repository
+    )
+    app.dependency_overrides[get_allocation_repository] = lambda: allocation_repository
     app.dependency_overrides[get_baskt_account_repository] = (
         lambda: baskt_account_repository
     )
@@ -292,17 +345,11 @@ def _make_private(
 def _stock_asset_id(
     *,
     trade_execution_service: TradeExecutionService,
-    sqs_client: Any,
     symbol: str = "AAPL",
 ) -> str:
-    if _is_mock_sqs(sqs_client):
-        return str(uuid4())
-    try:
-        return trade_execution_service.alpaca_broker_client.get_stock_by_symbol(
-            symbol=symbol
-        ).stock_id
-    except Exception:
-        return str(uuid4())
+    return trade_execution_service.alpaca_broker_client.get_stock_by_symbol(
+        symbol=symbol
+    ).stock_id
 
 
 def _is_mock_sqs(sqs_client: Any) -> bool:
@@ -598,6 +645,51 @@ def _delete_model_portfolio(
 
 
 @pytest.mark.parametrize(
+    ("claims_factory", "expected_detail"),
+    [
+        (
+            _claims_with_mismatched_alpaca_account,
+            "Authenticated user's Alpaca account does not match Baskt account.",
+        ),
+        (
+            _claims_with_mismatched_cognito_user_id,
+            "Authenticated user does not have a Baskt account.",
+        ),
+    ],
+)
+def test_trade_execution_route_rejects_token_account_claim_mismatches(
+    claims_factory: Any,
+    expected_detail: str,
+    trade_execution_service: TradeExecutionService,
+    trade_execution_queuing_service: TradeExecutionQueuingService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    allocation_repository: AllocationRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    asset_id = _stock_asset_id(
+        trade_execution_service=trade_execution_service,
+    )
+    client = _client_for_claims(
+        claims=claims_factory(test_user_1),
+        trade_execution_queuing_service=trade_execution_queuing_service,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        allocation_repository=allocation_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+
+    response = client.post(
+        f"/trade-execution/stocks/{asset_id}/buy",
+        json={"amount": 100.0},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == expected_detail
+
+
+@pytest.mark.parametrize(
     ("path", "payload"),
     [
         ("/trade-execution/portfolios/portfolio-1/deposit", {}),
@@ -736,7 +828,6 @@ def test_trade_execution_route_rejects_inactive_alpaca_account(
         )
         asset_id = _stock_asset_id(
             trade_execution_service=trade_execution_service,
-            sqs_client=trade_execution_queuing_service.sqs_client,
         )
         baskt_account = _baskt_account(
             account_lifecycle_service=account_lifecycle_service,
@@ -951,7 +1042,6 @@ def test_trade_execution_stock_buy_sell_and_close_workflow(
 ) -> None:
     asset_id = _stock_asset_id(
         trade_execution_service=trade_execution_service,
-        sqs_client=sqs_client,
     )
     try:
         baskt_account = _baskt_account(

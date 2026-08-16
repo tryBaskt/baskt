@@ -379,8 +379,7 @@ class EmptyBasktAccountRepository:
         return f"display-{cognito_user_id}"
 
 
-def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
-    viewer_cognito_user_id = _viewer_cognito_user_id()
+def test_model_portfolio_search_does_not_filter_by_visibility_or_access() -> None:
     client = CapturingOpenSearchClient()
     service = ExploreSearchService(
         opensearch_client=client,
@@ -391,22 +390,7 @@ def test_model_portfolio_search_filters_to_user_visible_portfolios() -> None:
 
     result = service.search_model_portfolios(
         query="growth",
-        cognito_user_id=viewer_cognito_user_id,
-        shared_portfolio_ids=["shared-portfolio-1", "shared-portfolio-2"],
     )
 
     assert result.model_portfolios == []
-    visibility_filter = client.last_body["query"]["bool"]["filter"][0]["bool"]
-    assert visibility_filter["minimum_should_match"] == 1
-    assert visibility_filter["should"] == [
-        {"term": {"visibility": "PUBLIC"}},
-        {"term": {"portfolio_owner_cognito_user_id": viewer_cognito_user_id}},
-        {
-            "terms": {
-                "portfolio_id": [
-                    "shared-portfolio-1",
-                    "shared-portfolio-2",
-                ]
-            }
-        },
-    ]
+    assert "filter" not in client.last_body["query"]["bool"]

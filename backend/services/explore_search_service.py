@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
 from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
@@ -64,8 +64,6 @@ class ExploreSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
-        cognito_user_id: str | None = None,
-        shared_portfolio_ids: Sequence[str] | None = None,
     ) -> Any:
         """Search model portfolios and stocks using the same query.
 
@@ -87,8 +85,6 @@ class ExploreSearchService:
                 query=query,
                 limit=limit,
                 offset=offset,
-                cognito_user_id=cognito_user_id,
-                shared_portfolio_ids=shared_portfolio_ids,
             ),
             "stocks_search_result": self.search_stocks(query=query),
             "baskt_accounts_opensearch_result": self.search_baskt_accounts(
@@ -264,8 +260,6 @@ class ExploreSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
-        cognito_user_id: str | None = None,
-        shared_portfolio_ids: Sequence[str] | None = None,
     ) -> ModelPortfoliosOpenSearchResult:
         """Search model portfolios by portfolio name or description.
 
@@ -306,31 +300,6 @@ class ExploreSearchService:
             )
 
         try:
-            visibility_should: List[Dict[str, Any]] = [
-                {"term": {"visibility": "PUBLIC"}},
-            ]
-            normalized_cognito_user_id = str(cognito_user_id or "").strip()
-            if normalized_cognito_user_id:
-                visibility_should.append(
-                    {
-                        "term": {
-                            "portfolio_owner_cognito_user_id": (
-                                normalized_cognito_user_id
-                            )
-                        }
-                    }
-                )
-
-            normalized_shared_portfolio_ids = [
-                str(portfolio_id).strip()
-                for portfolio_id in (shared_portfolio_ids or [])
-                if str(portfolio_id).strip()
-            ]
-            if normalized_shared_portfolio_ids:
-                visibility_should.append(
-                    {"terms": {"portfolio_id": normalized_shared_portfolio_ids}}
-                )
-
             search_body = {
                 "from": offset,
                 "size": limit,
@@ -346,14 +315,6 @@ class ExploreSearchService:
                 ],
                 "query": {
                     "bool": {
-                        "filter": [
-                            {
-                                "bool": {
-                                    "should": visibility_should,
-                                    "minimum_should_match": 1,
-                                }
-                            },
-                        ],
                         "should": [
                             {
                                 "match_phrase_prefix": {

@@ -81,6 +81,8 @@ Coverage goals:
   persisted portfolio with more than seven snapshots and a start time more than
   one year before the deterministic analytics clock, including metric
   verification from the returned cumulative-return series.
+- Authentication workflow: token Alpaca-account mismatches and unknown token
+  Cognito user ids are rejected by the real Baskt account auth dependency.
 
 Every portfolio, access, follower, and update-lock item created here is cleaned
 up in finally blocks.
@@ -137,6 +139,20 @@ def _claims_for_user(test_user: Any) -> dict[str, str]:
     }
 
 
+def _claims_with_mismatched_alpaca_account(test_user: Any) -> dict[str, str]:
+    return {
+        "sub": test_user.cognito_user_id,
+        "custom:alpaca_acct_id": f"tests-v2-wrong-alpaca-{uuid4()}",
+    }
+
+
+def _claims_with_mismatched_cognito_user_id(test_user: Any) -> dict[str, str]:
+    return {
+        "sub": f"tests-v2-wrong-cognito-{uuid4()}",
+        "custom:alpaca_acct_id": test_user.alpaca_account_id,
+    }
+
+
 def _client_for_user(
     *,
     test_user: Any,
@@ -181,6 +197,37 @@ def _client_for_user(
             model_portfolio_route.get_trade_execution_queuing_service
         ] = lambda: queue_recorder
 
+    return TestClient(app)
+
+
+def _client_for_claims(
+    *,
+    claims: dict[str, str],
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    baskt_account_repository: BasktAccountRepository,
+) -> TestClient:
+    app = FastAPI()
+    app.include_router(model_portfolio_route.router)
+    app.dependency_overrides[get_current_user] = lambda: claims
+    app.dependency_overrides[model_portfolio_route.get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    app.dependency_overrides[
+        model_portfolio_route.get_model_portfolio_access_repository
+    ] = lambda: model_portfolio_access_repository
+    app.dependency_overrides[model_portfolio_route.get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
+    app.dependency_overrides[get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    app.dependency_overrides[get_model_portfolio_access_repository] = (
+        lambda: model_portfolio_access_repository
+    )
+    app.dependency_overrides[get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
     return TestClient(app)
 
 
@@ -598,6 +645,48 @@ def _assert_analytics_period_metrics(period_response: dict[str, Any]) -> None:
         metric_value = period_response[metric_name]
         if metric_value is not None:
             assert math.isfinite(metric_value)
+
+
+def test_model_portfolio_route_rejects_token_alpaca_account_mismatch(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    client = _client_for_claims(
+        claims=_claims_with_mismatched_alpaca_account(test_user_1),
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+
+    response = client.get("/model-portfolios")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Authenticated user's Alpaca account does not match Baskt account."
+    )
+
+
+def test_model_portfolio_route_rejects_token_cognito_user_mismatch(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    client = _client_for_claims(
+        claims=_claims_with_mismatched_cognito_user_id(test_user_1),
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+    )
+
+    response = client.get("/model-portfolios")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Authenticated user does not have a Baskt account."
+    )
 
 
 def test_model_portfolio_route_create_and_list_owned_public_and_private_workflow(

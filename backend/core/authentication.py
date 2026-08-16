@@ -112,6 +112,13 @@ def get_current_baskt_account(
             detail="Failed to verify Baskt account.",
         ) from err
 
+    persisted_cognito_user_id = str(baskt_account.cognito_user_id or "").strip()
+    if persisted_cognito_user_id != cognito_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated user does not match Baskt account.",
+        )
+
     persisted_alpaca_account_id = str(baskt_account.alpaca_account_id or "").strip()
     if persisted_alpaca_account_id != token_alpaca_account_id:
         raise HTTPException(

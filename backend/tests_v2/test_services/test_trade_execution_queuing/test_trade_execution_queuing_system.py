@@ -1,13 +1,11 @@
-import uuid
 from time import sleep
-
+import uuid
 import pytest
 
 from typing import List, Dict
 
 from alpaca.trading.models import Order
 
-from backend.tests_v2.mock_alpaca.trading import MockSQSClient
 from .conftest import (
     TestEngine, 
 )
@@ -20,9 +18,7 @@ def pause_between_test_cases():
 
 
 def _stock_asset_id(test_engine: TestEngine, symbol: str) -> str:
-    """Use generated IDs for mocks and Alpaca's real asset ID for AWS tests."""
-    if isinstance(test_engine.sqs_client, MockSQSClient):
-        return str(uuid.uuid4())
+    """Use Alpaca's real asset ID in both live and mock trade modes."""
     return test_engine.alpaca_broker_client.get_stock_by_symbol(
         symbol=symbol
     ).stock_id

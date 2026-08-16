@@ -48,7 +48,7 @@ class StockAnalyticsService:
         """Resolve the market session represented by the 1D period.
 
         Args:
-            current_datetime: Timezone-aware timestamp used as "now."
+            current_datetime: Timezone-aware UTC timestamp used as "now."
 
         Returns:
             Tuple[datetime, datetime]: UTC start and end timestamps. During a
@@ -56,19 +56,19 @@ class StockAnalyticsService:
             cover the most recent completed trading session.
 
         Raises:
-            StockAnalyticsInternalServerError: If current_datetime is naive
-            or Alpaca returns no usable recent market session.
+            StockAnalyticsInternalServerError: If current_datetime is not
+            timezone-aware UTC or Alpaca returns no usable recent market session.
         """
         if (
             current_datetime.tzinfo is None
-            or current_datetime.utcoffset() is None
+            or current_datetime.utcoffset() != timedelta(0)
         ):
             raise StockAnalyticsInternalServerError(
-                message="current_datetime must be timezone-aware",
+                message="current_datetime must be timezone-aware UTC",
                 code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
             )
 
-        current_utc = current_datetime.astimezone(timezone.utc)
+        current_utc = current_datetime
         market_timezone = ZoneInfo("America/New_York")
         current_market_date = current_utc.astimezone(market_timezone).date()
         sessions = self.asset_analytics_service.get_market_calendar(
@@ -80,9 +80,9 @@ class StockAnalyticsService:
         for session in sessions:
             session_open = session.open
             session_close = session.close
-            if session_open.tzinfo is None:
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
                 session_open = session_open.replace(tzinfo=market_timezone)
-            if session_close.tzinfo is None:
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
                 session_close = session_close.replace(tzinfo=market_timezone)
             normalized_sessions.append(
                 (
@@ -122,7 +122,7 @@ class StockAnalyticsService:
 
         Args:
             symbol: Identifier of the stock.
-            current_datetime: Timezone-aware analytics endpoint.
+            current_datetime: Timezone-aware UTC analytics endpoint.
             earliest_price_datetime: Earliest available stock price timestamp.
             period: Period label included in the response.
             delta: Lookback duration used to select snapshots.
@@ -137,13 +137,15 @@ class StockAnalyticsService:
             missing or the period cannot be simulated.
             AssetAnalyticsInternalServerError: If market data cannot be fetched.
         """
-        if current_datetime.tzinfo is None or current_datetime.utcoffset() is None:
+        if (
+            current_datetime.tzinfo is None
+            or current_datetime.utcoffset() != timedelta(0)
+        ):
             raise StockAnalyticsInternalServerError(
-                message="current_datetime must be timezone-aware",
+                message="current_datetime must be timezone-aware UTC",
                 code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
             )
 
-        current_datetime = current_datetime.astimezone(timezone.utc)
         earliest_price_datetime = earliest_price_datetime.astimezone(timezone.utc)
         period_start_datetime = current_datetime - delta
         period_end_datetime = current_datetime
@@ -300,9 +302,12 @@ class StockAnalyticsService:
         current_datetime: datetime,
     ) -> datetime:
         """Find the earliest available daily price timestamp for a stock."""
-        if current_datetime.tzinfo is None or current_datetime.utcoffset() is None:
+        if (
+            current_datetime.tzinfo is None
+            or current_datetime.utcoffset() != timedelta(0)
+        ):
             raise StockAnalyticsInternalServerError(
-                message="current_datetime must be timezone-aware",
+                message="current_datetime must be timezone-aware UTC",
                 code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
             )
 
@@ -310,7 +315,7 @@ class StockAnalyticsService:
             prices_df = self.asset_analytics_service.get_prices_over_time(
                 symbols=[symbol],
                 start_datetime=datetime(1970, 1, 1, tzinfo=timezone.utc),
-                end_datetime=current_datetime.astimezone(timezone.utc),
+                end_datetime=current_datetime,
                 timeframe="1D",
                 source="yfinance",
             )
@@ -370,6 +375,14 @@ class StockAnalyticsService:
         try:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
+            if (
+                current_datetime.tzinfo is None
+                or current_datetime.utcoffset() != timedelta(0)
+            ):
+                raise StockAnalyticsInternalServerError(
+                    message="current_datetime must be timezone-aware UTC",
+                    code="STOCK_ANALYTICS_TIMEZONE_REQUIRED",
+                )
 
             earliest_price_datetime = self.get_earliest_price_datetime(
                 symbol=symbol,

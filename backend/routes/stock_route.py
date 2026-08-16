@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
 from core.authentication import get_current_baskt_account
@@ -44,6 +44,13 @@ def get_stock(
 ) -> StockResponse:
     """Return Alpaca stock metadata by Alpaca asset id."""
     try:
+        stock_id = str(stock_id).strip()
+        if not stock_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="stock_id is required.",
+            )
+        
         stock = alpaca_broker_client.get_stock_by_asset_id(asset_id=stock_id)
         return StockResponse(
             symbol=stock.symbol,
@@ -66,6 +73,13 @@ def get_stock_analytics(
 ) -> StockAnalyticsResponse:
     """Return standard-period performance analytics for one stock symbol."""
     try:
+        symbol = str(symbol).strip().upper()
+        if not symbol:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="symbol is required.",
+            )
+    
         return StockAnalyticsResponse(
             root=service.get_stock_bars(symbol=symbol.upper())
         )

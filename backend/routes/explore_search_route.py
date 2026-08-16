@@ -6,16 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 
 from core.authentication import get_current_baskt_account
-from core.deps import (
-    get_explore_search_service,
-    get_model_portfolio_access_repository,
-)
+from core.deps import get_explore_search_service
 from domain.baskt_account_domain import BasktAccount
-from repository.model_portfolio_access_repository import (
-    ModelPortfolioAccessBadGatewayError,
-    ModelPortfolioAccessRepository,
-    ModelPortfolioAccessRepositoryError,
-)
 from schema.explore_search_schema import (
     BasktAccountOpenSearchResultResponse,
     BasktAccountsOpenSearchResultResponse,
@@ -68,18 +60,6 @@ def _raise_search_http_exception(error: Exception) -> None:
             detail={"message": str(error), "code": error.code},
         ) from error
 
-    if isinstance(error, ModelPortfolioAccessBadGatewayError):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"message": str(error), "code": error.code},
-        ) from error
-
-    if isinstance(error, ModelPortfolioAccessRepositoryError):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": str(error), "code": error.code},
-        ) from error
-
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={
@@ -102,9 +82,6 @@ def search_model_portfolios_and_stocks(
     service: ExploreSearchService = Depends(
         get_explore_search_service
     ),
-    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
-        get_model_portfolio_access_repository
-    ),
 ) -> ExploreSearchOpenSearchResponse:
     """Search model portfolios and stocks for an authenticated user.
 
@@ -112,7 +89,8 @@ def search_model_portfolios_and_stocks(
         query: Model portfolio text query and exact stock ticker symbol.
         limit: Maximum number of model portfolio matches to return.
         offset: Number of model portfolio matches to skip.
-        user: Authenticated Cognito claims resolved by dependency injection.
+        baskt_account: Authenticated Baskt account resolved by dependency
+            injection.
         service: Model portfolio and stock search service dependency.
 
     Returns:
@@ -123,22 +101,11 @@ def search_model_portfolios_and_stocks(
         HTTPException: If request validation or either search operation fails.
     """
     try:
-        shared_accesses = (
-            model_portfolio_access_repository.get_accesses_shared_with_user(
-                shared_with_cognito_user_id=baskt_account.cognito_user_id,
-            )
-        )
-        shared_portfolio_ids = [
-            str(access["portfolio_id"])
-            for access in shared_accesses
-            if access.get("portfolio_id")
-        ]
+        del baskt_account
         search_response = service.search_model_portfolios_and_stocks(
             query=query,
             limit=limit,
             offset=offset,
-            cognito_user_id=baskt_account.cognito_user_id,
-            shared_portfolio_ids=shared_portfolio_ids,
         )
         model_portfolios_response = search_response[
             "model_portfolios_opensearch_result"

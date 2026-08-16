@@ -12,6 +12,7 @@ from backend.tests_v2.mock_alpaca.trading import (
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
+from clients.opensearch_client import OpenSearchClient
 from clients.vectorbt_client import VectorBTClient
 from clients.yfinance_client import YFinanceClient
 from core import deps as app_deps
@@ -31,9 +32,11 @@ from repository.order_repository import OrderRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from services.account_lifecycle_service import AccountLifecycleService
 from services.asset_analytics_service import AssetAnalyticsService
+from services.explore_search_service import ExploreSearchService
 from services.model_portfolio_analytics_service import (
     ModelPortfolioAnalyticsService,
 )
+from services.stock_analytics_service import StockAnalyticsService
 from services.trade_execution_queuing_service import TradeExecutionQueuingService
 from services.trade_execution_service import TradeExecutionService
 
@@ -73,6 +76,11 @@ def sqs_client(request) -> Any:
 @pytest.fixture(scope="session")
 def cognito_client() -> CognitoClient:
     return app_deps.get_cognito_client()
+
+
+@pytest.fixture(scope="session")
+def opensearch_client() -> OpenSearchClient:
+    return app_deps.get_opensearch_client()
 
 
 @pytest.fixture(scope="session")
@@ -315,4 +323,26 @@ def model_portfolio_analytics_service(
     return app_deps.get_model_portfolio_analytics_service(
         model_portfolio_repository=model_portfolio_repository,
         asset_analytics_service=asset_analytics_service,
+    )
+
+
+@pytest.fixture(scope="session")
+def stock_analytics_service(
+    asset_analytics_service: AssetAnalyticsService,
+) -> StockAnalyticsService:
+    return app_deps.get_stock_analytics_service(
+        asset_analytics_service=asset_analytics_service,
+    )
+
+
+@pytest.fixture(scope="session")
+def explore_search_service(
+    opensearch_client: OpenSearchClient,
+    alpaca_broker_client: AlpacaBrokerClient,
+    baskt_account_repository: BasktAccountRepository,
+) -> ExploreSearchService:
+    return app_deps.get_explore_search_service(
+        opensearch_client=opensearch_client,
+        alpaca_broker_client=alpaca_broker_client,
+        baskt_account_repository=baskt_account_repository,
     )

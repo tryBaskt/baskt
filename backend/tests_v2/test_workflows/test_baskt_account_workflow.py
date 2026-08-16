@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from core.authentication import get_current_baskt_account
+from core.authentication import get_current_baskt_account, get_current_user
 from core.deps import (
     get_baskt_account_repository,
     get_model_portfolio_repository,
@@ -55,6 +55,8 @@ Coverage goals:
 - get_baskt_account_profile(): return 404 for unknown profile accounts and 400
   for blank/whitespace profile_cognito_user_id values.
 - Authentication: unauthenticated requests are rejected by the auth dependency.
+- Authentication: token Alpaca-account mismatches and unknown token Cognito user
+  ids are rejected by the real Baskt account auth dependency.
 
 Every synthetic account and model portfolio created here is cleaned up in
 finally blocks.
@@ -78,6 +80,44 @@ def _client_for_viewer(
     app.dependency_overrides[get_current_baskt_account] = (
         lambda: viewer_baskt_account
     )
+    app.dependency_overrides[
+        baskt_account_route.get_baskt_account_repository
+    ] = lambda: baskt_account_repository
+    app.dependency_overrides[get_baskt_account_repository] = (
+        lambda: baskt_account_repository
+    )
+    app.dependency_overrides[
+        baskt_account_route.get_model_portfolio_repository
+    ] = lambda: model_portfolio_repository
+    app.dependency_overrides[get_model_portfolio_repository] = (
+        lambda: model_portfolio_repository
+    )
+    return TestClient(app)
+
+
+def _claims_with_mismatched_alpaca_account(account: BasktAccount) -> dict[str, str]:
+    return {
+        "sub": account.cognito_user_id,
+        "custom:alpaca_acct_id": f"tests-v2-wrong-alpaca-{uuid4()}",
+    }
+
+
+def _claims_with_mismatched_cognito_user_id(account: BasktAccount) -> dict[str, str]:
+    return {
+        "sub": f"tests-v2-wrong-cognito-{uuid4()}",
+        "custom:alpaca_acct_id": account.alpaca_account_id,
+    }
+
+
+def _client_for_claims(
+    *,
+    claims: dict[str, str],
+    baskt_account_repository: BasktAccountRepository,
+    model_portfolio_repository: ModelPortfolioRepository,
+) -> TestClient:
+    app = FastAPI()
+    app.include_router(baskt_account_route.router)
+    app.dependency_overrides[get_current_user] = lambda: claims
     app.dependency_overrides[
         baskt_account_route.get_baskt_account_repository
     ] = lambda: baskt_account_repository
@@ -468,3 +508,47 @@ def test_baskt_account_profile_requires_authentication(
     response = client.get(f"/baskt-accounts/{test_user_1.cognito_user_id}/profile")
 
     assert response.status_code == 401
+
+
+def test_baskt_account_profile_rejects_token_alpaca_account_mismatch(
+    baskt_account_repository: BasktAccountRepository,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1: Any,
+) -> None:
+    viewer_account = baskt_account_repository.get_baskt_account(
+        cognito_user_id=test_user_1.cognito_user_id
+    )
+    client = _client_for_claims(
+        claims=_claims_with_mismatched_alpaca_account(viewer_account),
+        baskt_account_repository=baskt_account_repository,
+        model_portfolio_repository=model_portfolio_repository,
+    )
+
+    response = client.get(f"/baskt-accounts/{test_user_1.cognito_user_id}/profile")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Authenticated user's Alpaca account does not match Baskt account."
+    )
+
+
+def test_baskt_account_profile_rejects_token_cognito_user_mismatch(
+    baskt_account_repository: BasktAccountRepository,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1: Any,
+) -> None:
+    viewer_account = baskt_account_repository.get_baskt_account(
+        cognito_user_id=test_user_1.cognito_user_id
+    )
+    client = _client_for_claims(
+        claims=_claims_with_mismatched_cognito_user_id(viewer_account),
+        baskt_account_repository=baskt_account_repository,
+        model_portfolio_repository=model_portfolio_repository,
+    )
+
+    response = client.get(f"/baskt-accounts/{test_user_1.cognito_user_id}/profile")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Authenticated user does not have a Baskt account."
+    )

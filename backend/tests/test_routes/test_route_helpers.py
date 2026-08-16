@@ -138,18 +138,6 @@ def test_explore_search_error_mapping() -> None:
         status_code=502,
         code="SEARCH_FAILED",
     )
-    _assert_http_exception(
-        _raise_search_http_exception,
-        ModelPortfolioAccessBadGatewayError(operation="reading access"),
-        status_code=502,
-        code="MODEL_PORTFOLIO_ACCESS_BAD_GATEWAY",
-    )
-    _assert_http_exception(
-        _raise_search_http_exception,
-        ModelPortfolioAccessRepositoryError("access failed"),
-        status_code=500,
-        code="MODEL_PORTFOLIO_ACCESS_REPOSITORY_ERROR",
-    )
 
 
 def test_model_portfolio_error_mapping() -> None:

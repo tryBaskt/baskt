@@ -526,20 +526,6 @@ def build_mock_alpaca_broker_client(
         state["orders"][account_id][order_id] = order
         return True
 
-    def get_stock_by_asset_id(*, asset_id: str) -> Stock:
-        return Stock(
-            symbol="AAPL",
-            tradable=True,
-            fractionable=True,
-            shortable=True,
-            marginable=True,
-            stock_id=asset_id,
-            stock_class="US_EQUITY",
-        )
-
-    def get_symbol_by_asset_id(*, asset_id: str) -> str:
-        return get_stock_by_asset_id(asset_id=asset_id).symbol
-
     mock.execute_quantity_buy.side_effect = execute_quantity_buy
     mock.execute_quantity_sell.side_effect = execute_quantity_sell
     mock.execute_quantity_fractional_sell.side_effect = execute_quantity_fractional_sell
@@ -555,7 +541,5 @@ def build_mock_alpaca_broker_client(
     mock.reset_trading_state = reset_trading_state
     mock.client.get_orders_for_account.side_effect = get_orders_for_account
     mock.client.cancel_order_for_account_by_id.side_effect = cancel_order_for_account_by_id
-    mock.get_stock_by_asset_id.side_effect = get_stock_by_asset_id
-    mock.get_symbol_by_asset_id.side_effect = get_symbol_by_asset_id
 
     return mock
