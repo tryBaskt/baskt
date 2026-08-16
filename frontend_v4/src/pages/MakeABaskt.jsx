@@ -61,6 +61,15 @@ function normalizePosition(position) {
   };
 }
 
+function toBacktestPosition(position) {
+  return {
+    symbol: position.symbol,
+    weight: position.target_weight,
+    direction: position.direction,
+    leverage: position.leverage,
+  };
+}
+
 function formatWeightInputValue(targetWeight) {
   if (targetWeight === "") {
     return "";
@@ -223,7 +232,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
           body: JSON.stringify({
             start_date: backtestStartDate,
             end_date: backtestEndDate,
-            positions: validPositions,
+            positions: validPositions.map(toBacktestPosition),
           }),
         });
         setBacktest(payload);

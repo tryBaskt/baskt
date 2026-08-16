@@ -1,4 +1,4 @@
-# backend/api/routes/backtest.py
+# backend/routes/backtest_analytics_route.py
 
 # Python imports
 from __future__ import annotations
@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from core.authentication import get_current_baskt_account
 from core.deps import get_backtest_service
 from domain.baskt_account_domain import BasktAccount
-from schema.backtest_schema import BacktestAnalyticsResponse, BacktestRequest
+from schema.backtest_analytics_schema import BacktestAnalyticsResponse, BacktestRequest
 from schema.stock_schema import StockResponse, StocksResponse
 from services.backtest_analytics_service import (
     BacktestInternalServerError,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from routes.backtest_route import router as backtest_router
+from routes.backtest_analytics_route import router as backtest_router
 
 
 def test_tradeable_fractionable_assets_route_uses_real_dependencies(

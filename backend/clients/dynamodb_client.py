@@ -197,6 +197,56 @@ class DynamoDBClient:
                 code="DYNAMODB_SCAN_FAILED",
             )
         return response.get("Items", [])
+
+    def update_item(
+        self,
+        *,
+        key: Dict[str, Any],
+        update_expression: str,
+        expression_attribute_names: Optional[Dict[str, str]] = None,
+        expression_attribute_values: Optional[Dict[str, Any]] = None,
+        condition_expression: Any = None,
+        return_values: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update an item by primary key.
+
+        Args:
+            key: DynamoDB primary key map for the item to update.
+            update_expression: DynamoDB UpdateExpression, such as
+                ``SET #field = :value``.
+            expression_attribute_names: Optional placeholder-to-attribute map.
+            expression_attribute_values: Optional placeholder-to-value map.
+            condition_expression: Optional DynamoDB condition expression.
+            return_values: Optional ReturnValues setting, such as ``ALL_NEW``.
+
+        Returns:
+            Optional[Dict[str, Any]]: Returned attributes when requested,
+            otherwise None.
+        """
+        kwargs: Dict[str, Any] = {
+            "Key": key,
+            "UpdateExpression": update_expression,
+        }
+        if expression_attribute_names:
+            kwargs["ExpressionAttributeNames"] = expression_attribute_names
+        if expression_attribute_values:
+            kwargs["ExpressionAttributeValues"] = to_dynamodb_value(
+                expression_attribute_values
+            )
+        if condition_expression is not None:
+            kwargs["ConditionExpression"] = condition_expression
+        if return_values:
+            kwargs["ReturnValues"] = return_values
+
+        try:
+            response = self.table.update_item(**kwargs)
+        except Exception as e:
+            raise DynamoDBClientError(
+                message=f"Failed to update item in DynamoDB: {e}",
+                code="DYNAMODB_UPDATE_ITEM_FAILED",
+            )
+        return response.get("Attributes")
     
     def delete_item(self, key: Dict[str, Any]) -> None:
         """

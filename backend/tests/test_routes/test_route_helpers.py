@@ -30,7 +30,7 @@ from routes.account_lifecycle_route import (
     _to_trade_account_response,
     _to_transfer_response,
 )
-from routes.backtest_route import _raise_backtest_http_exception
+from routes.backtest_analytics_route import _raise_backtest_http_exception
 from routes.explore_search_route import _raise_search_http_exception
 from routes.model_portfolio_route import _raise_model_portfolio_http_exception
 from routes.stock_route import _raise_stock_http_exception

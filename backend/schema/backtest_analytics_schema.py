@@ -1,18 +1,17 @@
-# backend/schema/backtest_schema.py
+# backend/schema/backtest_analytics_schema.py
 
 
 # Python imports
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
 class BacktestPositionRequest(BaseModel):
     symbol: str
-    weight: Optional[float] = Field(default=None, ge=0, le=1)
-    target_weight: Optional[float] = Field(default=None, ge=0, le=1)
-    direction: int
+    weight: float = Field(ge=0, le=1)
+    direction: Literal[-1,1]
     leverage: float = 1.0
 
 
@@ -36,5 +35,3 @@ class BacktestAnalyticsResponse(BaseModel):
     sharpe_ratio: Optional[float]
     maximum_drawdown: Optional[float]
     maximum_drawdown_duration: Optional[float]
-
-

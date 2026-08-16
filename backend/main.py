@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 
 from core.config import get_settings
 from core.logging_config import configure_cloudwatch_logging
-from routes.backtest_route import router as backtest_router
+from routes.backtest_analytics_route import router as backtest_router
 from routes.model_portfolio_route import router as model_portfolio_router
 from routes.account_lifecycle_route import router as account_lifecycle_router
 from routes.allocation_analytics_route import router as allocation_analytics_router
