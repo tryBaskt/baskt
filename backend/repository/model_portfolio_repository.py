@@ -19,7 +19,13 @@ from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockInternalServerError,
 )
 from repository.model_portfolio_follower_repository import (
+    ModelPortfolioFollowerInternalServerError,
+    ModelPortfolioFollowerNotFoundError,
     ModelPortfolioFollowerRepository,
+)
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessRepository,
+    ModelPortfolioAccessRepositoryError,
 )
 from clients.dynamodb_client import (
     DynamoDBClient,
@@ -166,16 +172,19 @@ class ModelPortfolioUnprocessableEntityError(ModelPortfolioInternalServerError):
         )
 
 
-class ModelPortfolioInvalidWeightError(ModelPortfolioUnprocessableEntityError):
-    def __init__(self, total_weight: Decimal) -> None:
-        formatted_total = format(total_weight * Decimal("100"), "f").rstrip("0").rstrip(".") or "0"
-        ModelPortfolioInternalServerError.__init__(
-            self,
-            message=(
-                "Model portfolio position target weights must total 100%. "
-                f"Current total is {formatted_total}%."
+class ModelPortfolioInvalidPositionRequest(ModelPortfolioUnprocessableEntityError):
+    def __init__(
+        self,
+        *,
+        attribute: str,
+        allowed: str,
+        actual: object,
+    ) -> None:
+        super().__init__(
+            operation=(
+                "validating position request: "
+                f"{attribute} must be {allowed}; got {actual!r}"
             ),
-            code="MODEL_PORTFOLIO_INVALID_TARGET_WEIGHT_TOTAL",
         )
 
 
@@ -242,6 +251,7 @@ class ModelPortfolioRepository:
         alpaca_broker_client: AlpacaBrokerClient,
         model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+        model_portfolio_access_repository: ModelPortfolioAccessRepository
     ) -> None:
         """
         Initialize model portfolio repository dependencies.
@@ -266,17 +276,76 @@ class ModelPortfolioRepository:
         self.alpaca_broker_client = alpaca_broker_client
         self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.model_portfolio_access_repository = model_portfolio_access_repository
 
     @staticmethod
-    def _validate_target_weight_total(
+    def _validate_position_request(
         positions_request: List[ModelPortfolioPositionRequest],
     ) -> None:
-        total_weight = sum(
-            Decimal(str(position.target_weight))
-            for position in positions_request
-        )
-        if abs(total_weight - Decimal("1")) > Decimal("0.0001"):
-            raise ModelPortfolioInvalidWeightError(total_weight=total_weight)
+        total_weight = 0.0
+        for position_request in positions_request:
+            if not isinstance(position_request.symbol, str):
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute="symbol",
+                    allowed="a non-empty string",
+                    actual=position_request.symbol,
+                )
+
+            symbol = position_request.symbol.strip()
+            if not symbol:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute="symbol",
+                    allowed="a non-empty string",
+                    actual=position_request.symbol,
+                )
+
+            try:
+                direction = int(position_request.direction)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"direction for symbol '{symbol}'",
+                    allowed="1 or -1",
+                    actual=position_request.direction,
+                ) from error
+
+            if direction not in (1, -1):
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"direction for symbol '{symbol}'",
+                    allowed="1 or -1",
+                    actual=position_request.direction,
+                )
+
+            try:
+                leverage = float(position_request.leverage)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"leverage for symbol '{symbol}'",
+                    allowed="1.0",
+                    actual=position_request.leverage,
+                ) from error
+
+            if leverage != 1.0:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"leverage for symbol '{symbol}'",
+                    allowed="1.0",
+                    actual=position_request.leverage,
+                )
+
+            try:
+                total_weight += float(position_request.target_weight)
+            except (TypeError, ValueError) as error:
+                raise ModelPortfolioInvalidPositionRequest(
+                    attribute=f"target_weight for symbol '{symbol}'",
+                    allowed="a number that contributes to a total of 1.0",
+                    actual=position_request.target_weight,
+                ) from error
+
+        if abs(total_weight - 1.0) > 1e-9:
+            raise ModelPortfolioInvalidPositionRequest(
+                attribute="total target_weight",
+                allowed="1.0",
+                actual=total_weight,
+            )
 
     def _wait_until_portfolio_update_lock_is_released(
         self,
@@ -569,7 +638,7 @@ class ModelPortfolioRepository:
         )
 
 
-    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], creation_time: Optional[datetime] = None, description: Optional[str] = None) -> str:
+    def create_model_portfolio(self, portfolio_owner_cognito_user_id: str, portfolio_name: str, positions_request: List[ModelPortfolioPositionRequest], visibility: str, creation_time: Optional[datetime] = None, description: Optional[str] = None) -> str:
         """
         Create and persist a new model portfolio with an initial snapshot.
 
@@ -590,7 +659,7 @@ class ModelPortfolioRepository:
             snapshot or DynamoDB item cannot be created.
         """
 
-        self._validate_target_weight_total(positions_request)
+        self._validate_position_request(positions_request)
 
         # Generate new portfolio id
         portfolio_id = str(uuid4())
@@ -640,7 +709,8 @@ class ModelPortfolioRepository:
                 position_history=[snapshot],
                 created_at=creation_time,
                 updated_at=creation_time,
-                description=description
+                description=description,
+                visibility=visibility
             )
 
             # Write model portfolio object to dynamodb
@@ -664,7 +734,7 @@ class ModelPortfolioRepository:
         return portfolio_id
 
 
-    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], update_time: Optional[datetime] = None, description: Optional[str] = None) -> Tuple[bool, str | None]:
+    def update_model_portfolio(self, portfolio_id: str, positions_request: List[ModelPortfolioPositionRequest], visibility: str, update_time: Optional[datetime] = None, description: Optional[str] = None) -> Tuple[bool, str | None]:
         """
         Append a new snapshot and persist updates to an existing model portfolio.
 
@@ -692,7 +762,7 @@ class ModelPortfolioRepository:
             ModelPortfolioUnprocessableEntityError: If the updated portfolio
             snapshot or DynamoDB item cannot be created.
         """
-        self._validate_target_weight_total(positions_request)
+        self._validate_position_request(positions_request)
 
         # Ensure portfolio does exist
         existing: ModelPortfolio = self.get_model_portfolio(portfolio_id=portfolio_id, wait_seconds=0)
@@ -705,6 +775,7 @@ class ModelPortfolioRepository:
             key=lambda position: position.symbol,
         )
         curr_model_portfolio_description = existing.description
+        curr_model_portfolio_visibility = existing.visibility
         new_positions = sorted(
             positions_request,
             key=lambda position: position.symbol
@@ -723,7 +794,14 @@ class ModelPortfolioRepository:
             )
         )
         description_unchanged = curr_model_portfolio_description == description
-        if description_unchanged and positions_unchanged:
+
+        visibility_unchanged = curr_model_portfolio_visibility == visibility
+
+        if (
+            description_unchanged and 
+            positions_unchanged and 
+            visibility_unchanged
+        ):
             return False, None
 
         # Acquire lock
@@ -755,36 +833,35 @@ class ModelPortfolioRepository:
             )
 
         try:
-            if not update_time:
-                update_time = datetime.now(timezone.utc)
-
-            # Enforce 1-minute cooldown based on last updated_at
-            last_updated = existing.updated_at
-            elapsed = (update_time - last_updated).total_seconds()
-            if elapsed < 60:
-                raise ModelPortfolioTooManyRequestsError(
-                    retry_after_seconds=int(60 - elapsed)
-                )
-            
-            new_snapshot_id: Optional[str] = None
-            updated_history = existing.position_history
-
-            if not positions_unchanged:
-                symbols = [position.symbol for position in positions_request]
-                try:
-                    quotes = self.alpaca_broker_client.get_latest_price(
-                        symbols=symbols
-                    )
-                except AlpacaBrokerClientError as e:
-                    raise ModelPortfolioBadGatewayError(
-                        source="Alpaca",
-                        operation="fetching latest prices during update",
-                        portfolio_id=portfolio_id,
-                        cause=e,
-                    ) from e
-
             try:
+                if not update_time:
+                    update_time = datetime.now(timezone.utc)
+
+                # Enforce 1-minute cooldown based on last updated_at.
+                last_updated = existing.updated_at
+                elapsed = (update_time - last_updated).total_seconds()
+                if elapsed < 60:
+                    raise ModelPortfolioTooManyRequestsError(
+                        retry_after_seconds=int(60 - elapsed)
+                    )
+
+                new_snapshot_id: Optional[str] = None
+                updated_history = existing.position_history
+
                 if not positions_unchanged:
+                    symbols = [position.symbol for position in positions_request]
+                    try:
+                        quotes = self.alpaca_broker_client.get_latest_price(
+                            symbols=symbols
+                        )
+                    except AlpacaBrokerClientError as e:
+                        raise ModelPortfolioBadGatewayError(
+                            source="Alpaca",
+                            operation="fetching latest prices during update",
+                            portfolio_id=portfolio_id,
+                            cause=e,
+                        ) from e
+
                     model_portfolio_positions: List[ModelPortfolioPosition] = []
                     model_allocation = 10000.00
                     for position_request in positions_request:
@@ -814,14 +891,17 @@ class ModelPortfolioRepository:
                 portfolio = ModelPortfolio(
                     portfolio_id=portfolio_id,
                     portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
-                    portfolio_name=existing.portfolio_name,  # Name cannot be changed
+                    portfolio_name=existing.portfolio_name,
                     position_history=updated_history,
                     created_at=existing.created_at,
                     updated_at=update_time,
                     description=description,
+                    visibility=visibility,
                 )
 
                 item = dataclass_to_dynamodb_item(portfolio)
+            except ModelPortfolioInternalServerError:
+                raise
             except Exception as e:
                 raise ModelPortfolioUnprocessableEntityError(
                     operation="creating updated model portfolio",
@@ -838,8 +918,44 @@ class ModelPortfolioRepository:
                     portfolio_id=portfolio_id,
                     cause=e,
                 ) from e
-            return True, new_snapshot_id
 
+            try:
+                if visibility_unchanged is False and visibility == "PRIVATE":
+                    self.model_portfolio_access_repository.batch_update_access_record(
+                        portfolio_id=portfolio_id,
+                        conditional_attributes={
+                            "granted_access_by": "ALLOCATION",
+                            "status": "ACTIVE",
+                        },
+                        value_attributes={"status": "TO_BE_DELETED"},
+                        wait_for_lock=False,
+                    )
+                elif visibility_unchanged is False and visibility == "PUBLIC":
+                    self.model_portfolio_access_repository.batch_update_access_record(
+                        portfolio_id=portfolio_id,
+                        conditional_attributes={
+                            "granted_access_by": "ALLOCATION",
+                            "status": "TO_BE_DELETED",
+                        },
+                        value_attributes={"status": "ACTIVE"},
+                        wait_for_lock=False,
+                    )
+            except ModelPortfolioAccessRepositoryError as error:
+                raise ModelPortfolioBadGatewayError(
+                    source="DynamoDB/Cognito",
+                    operation="syncing allocation model portfolio access status",
+                    portfolio_id=portfolio_id,
+                    owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
+                    cause=error,
+                ) from error
+            except (KeyError, TypeError, ValueError) as error:
+                raise ModelPortfolioUnprocessableEntityError(
+                    operation="syncing allocation model portfolio access status",
+                    portfolio_id=portfolio_id,
+                    cause=error,
+                ) from error
+
+            return True, new_snapshot_id
         finally:
             # Release lock
             try:
@@ -926,6 +1042,7 @@ class ModelPortfolioRepository:
                 created_at=to_utc_from_iso(item["created_at"]),
                 updated_at=to_utc_from_iso(item["updated_at"]),
                 description=item.get("description"),
+                visibility=item.get("visibility", "PRIVATE")
             )
         except Exception as e:
             raise ModelPortfolioUnprocessableEntityError(
@@ -960,7 +1077,8 @@ class ModelPortfolioRepository:
                 IndexName="portfolio_owner_cognito_user_id_index",
                 ProjectionExpression=(
                     "portfolio_id, portfolio_owner_cognito_user_id, "
-                    "portfolio_name, description, created_at, updated_at"
+                    "portfolio_name, description, created_at, updated_at, "
+                    "visibility"
                 ),
             )
         except DynamoDBClientError as e:
@@ -984,7 +1102,8 @@ class ModelPortfolioRepository:
                     "portfolio_name": item["portfolio_name"],
                     "created_at": item["created_at"],
                     "updated_at": item["updated_at"],
-                    "description": item.get("description")
+                    "description": item.get("description"),
+                    "visibility": item.get("visibility", "PRIVATE")
                 } 
                 for item in items
             ]
@@ -995,3 +1114,60 @@ class ModelPortfolioRepository:
                 portfolio_id=None,
                 cause=e
             )
+
+    def get_model_portfolio_metadata_by_portfolio_id(self, portfolio_id: str) -> Dict:
+        """
+        Load model portfolio metadata for one portfolio ID.
+
+        Args:
+            portfolio_id: Identifier of the portfolio to load.
+
+        Returns:
+            Dict: Portfolio metadata containing portfolio_id, owner, name,
+            description, timestamps, and visibility.
+
+        Raises:
+            ModelPortfolioBadGatewayError: If DynamoDB fails while loading
+            metadata.
+            ModelPortfolioNotFoundError: If the portfolio does not exist.
+            ModelPortfolioUnprocessableEntityError: If the stored metadata
+            cannot be parsed.
+        """
+        try:
+            item = self.dynamodb.get_item(
+                key={"portfolio_id": portfolio_id},
+                projection_expression=(
+                    "portfolio_id, portfolio_owner_cognito_user_id, "
+                    "portfolio_name, description, created_at, updated_at, "
+                    "visibility"
+                ),
+            )
+        except DynamoDBClientError as e:
+            raise ModelPortfolioBadGatewayError(
+                source="DynamoDB",
+                operation="loading model portfolio metadata",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e
+
+        if not item:
+            raise ModelPortfolioNotFoundError(portfolio_id=portfolio_id)
+
+        try:
+            return {
+                "portfolio_id": item["portfolio_id"],
+                "portfolio_owner_cognito_user_id": item[
+                    "portfolio_owner_cognito_user_id"
+                ],
+                "portfolio_name": item["portfolio_name"],
+                "created_at": item["created_at"],
+                "updated_at": item["updated_at"],
+                "description": item.get("description"),
+                "visibility": item.get("visibility", "PRIVATE"),
+            }
+        except Exception as e:
+            raise ModelPortfolioUnprocessableEntityError(
+                operation="Failed to parse model portfolio metadata",
+                portfolio_id=portfolio_id,
+                cause=e,
+            ) from e

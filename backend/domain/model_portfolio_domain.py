@@ -4,7 +4,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 # Pandas imports
 import pandas as pd
@@ -43,6 +43,7 @@ class ModelPortfolio:
     created_at: datetime
     updated_at: datetime
     description: Optional[str] = None
+    visibility: str = "PRIVATE" # PUBLIC | PRIVATE
 
 @dataclass(frozen=True)
 class ModelPortfolioAnalyticsPosition:
@@ -85,3 +86,21 @@ class ModelPortfoliosOpenSearchResult:
     total: int
     limit: int
     offset: int
+
+
+@dataclass
+class ModelPortfolioAccessRecord:
+    portfolio_id: str
+    portfolio_owner_cognito_user_id: str
+    shared_with_cognito_user_id: str
+    shared_with_email: str
+    granted_access_at: datetime
+    status: Literal["ACTIVE", "TO_BE_DELETED"]
+    granted_access_by: Literal["ALLOCATION", "PORTFOLIO_OWNER"]
+
+
+@dataclass(frozen=True)
+class ModelPortfolioAccessRemovalResult:
+    removed: bool
+    pending_removal: bool
+    message: Optional[str] = None

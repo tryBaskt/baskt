@@ -45,7 +45,7 @@ export default function HomePage({ onOpenInvestment }) {
     async function loadAnalytics() {
       try {
         setIsLoading(true);
-        const payload = await apiRequest("/account-analytics");
+        const payload = await apiRequest("/allocation_analytics");
         if (!ignore) {
           setAnalytics(payload);
           const availablePeriods = Object.keys(payload?.equity_graph || {});
@@ -74,14 +74,14 @@ export default function HomePage({ onOpenInvestment }) {
   const availablePeriods = periods.filter(
     (item) => analytics?.equity_graph?.[item] || analytics?.equity_graph?.[item.toLowerCase()]
   );
-  const allocationEntries = Object.entries(analytics?.portfolio_allocations || {}).map(
-    ([portfolioId, allocation]) => ({
-      portfolioId,
-      name: allocation?.portfolio_name || "Unnamed allocation",
-      type: formatAllocationType(allocation?.portfolio_allocation_type),
-      rawType: String(allocation?.portfolio_allocation_type || ""),
-      equity: Number(allocation?.portfolio_allocation_equity || 0),
-      percentOfAccount: Number(allocation?.portfolio_allocation_equity_percent || 0),
+  const allocationEntries = Object.entries(analytics?.allocations || {}).map(
+    ([allocationId, allocation]) => ({
+      portfolioId: allocationId,
+      name: allocation?.allocation_name || "Unnamed allocation",
+      type: formatAllocationType(allocation?.allocation_type),
+      rawType: String(allocation?.allocation_type || ""),
+      equity: Number(allocation?.allocation_equity || 0),
+      percentOfAccount: Number(allocation?.allocation_equity_percent || 0),
     })
   );
   const selectedEquity = (selectedGraph?.equity || [])

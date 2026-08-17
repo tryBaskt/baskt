@@ -93,6 +93,29 @@ class DynamoDBClient:
                 code="DYNAMODB_PUT_ITEM_FAILED",
             )
 
+    def batch_put_items(self, items: List[Dict[str, Any]]) -> None:
+        """
+        Insert or replace multiple items in the DynamoDB table.
+
+        Args:
+            items: Full DynamoDB item payloads to write.
+
+        Returns:
+            None.
+        """
+        if not items:
+            return
+
+        try:
+            with self.table.batch_writer() as batch:
+                for item in items:
+                    batch.put_item(Item=item)
+        except Exception as e:
+            raise DynamoDBClientError(
+                message=f"Failed to batch put items into DynamoDB: {e}",
+                code="DYNAMODB_BATCH_PUT_ITEMS_FAILED",
+            )
+
     def item_exists(self, key: Dict[str, Any], consistent_read: bool = False) -> bool:
         """
         Check whether an item exists for the provided primary key.
@@ -197,6 +220,56 @@ class DynamoDBClient:
                 code="DYNAMODB_SCAN_FAILED",
             )
         return response.get("Items", [])
+
+    def update_item(
+        self,
+        *,
+        key: Dict[str, Any],
+        update_expression: str,
+        expression_attribute_names: Optional[Dict[str, str]] = None,
+        expression_attribute_values: Optional[Dict[str, Any]] = None,
+        condition_expression: Any = None,
+        return_values: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update an item by primary key.
+
+        Args:
+            key: DynamoDB primary key map for the item to update.
+            update_expression: DynamoDB UpdateExpression, such as
+                ``SET #field = :value``.
+            expression_attribute_names: Optional placeholder-to-attribute map.
+            expression_attribute_values: Optional placeholder-to-value map.
+            condition_expression: Optional DynamoDB condition expression.
+            return_values: Optional ReturnValues setting, such as ``ALL_NEW``.
+
+        Returns:
+            Optional[Dict[str, Any]]: Returned attributes when requested,
+            otherwise None.
+        """
+        kwargs: Dict[str, Any] = {
+            "Key": key,
+            "UpdateExpression": update_expression,
+        }
+        if expression_attribute_names:
+            kwargs["ExpressionAttributeNames"] = expression_attribute_names
+        if expression_attribute_values:
+            kwargs["ExpressionAttributeValues"] = to_dynamodb_value(
+                expression_attribute_values
+            )
+        if condition_expression is not None:
+            kwargs["ConditionExpression"] = condition_expression
+        if return_values:
+            kwargs["ReturnValues"] = return_values
+
+        try:
+            response = self.table.update_item(**kwargs)
+        except Exception as e:
+            raise DynamoDBClientError(
+                message=f"Failed to update item in DynamoDB: {e}",
+                code="DYNAMODB_UPDATE_ITEM_FAILED",
+            )
+        return response.get("Attributes")
     
     def delete_item(self, key: Dict[str, Any]) -> None:
         """

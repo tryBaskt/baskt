@@ -210,6 +210,14 @@ class AccountLifecycleService:
 				message="display_name is required to update a Baskt account",
 				code="ACCOUNT_LIFECYCLE_UPDATE_DISPLAY_NAME_INVALID",
 			)
+		current_account = self.get_baskt_account(
+			cognito_user_id=cognito_user_id
+		)
+		if (
+			current_account.display_name != display_name
+			and self.is_exists_display_name(display_name)
+		):
+			raise AccountLifecycleDisplayNameTakenError(display_name)
 		try:
 			self.baskt_account_repository.update_display_name(
 				cognito_user_id=cognito_user_id,

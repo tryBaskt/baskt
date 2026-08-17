@@ -331,7 +331,7 @@ def _update_alpaca_account_details(
 	"""Update one account section and return the complete refreshed account."""
 	cognito_user_id = get_cognito_user_id(baskt_account)
 	alpaca_account_id = get_alpaca_account_id(baskt_account)
-	require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+	# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 	service.update_baskt_account(
 		cognito_user_id=cognito_user_id,
 		alpaca_account_id=alpaca_account_id,
@@ -466,7 +466,7 @@ def create_ach_relationship(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		if isinstance(request, CreateBasktPlaidRelationshipRequest):
 			service.create_plaid_ach_relationship(
@@ -503,7 +503,7 @@ def update_ach_relationship(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		ach_relationships = service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		service.delete_ach_relationship(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, ach_relationship_id=str(ach_relationships[0].id))
@@ -573,7 +573,7 @@ def create_bank(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		service.create_bank(
 			cognito_user_id=cognito_user_id,
@@ -606,7 +606,7 @@ def update_bank(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		banks = service.get_banks(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		service.delete_bank(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, bank_id=str(banks[0].id))
@@ -700,7 +700,7 @@ def create_transfer(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		if request.funding_source_type.upper() == "ACH":
 			service.create_ach_transfer(
@@ -750,7 +750,7 @@ def cancel_transfer(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
 
 		service.cancel_transfer(
 			cognito_user_id=cognito_user_id,

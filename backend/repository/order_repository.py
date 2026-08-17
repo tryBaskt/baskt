@@ -41,7 +41,7 @@ class OrderBadGatewayError(OrderInternalServerError):
         operation: str,
         *,
         transaction_id: Optional[str] = None,
-        portfolio_id: Optional[str] = None,
+        allocation_id: Optional[str] = None,
         cause: Optional[Exception] = None,
     ) -> None:
         """
@@ -50,7 +50,7 @@ class OrderBadGatewayError(OrderInternalServerError):
         Args:
             operation: Description of the order operation that failed.
             transaction_id: Optional transaction ID involved in the failure.
-            portfolio_id: Optional portfolio ID involved in the failure.
+            allocation_id: Optional allocation ID involved in the failure.
             cause: Optional upstream exception that caused the failure.
 
         Returns:
@@ -62,8 +62,8 @@ class OrderBadGatewayError(OrderInternalServerError):
         context = []
         if transaction_id:
             context.append(f"transaction '{transaction_id}'")
-        if portfolio_id:
-            context.append(f"portfolio '{portfolio_id}'")
+        if allocation_id:
+            context.append(f"allocation '{allocation_id}'")
         message = f"Upstream DynamoDB client failed while {operation}"
         if context:
             message = f"{message} for {', '.join(context)}"
@@ -102,13 +102,13 @@ class OrderUnprocessableEntityError(OrderInternalServerError):
 
 
 class OrderNotFoundError(OrderInternalServerError):
-    def __init__(self, *, transaction_id: Optional[str] = None, portfolio_id: Optional[str] = None) -> None:
+    def __init__(self, *, transaction_id: Optional[str] = None, allocation_id: Optional[str] = None) -> None:
         """
         Initialize a missing orders exception.
 
         Args:
             transaction_id: Optional transaction ID whose orders were not found.
-            portfolio_id: Optional portfolio ID whose orders were not found.
+            allocation_id: Optional allocation ID whose orders were not found.
 
         Returns:
             None.
@@ -119,7 +119,7 @@ class OrderNotFoundError(OrderInternalServerError):
         if transaction_id:
             message = f"Orders not found for transaction '{transaction_id}'."
         else:
-            message = f"Orders not found for portfolio '{portfolio_id}'."
+            message = f"Orders not found for allocation '{allocation_id}'."
         super().__init__(
             message=message,
             code="ORDER_NOT_FOUND",
@@ -173,7 +173,7 @@ class OrderRepository:
                     "transaction_id": str(order["transaction_id"]),
                     "order_id": str(order["order_id"]),
                     "cognito_user_id": str(order["cognito_user_id"]),
-                    "portfolio_id": str(order["portfolio_id"]),
+                    "allocation_id": str(order["allocation_id"]),
                     "portfolio_owner_cognito_user_id": str(order["portfolio_owner_cognito_user_id"]),
                     "created_at": to_utc_from_iso(order["created_at"]),
                     "updated_at": to_utc_from_iso(order["updated_at"]) if order["updated_at"] else None,
@@ -195,12 +195,12 @@ class OrderRepository:
             ) from e
 
 
-    def put_orders(self, portfolio_id: str, cognito_user_id: str, transaction_id: str, orders: List[Order], portfolio_owner_cognito_user_id: Optional[str] = None) -> int:
+    def put_orders(self, allocation_id: str, cognito_user_id: str, transaction_id: str, orders: List[Order], portfolio_owner_cognito_user_id: Optional[str] = None) -> int:
         """
-        Persist Alpaca orders for a portfolio transaction.
+        Persist Alpaca orders for an allocation transaction.
 
         Args:
-            portfolio_id: Portfolio ID associated with the orders.
+            allocation_id: Allocation ID associated with the orders.
             cognito_user_id: Cognito user ID that owns the transaction.
             portfolio_owner_cognito_user_id: Cognito user ID of the portfolio owner.
             transaction_id: Transaction ID shared by the orders.
@@ -219,7 +219,7 @@ class OrderRepository:
                 to_dynamodb_value({"transaction_id": transaction_id,
                  "order_id": str(order.id),
                  "cognito_user_id": cognito_user_id,
-                 "portfolio_id": portfolio_id,
+                 "allocation_id": allocation_id,
                  "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
                  "created_at": order.created_at,
                  "updated_at": order.updated_at,
@@ -285,38 +285,38 @@ class OrderRepository:
             )
         return self._norm_data_types(orders=orders)
     
-    def get_orders_by_portfolio(self, cognito_user_id: str, portfolio_id: str) -> List[Dict[str, Any]]:
+    def get_orders_by_allocation(self, cognito_user_id: str, allocation_id: str) -> List[Dict[str, Any]]:
         """
-        Load orders for a user's portfolio.
+        Load orders for a user's allocation.
 
         Args:
             cognito_user_id: Cognito user ID that owns the orders.
-            portfolio_id: Portfolio ID to query.
+            allocation_id: Allocation ID to query.
 
         Returns:
-            List[Dict[str, Any]]: Normalized orders for the portfolio.
+            List[Dict[str, Any]]: Normalized orders for the allocation.
 
         Raises:
             OrderBadGatewayError: If DynamoDB fails while loading orders.
-            OrderNotFoundError: If no orders are found for the portfolio.
+            OrderNotFoundError: If no orders are found for the allocation.
             OrderUnprocessableEntityError: If stored order records cannot be parsed.
         """
         
         try:
             orders = self.order_table_client.query(
-                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)) & Key("portfolio_id").eq(str(portfolio_id)),
-                IndexName="cognito_user_id_portfolio_id_index"
+                key_condition=Key("cognito_user_id").eq(str(cognito_user_id)) & Key("allocation_id").eq(str(allocation_id)),
+                IndexName="cognito_user_id_allocation_id_index"
             )
         except DynamoDBClientError as e:
             raise OrderBadGatewayError(
                 operation="loading orders",
-                portfolio_id=portfolio_id,
+                allocation_id=allocation_id,
                 cause=e,
             ) from e
 
         if not orders:
             raise OrderNotFoundError(
-                portfolio_id=portfolio_id
+                allocation_id=allocation_id
             )
         return self._norm_data_types(orders=orders)
     
@@ -340,23 +340,23 @@ class OrderRepository:
             order for order in orders if str(order.get("status", "")).upper() != "FILLED"
         ]
     
-    def get_portfolio_ids_of_unfilled_orders(
+    def get_allocation_ids_of_unfilled_orders(
         self,
         cognito_user_id: str,
     ) -> List[Tuple[str,str]]:
-        """Get portfolio identifiers with unfilled orders for a Cognito user.
+        """Get allocation identifiers with unfilled orders for a Cognito user.
 
-        The DynamoDB query projects only ``portfolio_id``,
+        The DynamoDB query projects only ``allocation_id``,
         ``portfolio_owner_cognito_user_id``, and ``status`` from the
-        user/portfolio global secondary index. Duplicate portfolio IDs are
+        user/allocation global secondary index. Duplicate allocation IDs are
         removed while preserving their query order.
 
         Args:
-            cognito_user_id: Cognito user ID whose pending portfolios should
+            cognito_user_id: Cognito user ID whose pending allocations should
                 be identified.
 
         Returns:
-            List[Dict[str, str | None]]: Unique portfolio and owner identifiers
+            List[Dict[str, str | None]]: Unique allocation and owner identifiers
                 having at least one order whose status is not FILLED. Returns
                 an empty list when none exist.
 
@@ -366,9 +366,9 @@ class OrderRepository:
         try:
             orders = self.order_table_client.query(
                 key_condition=Key("cognito_user_id").eq(str(cognito_user_id)),
-                IndexName="cognito_user_id_portfolio_id_index",
+                IndexName="cognito_user_id_allocation_id_index",
                 ProjectionExpression=(
-                    "portfolio_id, portfolio_owner_cognito_user_id, #order_status"
+                    "allocation_id, portfolio_owner_cognito_user_id, #order_status"
                 ),
                 ExpressionAttributeNames={"#order_status": "status"},
             )
@@ -378,13 +378,13 @@ class OrderRepository:
                 cause=error,
             ) from error
         
-        portfolio_ids_owner_ids = set()
+        allocation_ids_owner_ids = set()
         for order in orders:
             if str(order.get("status","")).upper() == "FILLED":
                 continue
-            portfolio_ids_owner_ids.add((order.get("portfolio_id"), order.get("portfolio_owner_cognito_user_id")))
+            allocation_ids_owner_ids.add((order.get("allocation_id"), order.get("portfolio_owner_cognito_user_id")))
 
-        return list(portfolio_ids_owner_ids)
+        return list(allocation_ids_owner_ids)
 
 
 
@@ -394,7 +394,7 @@ class OrderRepository:
     ) -> List[Dict[str, Any]]:
         """Load all unfilled orders belonging to a Cognito user.
 
-        The lookup queries the ``cognito_user_id_portfolio_id_index`` global
+        The lookup queries the ``cognito_user_id_allocation_id_index`` global
         secondary index and filters the normalized results by order status.
 
         Args:
@@ -411,7 +411,7 @@ class OrderRepository:
         try:
             orders = self.order_table_client.query(
                 key_condition=Key("cognito_user_id").eq(str(cognito_user_id)),
-                IndexName="cognito_user_id_portfolio_id_index",
+                IndexName="cognito_user_id_allocation_id_index",
             )
         except DynamoDBClientError as error:
             raise OrderBadGatewayError(
@@ -426,21 +426,21 @@ class OrderRepository:
             if str(order.get("status", "")).upper() != "FILLED"
         ]
 
-    def get_unfilled_orders_by_portfolio_id(
+    def get_unfilled_orders_by_allocation_id(
         self,
-        portfolio_id: str,
+        allocation_id: str,
     ) -> List[Dict[str, Any]]:
-        """Load all unfilled orders associated with a portfolio ID.
+        """Load all unfilled orders associated with an allocation ID.
 
-        The current order table has no index partitioned by ``portfolio_id``,
-        so this lookup uses a DynamoDB scan filtered by portfolio ID.
+        The current order table has no index partitioned by ``allocation_id``,
+        so this lookup uses a DynamoDB scan filtered by allocation ID.
 
         Args:
-            portfolio_id: Portfolio ID whose orders should be loaded.
+            allocation_id: Allocation ID whose orders should be loaded.
 
         Returns:
             List[Dict[str, Any]]: Normalized orders whose status is not FILLED.
-                Returns an empty list when the portfolio has no orders.
+                Returns an empty list when the allocation has no orders.
 
         Raises:
             OrderBadGatewayError: If DynamoDB fails while scanning orders.
@@ -448,12 +448,12 @@ class OrderRepository:
         """
         try:
             orders = self.order_table_client.scan(
-                filter_expression=Attr("portfolio_id").eq(str(portfolio_id)),
+                filter_expression=Attr("allocation_id").eq(str(allocation_id)),
             )
         except DynamoDBClientError as error:
             raise OrderBadGatewayError(
                 operation="loading unfilled orders",
-                portfolio_id=portfolio_id,
+                allocation_id=allocation_id,
                 cause=error,
             ) from error
 

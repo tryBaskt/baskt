@@ -26,6 +26,7 @@ export default function StockPage({ stockId, onBack }) {
   const [allocationError, setAllocationError] = useState("");
   const [tradeError, setTradeError] = useState("");
   const [success, setSuccess] = useState("");
+  const [activeTradeTab, setActiveTradeTab] = useState("buy");
   const [isStockLoading, setIsStockLoading] = useState(true);
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
   const [isAllocationLoading, setIsAllocationLoading] = useState(true);
@@ -47,7 +48,27 @@ export default function StockPage({ stockId, onBack }) {
   const hasAllocation =
     allocationAnalytics?.equity !== null &&
     allocationAnalytics?.equity !== undefined;
-  const sellLimit = hasAllocation ? Math.max(0, Number(allocationAnalytics.equity)) : 0;
+  const allocationDirection = Number(allocationAnalytics?.direction);
+  const hasPositionDirection =
+    Number.isFinite(allocationDirection) && allocationDirection !== 0;
+  const hasOpenPosition =
+    hasAllocation && hasPositionDirection;
+  const isLongPosition = hasOpenPosition && allocationDirection > 0;
+  const isShortPosition = hasOpenPosition && allocationDirection < 0;
+  const sellLimit = hasOpenPosition ? Math.max(0, Number(allocationAnalytics.equity)) : 0;
+  const allocationDirectionLabel = hasOpenPosition
+    ? isShortPosition
+      ? "Short"
+      : "Long"
+    : "";
+  const secondaryTradeLabel = hasAllocation ? "Sell" : "Short";
+  const primaryTradeLabel = "Buy";
+  const closeTab = isLongPosition ? "sell" : isShortPosition ? "buy" : null;
+  const activeTradeLabel = activeTradeTab === "sell" ? secondaryTradeLabel : primaryTradeLabel;
+  const showCloseButton = hasOpenPosition && activeTradeTab === closeTab;
+  const isSecondaryTradeUnavailable =
+    !stock?.tradable || (!hasOpenPosition && !stock?.shortable);
+  const isSecondaryTradeDisabled = isSubmitting || isSecondaryTradeUnavailable;
   const capabilities = useMemo(
     () => [
       stock?.tradable ? "Tradable" : null,
@@ -63,7 +84,7 @@ export default function StockPage({ stockId, onBack }) {
     setStockError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stockId}`,
+        `/stocks/${stockId}`,
         { signal }
       );
       setStock(payload || null);
@@ -86,7 +107,7 @@ export default function StockPage({ stockId, onBack }) {
     setAllocationError("");
     try {
       const payload = await apiRequest(
-        `/account-analytics/stocks/${stockId}/analytics`,
+        `/allocation_analytics/stocks/${stockId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(payload || null);
@@ -113,6 +134,7 @@ export default function StockPage({ stockId, onBack }) {
     setIsStockLoading(true);
     setIsAnalyticsLoading(true);
     setIsAllocationLoading(true);
+    setActiveTradeTab("buy");
 
     void loadStockDetails(controller.signal).then((loadedStock) => {
       if (!loadedStock || controller.signal.aborted) {
@@ -150,6 +172,12 @@ export default function StockPage({ stockId, onBack }) {
     return () => controller.abort();
   }, [stockId]);
 
+  useEffect(() => {
+    if (activeTradeTab === "sell" && isSecondaryTradeUnavailable) {
+      setActiveTradeTab("buy");
+    }
+  }, [activeTradeTab, isSecondaryTradeUnavailable]);
+
   async function executeTrade(action) {
     setTradeError("");
     setSuccess("");
@@ -174,10 +202,11 @@ export default function StockPage({ stockId, onBack }) {
         requestOptions.body = JSON.stringify({ amount: numericAmount });
       }
       await apiRequest(`/trade-execution/stocks/${stock.stock_id}/${action}`, requestOptions);
+      const actionLabel = action === "sell" && !hasOpenPosition ? "Short" : "Sell";
       setSuccess(
         action === "close"
           ? `Close request submitted for ${stock.symbol}.`
-          : `${action === "buy" ? "Buy" : "Sell"} request submitted.`
+          : `${action === "buy" ? "Buy" : actionLabel} request submitted.`
       );
       setAmount("");
       await loadAllocationAnalytics();
@@ -349,7 +378,14 @@ export default function StockPage({ stockId, onBack }) {
             ) : hasAllocation ? (
               <div className="rail-metric-stack">
                 <div>
-                  <span>Position value</span>
+                  <span className="rail-metric-heading">
+                    <span>{hasOpenPosition ? "Position value" : "Allocation equity"}</span>
+                    {hasOpenPosition ? (
+                      <strong className={`direction-badge ${isShortPosition ? "short" : "long"}`}>
+                        {allocationDirectionLabel}
+                      </strong>
+                    ) : null}
+                  </span>
                   <strong>{currency(allocationAnalytics.equity, "Not available")}</strong>
                   <small>Cost basis {currency(allocationAnalytics.total_cost_basis, "Not available")}</small>
                 </div>
@@ -379,35 +415,48 @@ export default function StockPage({ stockId, onBack }) {
           </section>
 
           <section className="rail-panel stock-trade-panel trade-action-panel">
-            <div className="section-heading compact-heading">
-              <div>
-                <h2>Buy or sell</h2>
-              </div>
+            <div className="stock-trade-tabs" aria-label={`${stock.symbol} trade action`}>
+              <button
+                className={activeTradeTab === "buy" ? "active" : ""}
+                type="button"
+                onClick={() => setActiveTradeTab("buy")}
+              >
+                {primaryTradeLabel} {stock.symbol}
+              </button>
+              <button
+                className={activeTradeTab === "sell" ? "active" : ""}
+                type="button"
+                disabled={isSecondaryTradeDisabled}
+                onClick={() => setActiveTradeTab("sell")}
+              >
+                {secondaryTradeLabel} {stock.symbol}
+              </button>
             </div>
             <label className="field">
               <span>Amount</span>
               <input
                 type="number"
                 min="0"
-                max={!stock.shortable && hasAllocation ? sellLimit : undefined}
+                max={activeTradeTab === "sell" && !stock.shortable && hasOpenPosition ? sellLimit : undefined}
                 step="0.01"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="$0.00"
               />
             </label>
-            {hasAllocation ? <p className="field-help">Available position value: {currency(sellLimit)}</p> : null}
+            {hasOpenPosition ? <p className="field-help">Available position value: {currency(sellLimit)}</p> : null}
             <div className="rail-button-stack">
-              <button className="primary-button" type="button" disabled={isSubmitting || !stock.tradable} onClick={() => executeTrade("buy")}>Buy</button>
               <button
-                className="ghost-button"
+                className="primary-button"
                 type="button"
-                disabled={isSubmitting || !stock.tradable || (!hasAllocation && !stock.shortable)}
-                onClick={() => executeTrade("sell")}
+                disabled={activeTradeTab === "sell" ? isSecondaryTradeDisabled : isSubmitting || !stock.tradable}
+                onClick={() => executeTrade(activeTradeTab === "sell" ? "sell" : "buy")}
               >
-                Sell
+                {activeTradeLabel}
               </button>
-              <button className="danger-button" type="button" disabled={isSubmitting || !hasAllocation} onClick={() => executeTrade("close")}>Close position</button>
+              {showCloseButton ? (
+                <button className="danger-button" type="button" disabled={isSubmitting} onClick={() => executeTrade("close")}>Close position</button>
+              ) : null}
             </div>
           </section>
 
@@ -428,7 +477,8 @@ export default function StockPage({ stockId, onBack }) {
                       <small>{formatDateTime(transaction.created_at)}</small>
                     </span>
                     <span>
-                      <strong>{currency(transaction.cost_basis)}</strong>
+                      <strong>{currency(transaction.cost_basis, "Not available")}</strong>
+                      <small>Requested {currency(transaction.requested_amount, "Not available")}</small>
                       <small>{transaction.status}</small>
                     </span>
                   </div>

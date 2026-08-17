@@ -7,7 +7,7 @@ from datetime import datetime
 
 class PortfolioAllocationTransactionResponse(BaseModel):
     transaction_id: str
-    model_portfolio_snapshot_id: Optional[str] = None
+    portfolio_snapshot_id: Optional[str] = None
     created_at: datetime
     filled_at: Optional[datetime] = None
     updated_at: datetime

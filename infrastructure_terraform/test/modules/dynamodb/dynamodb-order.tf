@@ -20,14 +20,14 @@ resource "aws_dynamodb_table" "order" {
   }
 
   attribute {
-    name = "portfolio_id"
+    name = "allocation_id"
     type = "S"
   }
 
   global_secondary_index {
-    name            = "cognito_user_id_portfolio_id_index"
+    name            = "cognito_user_id_allocation_id_index"
     hash_key        = "cognito_user_id"
-    range_key       = "portfolio_id"
+    range_key       = "allocation_id"
     projection_type = "ALL"
   }
 
