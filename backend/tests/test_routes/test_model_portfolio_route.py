@@ -193,10 +193,11 @@ def test_authenticated_user_can_list_model_portfolios_shared_with_them(
     access_granted = False
 
     try:
-        access_repository.add_access_for_user_by_cognito_user_id(
+        access_repository.add_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=OWNER_USER_ID,
             shared_with_cognito_user_id=OTHER_USER_ID,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         access_granted = True
         app = app_factory(model_portfolio_router)
@@ -211,7 +212,7 @@ def test_authenticated_user_can_list_model_portfolios_shared_with_them(
         assert shared_portfolio["visibility"] == "PRIVATE"
     finally:
         if access_granted:
-            access_repository.remove_access_for_user(
+            access_repository.remove_access_via_cognito_user_id(
                 portfolio_id=portfolio_id,
                 shared_with_cognito_user_id=OTHER_USER_ID,
             )
@@ -336,7 +337,7 @@ def test_authenticated_owner_can_add_and_get_model_portfolio_accesses(
         } in accesses
     finally:
         if access_granted:
-            access_repository.remove_access_for_user(
+            access_repository.remove_access_via_cognito_user_id(
                 portfolio_id=portfolio_id,
                 shared_with_cognito_user_id=OTHER_USER_ID,
             )

@@ -33,6 +33,11 @@ class AddAccessModelPortfolioRequest(BaseModel):
 class RemoveAccessModelPortfolioRequest(BaseModel):
     cognito_user_id: str = Field(min_length=1)
 
+class RemoveAccessModelPortfolioResponse(BaseModel):
+    removed: bool
+    pending_removal: bool
+    message: Optional[str] = None
+
 class SharedWithUserModelPortfolioResponse(BaseModel):
     cognito_user_id: str = Field(min_length=1)
     email_address: str = Field(min_length=1)

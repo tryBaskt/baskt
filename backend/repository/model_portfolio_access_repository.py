@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import time
 from uuid import uuid4
+from core.timeutils import to_utc_from_iso
 
 from boto3.dynamodb.conditions import Key
 
@@ -27,6 +28,10 @@ from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockBadGatewayError,
     ModelPortfolioUpdateLockInternalServerError,
     ModelPortfolioUpdateLockRepository,
+)
+from domain.model_portfolio_domain import (
+    ModelPortfolioAccessRecord,
+    ModelPortfolioAccessRemovalResult,
 )
 
 LOCK_LEASE_SECONDS = 30
@@ -142,25 +147,6 @@ class ModelPortfolioAccessNotFoundError(ModelPortfolioAccessRepositoryError):
         )
 
 
-class ModelPortfolioAccessUserIsFollowerError(ModelPortfolioAccessRepositoryError):
-    """Raised when access cannot be removed because the user is invested."""
-
-    def __init__(
-        self,
-        *,
-        portfolio_id: str,
-        shared_with_cognito_user_id: str,
-    ) -> None:
-        super().__init__(
-            message=(
-                "Cannot remove access for a user invested in this Baskt "
-                f"for portfolio_id '{portfolio_id}', "
-                f"shared_with_cognito_user_id '{shared_with_cognito_user_id}'"
-            ),
-            code="MODEL_PORTFOLIO_ACCESS_USER_IS_FOLLOWER",
-        )
-
-
 class ModelPortfolioAccessRepository:
     """Repository for model portfolio access grants stored in DynamoDB."""
 
@@ -184,6 +170,171 @@ class ModelPortfolioAccessRepository:
         self.model_portfolio_update_lock_repository = (
             model_portfolio_update_lock_repository
         )
+
+
+    def _required_string(self, field_name: str, value: str) -> str:
+        if value is None:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                f"{field_name} is required"
+            )
+        normalized_value = str(value).strip()
+        if not normalized_value:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                f"{field_name} is required"
+            )
+        return normalized_value
+
+
+    def _write_access_record(
+        self,
+        access_record: ModelPortfolioAccessRecord,
+    ) -> None:
+        """Persist a normalized model portfolio access record."""
+        portfolio_id = self._required_string("portfolio_id",access_record.portfolio_id)
+        portfolio_owner_cognito_user_id = self._required_string("portfolio_owner_cognito_user_id",access_record.portfolio_owner_cognito_user_id)
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",access_record.shared_with_cognito_user_id)
+        shared_with_email = self._required_string("shared_with_email",access_record.shared_with_email)
+        granted_access_by = self._required_string("granted_access_by",access_record.granted_access_by)
+        status = self._required_string("status", access_record.status)
+        if granted_access_by not in {"ALLOCATION", "PORTFOLIO_OWNER"}:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "granted_access_by must be ALLOCATION or PORTFOLIO_OWNER"
+            )
+        if status not in {"ACTIVE", "TO_BE_DELETED"}:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "status must be ACTIVE or TO_BE_DELETED"
+            )
+
+        existing_access_record = self.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=shared_with_cognito_user_id,
+        )
+        if (
+            existing_access_record is not None
+            and existing_access_record.granted_access_by == "PORTFOLIO_OWNER"
+            and granted_access_by == "ALLOCATION"
+        ):
+            return
+
+        item = {
+            "portfolio_id": portfolio_id,
+            "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
+            "shared_with_cognito_user_id": shared_with_cognito_user_id,
+            "shared_with_email": shared_with_email.strip().lower(),
+            "granted_access_at": access_record.granted_access_at.isoformat(),
+            "granted_access_by": granted_access_by,
+            "status": status,
+        }
+        try:
+            self.dynamodb.put_item(item=to_dynamodb_value(item))
+        except DynamoDBClientError as error:
+            raise ModelPortfolioAccessBadGatewayError(
+                operation="granting model portfolio access",
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=shared_with_cognito_user_id,
+                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                cause=error,
+            ) from error
+
+
+    def batch_update_access_record(
+        self,
+        *,
+        portfolio_id: str,
+        conditional_attributes: Dict[str, Any],
+        value_attributes: Dict[str, Any],
+        wait_for_lock: bool = True,
+    ) -> int:
+        """Batch rewrite access records matching attribute equality conditions."""
+        portfolio_id = self._required_string("portfolio_id", portfolio_id)
+        if not conditional_attributes:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "conditional_attributes is required"
+            )
+        if not value_attributes:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "value_attributes is required"
+            )
+        blocked_update_fields = {"portfolio_id", "shared_with_cognito_user_id"}
+        if blocked_update_fields & set(value_attributes):
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "Access record key fields cannot be updated"
+            )
+
+        access_records = self.get_accesses_for_portfolio(
+            portfolio_id=portfolio_id,
+            wait_for_lock=wait_for_lock,
+        )
+        updated_items = []
+        for access_record in access_records:
+            access_item = {
+                "portfolio_id": access_record.portfolio_id,
+                "portfolio_owner_cognito_user_id": access_record.portfolio_owner_cognito_user_id,
+                "shared_with_cognito_user_id": access_record.shared_with_cognito_user_id,
+                "shared_with_email": access_record.shared_with_email.strip().lower(),
+                "granted_access_at": access_record.granted_access_at.isoformat(),
+                "granted_access_by": access_record.granted_access_by,
+                "status": access_record.status,
+            }
+            if any(
+                access_item.get(attribute_name) != expected_value
+                for attribute_name, expected_value in conditional_attributes.items()
+            ):
+                continue
+
+            updated_item = {**access_item, **value_attributes}
+            updated_items.append(
+                to_dynamodb_value(updated_item)
+            )
+
+        try:
+            self.dynamodb.batch_put_items(items=updated_items)
+        except DynamoDBClientError as error:
+            raise ModelPortfolioAccessBadGatewayError(
+                operation="batch updating model portfolio access records",
+                portfolio_id=portfolio_id,
+                cause=error,
+            ) from error
+
+        return len(updated_items)
+
+
+    def get_access_record(self, portfolio_id: str, shared_with_cognito_user_id: str) -> Optional[ModelPortfolioAccessRecord]:
+        portfolio_id = self._required_string("portfolio_id",portfolio_id)
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
+
+        try:
+            item = self.dynamodb.get_item(key={"portfolio_id": portfolio_id, "shared_with_cognito_user_id": shared_with_cognito_user_id})
+        except DynamoDBClientError as error:
+            raise ModelPortfolioAccessBadGatewayError(
+                operation="getting model portfolio access record",
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=shared_with_cognito_user_id,
+                cause=error,
+            ) from error
+
+        if item is None:
+            return None
+
+        try:
+            access_record = ModelPortfolioAccessRecord(
+                portfolio_id=item["portfolio_id"],
+                portfolio_owner_cognito_user_id=item["portfolio_owner_cognito_user_id"],
+                shared_with_cognito_user_id=item["shared_with_cognito_user_id"],
+                shared_with_email=item["shared_with_email"],
+                granted_access_at=to_utc_from_iso(item["granted_access_at"]),
+                granted_access_by=item["granted_access_by"],
+                status=item["status"],
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ModelPortfolioAccessUnprocessableEntityError(
+                "Stored model portfolio access record is invalid "
+                f"for portfolio_id '{portfolio_id}' and "
+                f"shared_with_cognito_user_id '{shared_with_cognito_user_id}': {error}"
+            ) from error
+
+        return access_record
+
 
     def _wait_until_portfolio_update_lock_is_released(
         self,
@@ -285,23 +436,18 @@ class ModelPortfolioAccessRepository:
                 cause=error,
             ) from error
 
-    def add_access_for_user(
+    def add_access_via_email(
         self,
         *,
         portfolio_id: str,
         portfolio_owner_cognito_user_id: str,
         shared_with_email: str,
+        granted_access_by: str
     ) -> None:
         """Grant a user access to a model portfolio."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
-        portfolio_owner_cognito_user_id = self._required_string(
-            "portfolio_owner_cognito_user_id",
-            portfolio_owner_cognito_user_id,
-        )
-        shared_with_email = self._required_string(
-            "shared_with_email",
-            shared_with_email,
-        )
+        portfolio_owner_cognito_user_id = self._required_string("portfolio_owner_cognito_user_id",portfolio_owner_cognito_user_id)
+        shared_with_email = self._required_string("shared_with_email",shared_with_email)
 
         owner_token = self._acquire_model_portfolio_update_lock(
             portfolio_id=portfolio_id
@@ -325,49 +471,42 @@ class ModelPortfolioAccessRepository:
                     portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                     cause=error,
                 ) from error
-
-            self._write_access_item(
+            shared_with_cognito_user_id = shared_with_cognito_user_dict["cognito_user_id"]
+            access_record = ModelPortfolioAccessRecord(
                 portfolio_id=portfolio_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                shared_with_cognito_user_id=shared_with_cognito_user_dict[
-                    "cognito_user_id"
-                ],
+                shared_with_cognito_user_id=shared_with_cognito_user_id,
                 shared_with_email=shared_with_email,
+                granted_access_at=datetime.now(timezone.utc),
+                granted_access_by=granted_access_by,
+                status="ACTIVE"
             )
+            self._write_access_record(access_record=access_record)
         finally:
             self._release_model_portfolio_update_lock(
                 portfolio_id=portfolio_id,
                 owner_token=owner_token,
             )
 
-    def add_access_for_user_by_cognito_user_id(
+    def add_access_via_cognito_user_id(
         self,
         *,
         portfolio_id: str,
         portfolio_owner_cognito_user_id: str,
         shared_with_cognito_user_id: str,
+        granted_access_by: str
     ) -> None:
         """Grant access by Cognito user ID after loading the user's email."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
-        portfolio_owner_cognito_user_id = self._required_string(
-            "portfolio_owner_cognito_user_id",
-            portfolio_owner_cognito_user_id,
-        )
-        shared_with_cognito_user_id = self._required_string(
-            "shared_with_cognito_user_id",
-            shared_with_cognito_user_id,
-        )
+        portfolio_owner_cognito_user_id = self._required_string("portfolio_owner_cognito_user_id",portfolio_owner_cognito_user_id)
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
 
         owner_token = self._acquire_model_portfolio_update_lock(
             portfolio_id=portfolio_id
         )
         try:
             try:
-                shared_with_cognito_user_dict = (
-                    self.cognito_client.get_cognito_user_by_cognito_user_id(
-                        cognito_user_id=shared_with_cognito_user_id
-                    )
-                )
+                shared_with_cognito_user_dict = self.cognito_client.get_cognito_user_by_cognito_user_id(cognito_user_id=shared_with_cognito_user_id)
             except CognitoClientCognitoUserNotFound as error:
                 raise ModelPortfolioAccessUserNotFoundError(
                     identifier=shared_with_cognito_user_id,
@@ -382,48 +521,44 @@ class ModelPortfolioAccessRepository:
                     cause=error,
                 ) from error
 
-            shared_with_email = shared_with_cognito_user_dict.get("email_address")
+            shared_with_email = shared_with_cognito_user_dict["email_address"]
             if not shared_with_email:
                 raise ModelPortfolioAccessUnprocessableEntityError(
                     "email_address is required on the shared Cognito user"
                 )
 
-            self._write_access_item(
+            access_record = ModelPortfolioAccessRecord(
                 portfolio_id=portfolio_id,
                 portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 shared_with_cognito_user_id=shared_with_cognito_user_id,
                 shared_with_email=shared_with_email,
+                granted_access_at=datetime.now(timezone.utc),
+                granted_access_by=granted_access_by,
+                status="ACTIVE"
             )
+
+            self._write_access_record(access_record=access_record)
         finally:
             self._release_model_portfolio_update_lock(
                 portfolio_id=portfolio_id,
                 owner_token=owner_token,
             )
 
-    def write_access_item_without_lock_by_cognito_user_id(
+    def add_access_via_cognito_user_id_without_lock(
         self,
         *,
         portfolio_id: str,
         portfolio_owner_cognito_user_id: str,
         shared_with_cognito_user_id: str,
+        granted_access_by: str
     ) -> None:
         """Write access by Cognito user ID when the caller already owns the lock."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
-        portfolio_owner_cognito_user_id = self._required_string(
-            "portfolio_owner_cognito_user_id",
-            portfolio_owner_cognito_user_id,
-        )
-        shared_with_cognito_user_id = self._required_string(
-            "shared_with_cognito_user_id",
-            shared_with_cognito_user_id,
-        )
+        portfolio_owner_cognito_user_id = self._required_string("portfolio_owner_cognito_user_id",portfolio_owner_cognito_user_id)
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
 
         try:
-            shared_with_cognito_user_dict = (
-                self.cognito_client.get_cognito_user_by_cognito_user_id(
-                    cognito_user_id=shared_with_cognito_user_id
-                )
-            )
+            shared_with_cognito_user_dict = self.cognito_client.get_cognito_user_by_cognito_user_id(cognito_user_id=shared_with_cognito_user_id)
         except CognitoClientCognitoUserNotFound as error:
             raise ModelPortfolioAccessUserNotFoundError(
                 identifier=shared_with_cognito_user_id,
@@ -438,66 +573,66 @@ class ModelPortfolioAccessRepository:
                 cause=error,
             ) from error
 
-        shared_with_email = shared_with_cognito_user_dict.get("email_address")
+        shared_with_email = shared_with_cognito_user_dict["email_address"]
         if not shared_with_email:
             raise ModelPortfolioAccessUnprocessableEntityError(
                 "email_address is required on the shared Cognito user"
             )
 
-        self._write_access_item(
+        access_record = ModelPortfolioAccessRecord(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
             shared_with_cognito_user_id=shared_with_cognito_user_id,
             shared_with_email=shared_with_email,
+            granted_access_at=datetime.now(timezone.utc),
+            granted_access_by=granted_access_by,
+            status="ACTIVE",
         )
 
-    def remove_access_for_user(
+        self._write_access_record(access_record=access_record)
+
+    def remove_access_via_cognito_user_id(
         self,
         *,
         portfolio_id: str,
         shared_with_cognito_user_id: str,
-    ) -> None:
+    ) -> ModelPortfolioAccessRemovalResult:
         """Remove a user's access grant for a model portfolio."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
-        shared_with_cognito_user_id = self._required_string(
-            "shared_with_cognito_user_id",
-            shared_with_cognito_user_id,
-        )
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
 
         owner_token = self._acquire_model_portfolio_update_lock(
             portfolio_id=portfolio_id
         )
         try:
             try:
-                if self.model_portfolio_follower_repository.is_model_portfolio_follower(
-                    cognito_user_id=shared_with_cognito_user_id,
-                    portfolio_id=portfolio_id,
-                ):
-                    raise ModelPortfolioAccessUserIsFollowerError(
-                        portfolio_id=portfolio_id,
-                        shared_with_cognito_user_id=shared_with_cognito_user_id,
-                    )
-
-                try:
-                    access_item = self.dynamodb.get_item(
-                        key={
-                            "portfolio_id": portfolio_id,
-                            "shared_with_cognito_user_id": shared_with_cognito_user_id,
-                        }
-                    )
-                except DynamoDBClientError as error:
-                    raise ModelPortfolioAccessBadGatewayError(
-                        operation="checking model portfolio access before removing access",
-                        portfolio_id=portfolio_id,
-                        shared_with_cognito_user_id=shared_with_cognito_user_id,
-                        cause=error,
-                    ) from error
-
-                if access_item is None:
+                access_record = self.get_access_record(portfolio_id=portfolio_id, shared_with_cognito_user_id=shared_with_cognito_user_id)
+                if not access_record:
                     raise ModelPortfolioAccessNotFoundError(
                         portfolio_id=portfolio_id,
-                        shared_with_cognito_user_id=shared_with_cognito_user_id,
+                        shared_with_cognito_user_id=shared_with_cognito_user_id
                     )
+
+                if not self.model_portfolio_follower_repository.is_model_portfolio_follower(cognito_user_id=shared_with_cognito_user_id, portfolio_id=portfolio_id):
+                    self.dynamodb.delete_item(
+                        key={"portfolio_id": portfolio_id, "shared_with_cognito_user_id": shared_with_cognito_user_id}
+                    )
+                    return ModelPortfolioAccessRemovalResult(
+                        removed=True,
+                        pending_removal=False,
+                    )
+
+                access_record.status = "TO_BE_DELETED"
+                self._write_access_record(access_record=access_record)
+                return ModelPortfolioAccessRemovalResult(
+                    removed=False,
+                    pending_removal=True,
+                    message=(
+                        "User is currently following this model portfolio. "
+                        "Access will be removed after they withdraw all their money."
+                    ),
+                )
+
             except ModelPortfolioFollowerBadGatewayError as error:
                 raise ModelPortfolioAccessBadGatewayError(
                     operation="checking follower relationship before removing access",
@@ -506,20 +641,6 @@ class ModelPortfolioAccessRepository:
                     cause=error,
                 ) from error
 
-            try:
-                self.dynamodb.delete_item(
-                    key={
-                        "portfolio_id": portfolio_id,
-                        "shared_with_cognito_user_id": shared_with_cognito_user_id,
-                    }
-                )
-            except DynamoDBClientError as error:
-                raise ModelPortfolioAccessBadGatewayError(
-                    operation="removing model portfolio access",
-                    portfolio_id=portfolio_id,
-                    shared_with_cognito_user_id=shared_with_cognito_user_id,
-                    cause=error,
-                ) from error
         finally:
             self._release_model_portfolio_update_lock(
                 portfolio_id=portfolio_id,
@@ -534,21 +655,17 @@ class ModelPortfolioAccessRepository:
     ) -> bool:
         """Return whether a user has an active access grant."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
-        shared_with_cognito_user_id = self._required_string(
-            "shared_with_cognito_user_id",
-            shared_with_cognito_user_id,
-        )
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
+
         self._wait_until_portfolio_update_lock_is_released(
             portfolio_id=portfolio_id
         )
 
         try:
-            item = self.dynamodb.get_item(
-                key={
-                    "portfolio_id": portfolio_id,
-                    "shared_with_cognito_user_id": shared_with_cognito_user_id,
-                }
+            return self.dynamodb.item_exists(
+                key={"portfolio_id": portfolio_id, "shared_with_cognito_user_id": shared_with_cognito_user_id}
             )
+
         except DynamoDBClientError as error:
             raise ModelPortfolioAccessBadGatewayError(
                 operation="checking model portfolio access",
@@ -557,14 +674,14 @@ class ModelPortfolioAccessRepository:
                 cause=error,
             ) from error
 
-        return bool(item is not None)
+        return bool(access_record is not None)
 
     def get_accesses_for_portfolio(
         self,
         *,
         portfolio_id: str,
         wait_for_lock: bool = True,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ModelPortfolioAccessRecord]:
         """Return all access grants for one model portfolio."""
         portfolio_id = self._required_string("portfolio_id", portfolio_id)
         if wait_for_lock:
@@ -573,9 +690,23 @@ class ModelPortfolioAccessRepository:
             )
 
         try:
-            return self.dynamodb.query(
+            items = self.dynamodb.query(
                 key_condition=Key("portfolio_id").eq(portfolio_id),
             )
+
+            return [
+                ModelPortfolioAccessRecord(
+                    portfolio_id=item["portfolio_id"],
+                    portfolio_owner_cognito_user_id=item["portfolio_owner_cognito_user_id"],
+                    shared_with_cognito_user_id=item["shared_with_cognito_user_id"],
+                    shared_with_email=item["shared_with_email"],
+                    granted_access_at=to_utc_from_iso(item["granted_access_at"]),
+                    granted_access_by=item["granted_access_by"],
+                    status=item["status"]
+                )
+                for item in items
+            ]
+
         except DynamoDBClientError as error:
             raise ModelPortfolioAccessBadGatewayError(
                 operation="getting model portfolio access grants",
@@ -583,87 +714,37 @@ class ModelPortfolioAccessRepository:
                 cause=error,
             ) from error
 
-    def get_accesses_shared_with_user(
+    def get_accesses_for_shared_with_user(
         self,
         *,
         shared_with_cognito_user_id: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ModelPortfolioAccessRecord]:
         """Return portfolio access grants shared with one user."""
-        shared_with_cognito_user_id = self._required_string(
-            "shared_with_cognito_user_id",
-            shared_with_cognito_user_id,
-        )
+        shared_with_cognito_user_id = self._required_string("shared_with_cognito_user_id",shared_with_cognito_user_id)
 
         try:
-            return self.dynamodb.query(
+            items = self.dynamodb.query(
                 key_condition=Key("shared_with_cognito_user_id").eq(
                     shared_with_cognito_user_id
                 ),
                 IndexName=self.SHARED_WITH_COGNITO_USER_ID_INDEX,
             )
+
+            return [
+                ModelPortfolioAccessRecord(
+                    portfolio_id=item["portfolio_id"],
+                    portfolio_owner_cognito_user_id=item["portfolio_owner_cognito_user_id"],
+                    shared_with_cognito_user_id=item["shared_with_cognito_user_id"],
+                    shared_with_email=item["shared_with_email"],
+                    granted_access_at=to_utc_from_iso(item["granted_access_at"]),
+                    granted_access_by=item["granted_access_by"],
+                    status=item["status"]
+                )
+                for item in items
+            ]
         except DynamoDBClientError as error:
             raise ModelPortfolioAccessBadGatewayError(
                 operation="getting model portfolio access grants shared with user",
                 shared_with_cognito_user_id=shared_with_cognito_user_id,
-                cause=error,
-            ) from error
-
-    def get_accesses_granted_by_owner(
-        self,
-        *,
-        portfolio_owner_cognito_user_id: str,
-    ) -> List[Dict[str, Any]]:
-        """Return portfolio access grants created by one portfolio owner."""
-        portfolio_owner_cognito_user_id = self._required_string(
-            "portfolio_owner_cognito_user_id",
-            portfolio_owner_cognito_user_id,
-        )
-
-        try:
-            return self.dynamodb.query(
-                key_condition=Key("portfolio_owner_cognito_user_id").eq(
-                    portfolio_owner_cognito_user_id
-                ),
-                IndexName=self.PORTFOLIO_OWNER_COGNITO_USER_ID_INDEX,
-            )
-        except DynamoDBClientError as error:
-            raise ModelPortfolioAccessBadGatewayError(
-                operation="getting model portfolio access grants by owner",
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
-                cause=error,
-            ) from error
-
-    def _required_string(self, field_name: str, value: str) -> str:
-        normalized_value = str(value).strip()
-        if not normalized_value:
-            raise ModelPortfolioAccessUnprocessableEntityError(
-                f"{field_name} is required"
-            )
-        return normalized_value
-
-    def _write_access_item(
-        self,
-        *,
-        portfolio_id: str,
-        portfolio_owner_cognito_user_id: str,
-        shared_with_cognito_user_id: str,
-        shared_with_email: str,
-    ) -> None:
-        item = {
-            "portfolio_id": portfolio_id,
-            "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
-            "shared_with_cognito_user_id": shared_with_cognito_user_id,
-            "shared_with_cognito_user_email": shared_with_email.strip().lower(),
-            "granted_access_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        try:
-            self.dynamodb.put_item(item=to_dynamodb_value(item))
-        except DynamoDBClientError as error:
-            raise ModelPortfolioAccessBadGatewayError(
-                operation="granting model portfolio access",
-                portfolio_id=portfolio_id,
-                shared_with_cognito_user_id=shared_with_cognito_user_id,
-                portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
                 cause=error,
             ) from error

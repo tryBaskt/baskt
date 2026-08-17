@@ -56,9 +56,10 @@ Coverage goals:
   cooldown, return no-op for unchanged inputs, raise ModelPortfolioNotFoundError
   for missing portfolios, and raise ModelPortfolioLockedError while the
   portfolio update lock is held.
-- private visibility sync: create a public portfolio, add a follower, update it
-  to private, verify the follower record remains, verify the follower receives
-  access, and verify snapshots stay at one.
+- private visibility sync: create a public portfolio with an existing
+  allocation access record, update it to private, verify the follower record
+  remains, verify allocation access moves to TO_BE_DELETED, and verify snapshots
+  stay at one.
 - get_portfolio_cognito_owner_id_by_portfolio(): read an existing owner ID and
   raise ModelPortfolioNotFoundError for a missing portfolio.
 - get_position_history(): read one and multiple parsed snapshots, raise
@@ -606,7 +607,7 @@ def test_model_portfolio_repository_update_public_to_private_preserves_follower_
     test_user_1,
     test_user_2,
 ) -> None:
-    """Make a public followed portfolio private and grant follower access."""
+    """Make a public followed portfolio private and mark allocation access pending."""
     portfolio_id = None
 
     try:
@@ -622,6 +623,12 @@ def test_model_portfolio_repository_update_public_to_private_preserves_follower_
             alpaca_account_id=test_user_2.alpaca_account_id,
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+        )
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
+            portfolio_id=portfolio_id,
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="ALLOCATION",
         )
 
         updated, snapshot_id = model_portfolio_repository.update_model_portfolio(
@@ -647,6 +654,13 @@ def test_model_portfolio_repository_update_public_to_private_preserves_follower_
             portfolio_id=portfolio_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "TO_BE_DELETED"
     finally:
         if portfolio_id:
             _delete_access(

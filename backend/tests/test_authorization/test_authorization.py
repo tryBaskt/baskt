@@ -401,10 +401,11 @@ def test_model_portfolio_access_allows_owner_public_and_shared_private(
 
     access_granted = False
     try:
-        model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
             portfolio_id=private_portfolio_id,
             portfolio_owner_cognito_user_id=owner_user.cognito_user_id,
             shared_with_cognito_user_id=other_user.cognito_user_id,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         access_granted = True
 
@@ -433,7 +434,7 @@ def test_model_portfolio_access_allows_owner_public_and_shared_private(
         assert shared_result.portfolio_id == private_portfolio_id
     finally:
         if access_granted:
-            model_portfolio_access_repository.remove_access_for_user(
+            model_portfolio_access_repository.remove_access_via_cognito_user_id(
                 portfolio_id=private_portfolio_id,
                 shared_with_cognito_user_id=other_user.cognito_user_id,
             )

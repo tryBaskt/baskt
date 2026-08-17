@@ -18,6 +18,7 @@ from repository.allocation_repository import AllocationRepository
 from repository.order_repository import OrderRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
+from repository.model_portfolio_access_repository import ModelPortfolioAccessRepository
 from alpaca.trading.models import Order
 import uuid
 from math import floor, ceil
@@ -55,7 +56,8 @@ class TradeExecutionService:
         allocation_repository: AllocationRepository,
         order_repository: OrderRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-        user_trade_lock_repository: UserTradeLockRepository
+        user_trade_lock_repository: UserTradeLockRepository,
+        model_portfolio_access_repository: ModelPortfolioAccessRepository
     ):
         self.alpaca_broker_client: AlpacaBrokerClient = alpaca_broker_client
         self.model_portfolio_repository: ModelPortfolioRepository = model_portfolio_repository
@@ -63,6 +65,7 @@ class TradeExecutionService:
         self.order_repository: OrderRepository = order_repository
         self.model_portfolio_follower_repository: ModelPortfolioFollowerRepository = model_portfolio_follower_repository
         self.user_trade_lock_repository: UserTradeLockRepository = user_trade_lock_repository
+        self.model_portfolio_access_repository: ModelPortfolioAccessRepository = model_portfolio_access_repository
 
 
     # Shared execution and reconciliation helpers
@@ -508,6 +511,12 @@ class TradeExecutionService:
                 allocation.open_positions = len(new_position_snapshot.positions) > 0
 
             self.allocation_repository.set_allocation(allocation=allocation)
+
+            if allocation.allocation_type == "MODEL_PORTFOLIO" and not (allocation.open_positions or allocation.open_orders):
+                access_record = self.model_portfolio_access_repository.get_access_record(portfolio_id=allocation_id, shared_with_cognito_user_id=cognito_user_id)
+                if access_record and (access_record.granted_access_by == "ALLOCATION" or access_record.status == "TO_BE_DELETED"):
+                    self.model_portfolio_access_repository.remove_access_via_cognito_user_id(portfolio_id=allocation_id, shared_with_cognito_user_id=cognito_user_id)
+
 
             return len(total_newly_filled_orders)
 

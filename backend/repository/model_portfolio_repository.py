@@ -910,46 +910,6 @@ class ModelPortfolioRepository:
                 ) from e
 
             try:
-                if visibility_unchanged is False and visibility == "PRIVATE":
-                    model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
-                    model_portfolio_current_accesses = self.model_portfolio_access_repository.get_accesses_for_portfolio(
-                        portfolio_id=portfolio_id,
-                        wait_for_lock=False,
-                    )
-                    follower_ids = {
-                        follower["cognito_user_id"]
-                        for follower in model_portfolio_followers
-                    }
-                    current_access_ids = {
-                        current_access["shared_with_cognito_user_id"]
-                        for current_access in model_portfolio_current_accesses
-                    }
-
-                    for cognito_user_id in follower_ids - current_access_ids:
-                        self.model_portfolio_access_repository.write_access_item_without_lock_by_cognito_user_id(
-                            portfolio_id=portfolio_id,
-                            portfolio_owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
-                            shared_with_cognito_user_id=cognito_user_id,
-                        )
-            except (
-                ModelPortfolioFollowerInternalServerError,
-                ModelPortfolioAccessRepositoryError,
-            ) as error:
-                raise ModelPortfolioBadGatewayError(
-                    source="DynamoDB/Cognito",
-                    operation="syncing private model portfolio access from followers",
-                    portfolio_id=portfolio_id,
-                    owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
-                    cause=error,
-                ) from error
-            except (KeyError, TypeError, ValueError) as error:
-                raise ModelPortfolioUnprocessableEntityError(
-                    operation="syncing private model portfolio access from followers",
-                    portfolio_id=portfolio_id,
-                    cause=error,
-                ) from error
-
-            try:
                 self.dynamodb.put_item(item)
             except DynamoDBClientError as e:
                 raise ModelPortfolioBadGatewayError(
@@ -958,6 +918,42 @@ class ModelPortfolioRepository:
                     portfolio_id=portfolio_id,
                     cause=e,
                 ) from e
+
+            try:
+                if visibility_unchanged is False and visibility == "PRIVATE":
+                    self.model_portfolio_access_repository.batch_update_access_record(
+                        portfolio_id=portfolio_id,
+                        conditional_attributes={
+                            "granted_access_by": "ALLOCATION",
+                            "status": "ACTIVE",
+                        },
+                        value_attributes={"status": "TO_BE_DELETED"},
+                        wait_for_lock=False,
+                    )
+                elif visibility_unchanged is False and visibility == "PUBLIC":
+                    self.model_portfolio_access_repository.batch_update_access_record(
+                        portfolio_id=portfolio_id,
+                        conditional_attributes={
+                            "granted_access_by": "ALLOCATION",
+                            "status": "TO_BE_DELETED",
+                        },
+                        value_attributes={"status": "ACTIVE"},
+                        wait_for_lock=False,
+                    )
+            except ModelPortfolioAccessRepositoryError as error:
+                raise ModelPortfolioBadGatewayError(
+                    source="DynamoDB/Cognito",
+                    operation="syncing allocation model portfolio access status",
+                    portfolio_id=portfolio_id,
+                    owner_cognito_user_id=existing.portfolio_owner_cognito_user_id,
+                    cause=error,
+                ) from error
+            except (KeyError, TypeError, ValueError) as error:
+                raise ModelPortfolioUnprocessableEntityError(
+                    operation="syncing allocation model portfolio access status",
+                    portfolio_id=portfolio_id,
+                    cause=error,
+                ) from error
 
             return True, new_snapshot_id
         finally:

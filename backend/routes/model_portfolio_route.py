@@ -42,13 +42,13 @@ from repository.model_portfolio_access_repository import (
     ModelPortfolioAccessRepository,
     ModelPortfolioAccessRepositoryError,
     ModelPortfolioAccessUnprocessableEntityError,
-    ModelPortfolioAccessUserIsFollowerError,
     ModelPortfolioAccessUserNotFoundError,
 )
 from schema.model_portfolio_schema import (
     AddAccessModelPortfolioRequest,
     CreateModelPortfolioRequest, 
     RemoveAccessModelPortfolioRequest,
+    RemoveAccessModelPortfolioResponse,
     UpdateModelPortfolioRequest,
     ModelPortfolioResponse,
     ModelPortfolioAnalyticsResponse,
@@ -98,8 +98,6 @@ def _raise_model_portfolio_http_exception(err: Exception) -> None:
             status_code = status.HTTP_404_NOT_FOUND
         elif isinstance(err, ModelPortfolioAccessNotFoundError):
             status_code = status.HTTP_404_NOT_FOUND
-        elif isinstance(err, ModelPortfolioAccessUserIsFollowerError):
-            status_code = status.HTTP_409_CONFLICT
         elif isinstance(err, ModelPortfolioAccessUnprocessableEntityError):
             status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         elif isinstance(err, ModelPortfolioAccessBadGatewayError):
@@ -169,12 +167,12 @@ def get_model_portfolios_shared_with_user(
     """List model portfolio metadata explicitly shared with the authenticated user."""
     try:
         cognito_user_id = get_cognito_user_id(baskt_account)
-        accesses = model_portfolio_access_repository.get_accesses_shared_with_user(
+        accesses = model_portfolio_access_repository.get_accesses_for_shared_with_user(
             shared_with_cognito_user_id=cognito_user_id,
         )
         portfolios_meta_data = [
             service.get_model_portfolio_metadata_by_portfolio_id(
-                portfolio_id=access["portfolio_id"]
+                portfolio_id=access.portfolio_id
             )
             for access in accesses
         ]
@@ -389,10 +387,11 @@ def add_model_portfolio_access(
             cognito_user_id=cognito_user_id,
             model_portfolio_repository=model_portfolio_repository,
         )
-        model_portfolio_access_repository.add_access_for_user(
+        model_portfolio_access_repository.add_access_via_email(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=cognito_user_id,
-            shared_with_email=authenticated_email_address
+            shared_with_email=authenticated_email_address,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         return
     except HTTPException:
@@ -401,7 +400,7 @@ def add_model_portfolio_access(
         _raise_model_portfolio_http_exception(e)
 
 
-@router.delete("/{portfolio_id}/accesses", response_model=None, status_code=HTTP_200_OK)
+@router.delete("/{portfolio_id}/accesses", response_model=RemoveAccessModelPortfolioResponse, status_code=HTTP_200_OK)
 def remove_model_portfolio_access(
     portfolio_id: str,
     request: RemoveAccessModelPortfolioRequest,
@@ -412,7 +411,7 @@ def remove_model_portfolio_access(
     model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
         get_model_portfolio_access_repository
     ),
-) -> None:
+) -> RemoveAccessModelPortfolioResponse:
     """Remove a user's access grant from a model portfolio."""
     try:
         portfolio_id = str(portfolio_id).strip()
@@ -433,11 +432,15 @@ def remove_model_portfolio_access(
             cognito_user_id=cognito_user_id,
             model_portfolio_repository=model_portfolio_repository,
         )
-        model_portfolio_access_repository.remove_access_for_user(
+        removal_result = model_portfolio_access_repository.remove_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             shared_with_cognito_user_id=shared_with_cognito_user_id,
         )
-        return
+        return RemoveAccessModelPortfolioResponse(
+            removed=removal_result.removed,
+            pending_removal=removal_result.pending_removal,
+            message=removal_result.message,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -445,11 +448,11 @@ def remove_model_portfolio_access(
 
 
 @router.get(
-    "/{portfolio_id}/accesses",
+    "/{portfolio_id}/accesses-by-portfolio-owner",
     response_model=SharedWithUsersModelPortfolioResponse,
     status_code=HTTP_200_OK,
 )
-def get_model_portfolio_accesses(
+def get_model_portfolio_accesses_by_portfolio_owner(
     portfolio_id: str,
     baskt_account: BasktAccount = Depends(get_current_baskt_account),
     model_portfolio_repository: ModelPortfolioRepository = Depends(
@@ -480,10 +483,12 @@ def get_model_portfolio_accesses(
         return SharedWithUsersModelPortfolioResponse(
             root=[
                 SharedWithUserModelPortfolioResponse(
-                    cognito_user_id=access["shared_with_cognito_user_id"],
-                    email_address=access["shared_with_cognito_user_email"],
+                    cognito_user_id=access.shared_with_cognito_user_id,
+                    email_address=access.shared_with_email,
                 )
                 for access in accesses
+                if access.status == "ACTIVE"
+                and access.granted_access_by == "PORTFOLIO_OWNER"
             ]
         )
     except HTTPException:

@@ -70,13 +70,14 @@ Coverage goals:
 - Stock trade workflows: buy, sell, and close go through the route, queue,
   execution service, repositories, and Alpaca/mock orders.
 - Queue lock mapping: a real user trade lock maps to HTTP 409.
-- Follower lifecycle: non-owner deposits into public or explicitly shared
-  private portfolios create follower records; partial withdrawals keep
-  followers; withdraw-all removes followers.
+- Follower and allocation-access lifecycle: non-owner deposits into public or
+  explicitly shared private portfolios create follower records; public deposits
+  create ALLOCATION access records; partial withdrawals keep followers and
+  access records; withdraw-all removes followers and allocation-only access.
 - Public-to-private unwind lifecycle: a user who deposited into a public
-  portfolio can withdraw after it becomes private; withdraw-all removes their
-  follower relationship and therefore their implicit access. The owner never
-  grants explicit access in that case.
+  portfolio can withdraw after it becomes private; the visibility change marks
+  ALLOCATION access TO_BE_DELETED, and withdraw-all removes the follower and
+  access record. The owner never grants explicit access in that case.
 - Authentication: token Alpaca-account mismatches and unknown token Cognito user
   ids are rejected by the real Baskt account auth dependency before queueing.
 
@@ -615,9 +616,7 @@ def _delete_model_portfolio(
             model_portfolio_access_repository.dynamodb.delete_item(
                 key={
                     "portfolio_id": portfolio_id,
-                    "shared_with_cognito_user_id": access[
-                        "shared_with_cognito_user_id"
-                    ],
+                    "shared_with_cognito_user_id": access.shared_with_cognito_user_id,
                 }
             )
     except Exception:
@@ -1254,6 +1253,13 @@ def test_trade_execution_public_non_owner_partial_withdraw_keeps_follower(
             cognito_user_id=trader_user.cognito_user_id,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "ACTIVE"
 
         partial_allocation, _, _ = _wait_for_route_trade(
             client=client,
@@ -1275,6 +1281,13 @@ def test_trade_execution_public_non_owner_partial_withdraw_keeps_follower(
             cognito_user_id=trader_user.cognito_user_id,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "ACTIVE"
     finally:
         if portfolio_id is not None:
             _cleanup_trade_state(
@@ -1358,11 +1371,25 @@ def test_trade_execution_public_deposit_then_private_partial_withdraw_keeps_foll
             cognito_user_id=trader_user.cognito_user_id,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "ACTIVE"
 
         _make_private(
             model_portfolio_repository=model_portfolio_repository,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "TO_BE_DELETED"
 
         allocation, _, _ = _wait_for_route_trade(
             client=client,
@@ -1384,6 +1411,13 @@ def test_trade_execution_public_deposit_then_private_partial_withdraw_keeps_foll
             cognito_user_id=trader_user.cognito_user_id,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "TO_BE_DELETED"
     finally:
         if portfolio_id is not None:
             _cleanup_trade_state(
@@ -1433,10 +1467,11 @@ def test_trade_execution_non_owner_withdraw_all_removes_follower(
             visibility=visibility,
         )
         if visibility == "PRIVATE":
-            model_portfolio_access_repository.add_access_for_user(
+            model_portfolio_access_repository.add_access_via_email(
                 portfolio_id=portfolio_id,
                 portfolio_owner_cognito_user_id=owner_user.cognito_user_id,
                 shared_with_email=trader_user.email_address,
+                granted_access_by="PORTFOLIO_OWNER",
             )
         baskt_account = _baskt_account(
             account_lifecycle_service=account_lifecycle_service,
@@ -1475,6 +1510,17 @@ def test_trade_execution_non_owner_withdraw_all_removes_follower(
             cognito_user_id=trader_user.cognito_user_id,
             portfolio_id=portfolio_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        if visibility == "PRIVATE":
+            assert access_record.granted_access_by == "PORTFOLIO_OWNER"
+            assert access_record.status == "ACTIVE"
+        else:
+            assert access_record.granted_access_by == "ALLOCATION"
+            assert access_record.status == "ACTIVE"
 
         allocation, _, _ = _wait_for_route_trade(
             client=client,
@@ -1497,7 +1543,15 @@ def test_trade_execution_non_owner_withdraw_all_removes_follower(
             portfolio_id=portfolio_id,
         )
         if visibility == "PRIVATE":
-            assert model_portfolio_access_repository.has_access(
+            access_record = model_portfolio_access_repository.get_access_record(
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=trader_user.cognito_user_id,
+            )
+            assert access_record is not None
+            assert access_record.granted_access_by == "PORTFOLIO_OWNER"
+            assert access_record.status == "ACTIVE"
+        else:
+            assert not model_portfolio_access_repository.has_access(
                 portfolio_id=portfolio_id,
                 shared_with_cognito_user_id=trader_user.cognito_user_id,
             )

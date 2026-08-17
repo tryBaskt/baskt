@@ -41,10 +41,11 @@ def test_model_portfolio_access_repository_add_get_has_and_remove(
     portfolio_id = f"repository-access-{uuid4()}"
 
     try:
-        model_portfolio_access_repository.add_access_for_user(
+        model_portfolio_access_repository.add_access_via_email(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_email=test_user_2.email_address,
+            granted_access_by="PORTFOLIO_OWNER",
         )
 
         assert model_portfolio_access_repository.has_access(
@@ -67,13 +68,13 @@ def test_model_portfolio_access_repository_add_get_has_and_remove(
         )
 
         shared_with_user = (
-            model_portfolio_access_repository.get_accesses_shared_with_user(
+            model_portfolio_access_repository.get_accesses_for_shared_with_user(
                 shared_with_cognito_user_id=test_user_2.cognito_user_id,
             )
         )
-        assert any(access["portfolio_id"] == portfolio_id for access in shared_with_user)
+        assert any(access.portfolio_id == portfolio_id for access in shared_with_user)
 
-        model_portfolio_access_repository.remove_access_for_user(
+        model_portfolio_access_repository.remove_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
         )
@@ -102,10 +103,11 @@ def test_model_portfolio_access_repository_blocks_remove_for_follower(
     portfolio_id = f"repository-access-follower-{uuid4()}"
 
     try:
-        model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         model_portfolio_follower_repository.put_model_portfolio_follower(
             cognito_user_id=test_user_2.cognito_user_id,
@@ -115,7 +117,7 @@ def test_model_portfolio_access_repository_blocks_remove_for_follower(
         )
 
         with pytest.raises(ModelPortfolioAccessUserIsFollowerError):
-            model_portfolio_access_repository.remove_access_for_user(
+            model_portfolio_access_repository.remove_access_via_cognito_user_id(
                 portfolio_id=portfolio_id,
                 shared_with_cognito_user_id=test_user_2.cognito_user_id,
             )
@@ -147,10 +149,11 @@ def test_model_portfolio_access_repository_add_by_cognito_user_id_writes_expecte
     portfolio_id = f"repository-access-cognito-id-{uuid4()}"
 
     try:
-        model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="PORTFOLIO_OWNER",
         )
 
         access = model_portfolio_access_repository.dynamodb.get_item(
@@ -178,43 +181,6 @@ def test_model_portfolio_access_repository_add_by_cognito_user_id_writes_expecte
 
 
 @pytest.mark.integration
-def test_model_portfolio_access_repository_get_accesses_granted_by_owner(
-    model_portfolio_access_repository: ModelPortfolioAccessRepository,
-    test_user_1,
-    test_user_2,
-) -> None:
-    portfolio_ids = [
-        f"repository-owner-access-one-{uuid4()}",
-        f"repository-owner-access-two-{uuid4()}",
-    ]
-
-    try:
-        for portfolio_id in portfolio_ids:
-            model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
-                portfolio_id=portfolio_id,
-                portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
-                shared_with_cognito_user_id=test_user_2.cognito_user_id,
-            )
-
-        owner_accesses = (
-            model_portfolio_access_repository.get_accesses_granted_by_owner(
-                portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
-            )
-        )
-        owner_portfolio_ids = {
-            access["portfolio_id"]
-            for access in owner_accesses
-        }
-        assert set(portfolio_ids) <= owner_portfolio_ids
-    finally:
-        for portfolio_id in portfolio_ids:
-            _delete_access(
-                model_portfolio_access_repository,
-                portfolio_id=portfolio_id,
-                shared_with_cognito_user_id=test_user_2.cognito_user_id,
-            )
-
-
 @pytest.mark.integration
 def test_model_portfolio_access_repository_has_access_returns_false_for_missing_access(
     model_portfolio_access_repository: ModelPortfolioAccessRepository,
@@ -261,10 +227,11 @@ def test_model_portfolio_access_repository_reads_wait_for_update_lock(
     lock_acquired = False
 
     try:
-        model_portfolio_access_repository.add_access_for_user_by_cognito_user_id(
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         assert model_portfolio_update_lock_repository.acquire_lock(
             portfolio_id=portfolio_id,

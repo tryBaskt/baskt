@@ -122,7 +122,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setShareError("");
     try {
       const accessPayload = await apiRequest(
-        `/model-portfolios/${portfolioId}/accesses`,
+        `/model-portfolios/${portfolioId}/accesses-by-portfolio-owner`,
         { signal }
       );
       setAccesses(Array.isArray(accessPayload) ? accessPayload : []);
@@ -232,11 +232,11 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setSuccess("");
     try {
       setRemovingAccessId(cognitoUserId);
-      await apiRequest(`/model-portfolios/${portfolioId}/accesses`, {
+      const removalResult = await apiRequest(`/model-portfolios/${portfolioId}/accesses`, {
         method: "DELETE",
         body: JSON.stringify({ cognito_user_id: cognitoUserId }),
       });
-      setSuccess("Access removed.");
+      setSuccess(removalResult?.message || "Access removed.");
       await loadAccesses();
     } catch (accessError) {
       setShareError(accessError?.message || "Could not remove access.");

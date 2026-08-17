@@ -93,6 +93,29 @@ class DynamoDBClient:
                 code="DYNAMODB_PUT_ITEM_FAILED",
             )
 
+    def batch_put_items(self, items: List[Dict[str, Any]]) -> None:
+        """
+        Insert or replace multiple items in the DynamoDB table.
+
+        Args:
+            items: Full DynamoDB item payloads to write.
+
+        Returns:
+            None.
+        """
+        if not items:
+            return
+
+        try:
+            with self.table.batch_writer() as batch:
+                for item in items:
+                    batch.put_item(Item=item)
+        except Exception as e:
+            raise DynamoDBClientError(
+                message=f"Failed to batch put items into DynamoDB: {e}",
+                code="DYNAMODB_BATCH_PUT_ITEMS_FAILED",
+            )
+
     def item_exists(self, key: Dict[str, Any], consistent_read: bool = False) -> bool:
         """
         Check whether an item exists for the provided primary key.

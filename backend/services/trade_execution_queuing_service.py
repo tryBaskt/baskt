@@ -22,6 +22,7 @@ from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.allocation_repository import AllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
+from repository.model_portfolio_access_repository import ModelPortfolioAccessRepository
 from math import floor
 MINIMUM_PORTFOLIO_BALANCE = 1.0
 MINIMUM_STOCK_BALANCE = 1.0
@@ -66,7 +67,8 @@ class TradeExecutionQueuingService:
         allocation_repository: AllocationRepository,
         alpaca_broker_client: AlpacaBrokerClient,
         user_trade_lock_repository: UserTradeLockRepository,
-        model_portfolio_follower_repository: ModelPortfolioFollowerRepository
+        model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+        model_portfolio_access_repository: ModelPortfolioAccessRepository,
     ) -> None:
         if not queue_url:
             raise TradeExecutionQueuingInternalServerError(
@@ -80,6 +82,7 @@ class TradeExecutionQueuingService:
         self.alpaca_broker_client = alpaca_broker_client
         self.user_trade_lock_repository = user_trade_lock_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.model_portfolio_access_repository = model_portfolio_access_repository
 
     def _send_message(self, *, action: str, payload: Dict[str, Any]) -> str:
         """Publish one JSON trade message and return its SQS message ID."""
@@ -417,19 +420,45 @@ class TradeExecutionQueuingService:
             transaction = self._new_transaction(
                 requested_amount=float(amount), transaction_type="DEPOSIT"
             )
-            return self._queue_transaction(
-                allocation=allocation,
-                transaction=transaction,
-                action="portfolio_deposit",
-                payload={
-                    "portfolio_id": portfolio_id,
-                    "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
-                    "amount": float(amount),
-                    "transaction_id": transaction.transaction_id,
-                    "cognito_user_id": cognito_user_id,
-                    "alpaca_account_id": alpaca_account_id,
-                },
-            )
+            created_allocation_access = False
+            if cognito_user_id != portfolio_owner_cognito_user_id:
+                access_record = self.model_portfolio_access_repository.get_access_record(
+                    portfolio_id=portfolio_id,
+                    shared_with_cognito_user_id=cognito_user_id,
+                )
+                if access_record is None:
+                    self.model_portfolio_access_repository.add_access_via_cognito_user_id(
+                        portfolio_id=portfolio_id,
+                        portfolio_owner_cognito_user_id=portfolio_owner_cognito_user_id,
+                        shared_with_cognito_user_id=cognito_user_id,
+                        granted_access_by="ALLOCATION",
+                    )
+                    created_allocation_access = True
+            
+            try:
+                return self._queue_transaction(
+                    allocation=allocation,
+                    transaction=transaction,
+                    action="portfolio_deposit",
+                    payload={
+                        "portfolio_id": portfolio_id,
+                        "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
+                        "amount": float(amount),
+                        "transaction_id": transaction.transaction_id,
+                        "cognito_user_id": cognito_user_id,
+                        "alpaca_account_id": alpaca_account_id,
+                    },
+                )
+            except Exception:
+                if created_allocation_access:
+                    try:
+                        self.model_portfolio_access_repository.remove_access_via_cognito_user_id(
+                            portfolio_id=portfolio_id,
+                            shared_with_cognito_user_id=cognito_user_id,
+                        )
+                    except Exception:
+                        pass
+                raise
         except TradeExecutionQueuingInternalServerError:
             raise
         except Exception as error:

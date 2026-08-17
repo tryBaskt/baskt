@@ -11,6 +11,7 @@ from backend.tests_v2.mock_alpaca.trading import (
     build_mock_alpaca_broker_client,
 )
 from services.account_lifecycle_service import AccountLifecycleService
+from repository.model_portfolio_access_repository import ModelPortfolioAccessRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from repository.baskt_account_repository import BasktAccountRepository
@@ -176,38 +177,39 @@ def model_portfolio_update_lock_repository() -> ModelPortfolioUpdateLockReposito
 
 
 @pytest.fixture(scope="session")
+def model_portfolio_access_repository(
+    cognito_client: CognitoClient,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+) -> ModelPortfolioAccessRepository:
+    app_deps.get_model_portfolio_access_dynamodb_client.cache_clear()
+    model_portfolio_access_dynamodb_client = app_deps.get_model_portfolio_access_dynamodb_client()
+    
+    return app_deps.get_model_portfolio_access_repository(
+        model_portfolio_access_dynamodb_client=model_portfolio_access_dynamodb_client,
+        cognito_client=cognito_client,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+    )
+
+
+@pytest.fixture(scope="session")
 def model_portfolio_repository(
     alpaca_broker_client: AlpacaBrokerClient,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> ModelPortfolioRepository:
 
     app_deps.get_model_portfolio_dynamodb_client.cache_clear()
     model_portfolio_dynamodb_client = app_deps.get_model_portfolio_dynamodb_client()
-    app_deps.get_model_portfolio_access_dynamodb_client.cache_clear()
-    model_portfolio_access_dynamodb_client = (
-        app_deps.get_model_portfolio_access_dynamodb_client()
-    )
 
     return app_deps.get_model_portfolio_repository(
         dynamodb=model_portfolio_dynamodb_client,
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
-        model_portfolio_access_repository=(
-            app_deps.get_model_portfolio_access_repository(
-                model_portfolio_access_dynamodb_client=(
-                    model_portfolio_access_dynamodb_client
-                ),
-                cognito_client=app_deps.get_cognito_client(),
-                model_portfolio_follower_repository=(
-                    model_portfolio_follower_repository
-                ),
-                model_portfolio_update_lock_repository=(
-                    model_portfolio_update_lock_repository
-                ),
-            )
-        ),
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 
@@ -276,7 +278,8 @@ def trade_execution_service(
     allocation_repository: AllocationRepository,
     order_repository: OrderRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
-    user_trade_lock_repository: UserTradeLockRepository
+    user_trade_lock_repository: UserTradeLockRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> TradeExecutionService:
 
     return app_deps.get_trade_execution_service(
@@ -286,6 +289,7 @@ def trade_execution_service(
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 @pytest.fixture(scope="session")
@@ -297,6 +301,7 @@ def trade_execution_queuing_service(
     allocation_repository: AllocationRepository,
     user_trade_lock_repository: UserTradeLockRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> TradeExecutionQueuingService:
 
     queue_url = (
@@ -319,6 +324,7 @@ def trade_execution_queuing_service(
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 
@@ -339,6 +345,7 @@ class TestEngine:
         alpaca_broker_client: AlpacaBrokerClient,
         allocation_repository: AllocationRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+        model_portfolio_access_repository: ModelPortfolioAccessRepository,
     ):
         self.account_lifecycle_service = account_lifecycle_service
         self.trade_execution_service = trade_execution_service
@@ -349,6 +356,7 @@ class TestEngine:
         self.alpaca_broker_client = alpaca_broker_client
         self.allocation_repository = allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
+        self.model_portfolio_access_repository = model_portfolio_access_repository
         self.accounts = TradeExecutionTestAccountIds()
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
@@ -720,6 +728,12 @@ class TestEngine:
         # Validate user is in model portfolio's followers
         model_portfolio_followers = self.model_portfolio_follower_repository.get_model_portfolio_followers(portfolio_id=portfolio_id)
         assert {"alpaca_account_id": alpaca_account_id, "cognito_user_id": cognito_user_id} in model_portfolio_followers
+        if cognito_user_id != portfolio_owner_cognito_user_id:
+            access_record = self.model_portfolio_access_repository.get_access_record(
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=cognito_user_id,
+            )
+            assert access_record is not None
 
         return dep_response
 
@@ -1620,6 +1634,16 @@ class TestEngine:
                 pass
 
             try:
+                self.model_portfolio_access_repository.dynamodb.delete_item(
+                    key={
+                        "portfolio_id": portfolio_id,
+                        "shared_with_cognito_user_id": cognito_user_id,
+                    }
+                )
+            except Exception as e:
+                pass
+
+            try:
                 self.allocation_repository.allocation_table_client.delete_item(
                     key={"cognito_user_id": cognito_user_id,"allocation_id": portfolio_id}
                 )
@@ -1627,6 +1651,23 @@ class TestEngine:
                 pass
 
         for _, portfolio_id in portfolio_owner_model_portfolios:
+            try:
+                for access_record in (
+                    self.model_portfolio_access_repository.get_accesses_for_portfolio(
+                        portfolio_id=portfolio_id
+                    )
+                ):
+                    self.model_portfolio_access_repository.dynamodb.delete_item(
+                        key={
+                            "portfolio_id": portfolio_id,
+                            "shared_with_cognito_user_id": (
+                                access_record.shared_with_cognito_user_id
+                            ),
+                        }
+                    )
+            except Exception as e:
+                pass
+
             try:
                 self.model_portfolio_repository.dynamodb.delete_item(
                     key={"allocation_id": portfolio_id}
@@ -1669,6 +1710,7 @@ def test_engine(
     alpaca_broker_client: AlpacaBrokerClient,
     allocation_repository: AllocationRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> TestEngine:
     return TestEngine(
         account_lifecycle_service=account_lifecycle_service,
@@ -1680,4 +1722,5 @@ def test_engine(
         alpaca_broker_client=alpaca_broker_client,
         allocation_repository=allocation_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )

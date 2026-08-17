@@ -301,7 +301,6 @@ def get_account_lifecycle_service(
         baskt_account_repository=baskt_account_repository,
     )
 
-@lru_cache
 def get_trade_execution_service(
     model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
@@ -309,6 +308,7 @@ def get_trade_execution_service(
     order_repository: OrderRepository = Depends(get_order_repository),
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(get_model_portfolio_access_repository),
 ) -> TradeExecutionService:
     return TradeExecutionService(
         alpaca_broker_client=alpaca_broker_client,
@@ -316,7 +316,8 @@ def get_trade_execution_service(
         allocation_repository=allocation_repository,
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
-        user_trade_lock_repository=user_trade_lock_repository
+        user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 @lru_cache
@@ -339,6 +340,7 @@ def get_trade_execution_queuing_service(
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     user_trade_lock_repository: UserTradeLockRepository = Depends(get_user_trade_lock_repository),
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository = Depends(get_model_portfolio_follower_repository),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(get_model_portfolio_access_repository),
 ) -> TradeExecutionQueuingService:
     return TradeExecutionQueuingService(
         sqs_client=sqs_client,
@@ -348,6 +350,7 @@ def get_trade_execution_queuing_service(
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 @lru_cache

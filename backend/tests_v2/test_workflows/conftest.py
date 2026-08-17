@@ -258,6 +258,7 @@ def trade_execution_service(
     order_repository: OrderRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
     user_trade_lock_repository: UserTradeLockRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> TradeExecutionService:
     return app_deps.get_trade_execution_service(
         model_portfolio_repository=model_portfolio_repository,
@@ -266,6 +267,7 @@ def trade_execution_service(
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 
@@ -278,6 +280,7 @@ def trade_execution_queuing_service(
     allocation_repository: AllocationRepository,
     user_trade_lock_repository: UserTradeLockRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> TradeExecutionQueuingService:
     queue_url = (
         sqs_client.queue_url
@@ -299,6 +302,7 @@ def trade_execution_queuing_service(
         alpaca_broker_client=alpaca_broker_client,
         user_trade_lock_repository=user_trade_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 

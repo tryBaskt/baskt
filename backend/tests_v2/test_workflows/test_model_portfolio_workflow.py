@@ -69,11 +69,12 @@ Coverage goals:
   removed grants disappear, and public-only readable portfolios are not listed.
 - access error workflow: non-owners cannot manage accesses, missing portfolios
   return not found, empty access lists return an empty response, nonexistent
-  shared users by email and Cognito user id cannot be authenticated, and
-  follower users cannot have access removed.
-- public-to-private follower workflow: changing a public portfolio with a
-  follower to private preserves the follower, grants explicit access to that
-  follower, and does not add a new snapshot when positions are unchanged.
+  shared users by email and Cognito user id cannot be authenticated, and follower
+  users receive a pending-removal response instead of immediate access removal.
+- public-to-private follower workflow: changing a public portfolio with an
+  existing allocation access record to private preserves the follower, moves
+  allocation access to TO_BE_DELETED, and does not add a new snapshot when
+  positions are unchanged.
 - private-to-public access workflow: changing a shared private portfolio to
   public keeps direct reads working even after explicit access is removed.
 - analytics workflow: reject blank portfolio ids, deny analytics for users
@@ -363,7 +364,7 @@ def _delete_portfolio(
         _delete_access(
             model_portfolio_access_repository=model_portfolio_access_repository,
             portfolio_id=portfolio_id,
-            shared_with_cognito_user_id=access["shared_with_cognito_user_id"],
+            shared_with_cognito_user_id=access.shared_with_cognito_user_id,
         )
 
     for follower in model_portfolio_follower_repository.get_model_portfolio_followers(
@@ -930,10 +931,11 @@ def test_model_portfolio_route_get_authorization_workflow(
         denied_response = shared_client.get(f"/model-portfolios/{private_id}")
         assert denied_response.status_code == 403
 
-        model_portfolio_access_repository.add_access_for_user(
+        model_portfolio_access_repository.add_access_via_email(
             portfolio_id=private_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_email=test_user_2.email_address,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         shared_response = shared_client.get(f"/model-portfolios/{private_id}")
         assert shared_response.status_code == 200
@@ -1445,7 +1447,7 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
     )
 
     try:
-        empty_response = owner_client.get(f"/model-portfolios/{portfolio_id}/accesses")
+        empty_response = owner_client.get(f"/model-portfolios/{portfolio_id}/accesses-by-portfolio-owner")
         assert empty_response.status_code == 200
         assert empty_response.json() == []
 
@@ -1456,7 +1458,7 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
         assert add_response.status_code == 201
 
         accesses_response = owner_client.get(
-            f"/model-portfolios/{portfolio_id}/accesses"
+            f"/model-portfolios/{portfolio_id}/accesses-by-portfolio-owner"
         )
         assert accesses_response.status_code == 200
         assert {
@@ -1479,8 +1481,13 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
             json={"cognito_user_id": test_user_2.cognito_user_id},
         )
         assert remove_response.status_code == 200
+        assert remove_response.json() == {
+            "removed": True,
+            "pending_removal": False,
+            "message": None,
+        }
         assert (
-            owner_client.get(f"/model-portfolios/{portfolio_id}/accesses").json() == []
+            owner_client.get(f"/model-portfolios/{portfolio_id}/accesses-by-portfolio-owner").json() == []
         )
         shared_after_remove = shared_client.get("/model-portfolios/shared-with-me")
         assert shared_after_remove.status_code == 200
@@ -1571,7 +1578,7 @@ def test_model_portfolio_route_access_email_whitespace_normalization_workflow(
             json={"email_address": f"  {test_user_2.email_address}  "},
         )
         accesses_response = owner_client.get(
-            f"/model-portfolios/{portfolio_id}/accesses"
+            f"/model-portfolios/{portfolio_id}/accesses-by-portfolio-owner"
         )
 
         assert add_response.status_code == 201
@@ -1626,7 +1633,7 @@ def test_model_portfolio_route_access_error_workflow(
         )
         assert non_owner_add.status_code == 403
 
-        non_owner_get = other_client.get(f"/model-portfolios/{portfolio_id}/accesses")
+        non_owner_get = other_client.get(f"/model-portfolios/{portfolio_id}/accesses-by-portfolio-owner")
         assert non_owner_get.status_code == 403
 
         missing_add = owner_client.post(
@@ -1661,10 +1668,11 @@ def test_model_portfolio_route_access_error_workflow(
         )
         assert not_found_remove.status_code == 404
 
-        model_portfolio_access_repository.add_access_for_user(
+        model_portfolio_access_repository.add_access_via_email(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
             shared_with_email=test_user_2.email_address,
+            granted_access_by="PORTFOLIO_OWNER",
         )
         model_portfolio_follower_repository.put_model_portfolio_follower(
             cognito_user_id=test_user_2.cognito_user_id,
@@ -1678,7 +1686,15 @@ def test_model_portfolio_route_access_error_workflow(
             f"/model-portfolios/{portfolio_id}/accesses",
             json={"cognito_user_id": test_user_2.cognito_user_id},
         )
-        assert follower_remove.status_code == 409
+        assert follower_remove.status_code == 200
+        assert follower_remove.json() == {
+            "removed": False,
+            "pending_removal": True,
+            "message": (
+                "User is currently following this model portfolio. "
+                "Access will be removed after they withdraw all their money."
+            ),
+        }
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,
@@ -1745,6 +1761,11 @@ def test_model_portfolio_route_private_to_public_keeps_read_after_access_removed
             json={"cognito_user_id": test_user_2.cognito_user_id},
         )
         assert remove_response.status_code == 200
+        assert remove_response.json() == {
+            "removed": True,
+            "pending_removal": False,
+            "message": None,
+        }
 
         shared_after_remove = shared_client.get("/model-portfolios/shared-with-me")
         direct_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
@@ -1774,7 +1795,7 @@ def test_model_portfolio_route_public_to_private_follower_access_workflow(
     test_user_1: Any,
     test_user_2: Any,
 ) -> None:
-    """Keep follower access when a public portfolio becomes private."""
+    """Keep pending allocation access when a public portfolio becomes private."""
     owner_client = _client_for_user(
         test_user=test_user_1,
         model_portfolio_repository=model_portfolio_repository,
@@ -1803,6 +1824,12 @@ def test_model_portfolio_route_public_to_private_follower_access_workflow(
             portfolio_id=portfolio_id,
             portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
         )
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
+            portfolio_id=portfolio_id,
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="ALLOCATION",
+        )
 
         update_response = owner_client.put(
             f"/model-portfolios/{portfolio_id}",
@@ -1821,6 +1848,13 @@ def test_model_portfolio_route_public_to_private_follower_access_workflow(
             portfolio_id=portfolio_id,
             shared_with_cognito_user_id=test_user_2.cognito_user_id,
         )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "TO_BE_DELETED"
 
         follower_response = follower_client.get(f"/model-portfolios/{portfolio_id}")
         assert follower_response.status_code == 200
