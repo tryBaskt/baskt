@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
@@ -17,7 +18,7 @@ def _order_item(
     transaction_id: str,
     order_id: str,
     cognito_user_id: str,
-    portfolio_id: str,
+    allocation_id: str,
     portfolio_owner_cognito_user_id: str,
     status: str = "FILLED",
 ) -> dict:
@@ -25,7 +26,7 @@ def _order_item(
         "transaction_id": transaction_id,
         "order_id": order_id,
         "cognito_user_id": cognito_user_id,
-        "portfolio_id": portfolio_id,
+        "allocation_id": allocation_id,
         "portfolio_owner_cognito_user_id": portfolio_owner_cognito_user_id,
         "created_at": "2024-01-01T00:00:00+00:00",
         "updated_at": "2024-01-01T00:01:00+00:00",
@@ -40,21 +41,38 @@ def _order_item(
     }
 
 
+def _wait_for_order(
+    *,
+    load_orders,
+    order_id: str,
+    timeout_seconds: float = 10.0,
+) -> dict:
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        for order in load_orders():
+            if order["order_id"] == order_id:
+                return order
+        sleep(0.25)
+    raise AssertionError(f"Order '{order_id}' was not visible before timeout.")
+
+
 @pytest.mark.integration
 def test_order_repository_normalizes_and_filters_orders(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
     transaction_id = f"repository-transaction-{unique_suffix}"
-    cognito_user_id = f"repository-user-{unique_suffix}"
-    portfolio_id = f"repository-portfolio-{unique_suffix}"
-    owner_id = f"repository-owner-{unique_suffix}"
+    cognito_user_id = test_user_1.cognito_user_id
+    allocation_id = f"repository-allocation-{unique_suffix}"
+    owner_id = test_user_2.cognito_user_id
 
     filled_item = _order_item(
         transaction_id=transaction_id,
         order_id=f"filled-{unique_suffix}",
         cognito_user_id=cognito_user_id,
-        portfolio_id=portfolio_id,
+        allocation_id=allocation_id,
         portfolio_owner_cognito_user_id=owner_id,
         status="FILLED",
     )
@@ -62,7 +80,7 @@ def test_order_repository_normalizes_and_filters_orders(
         transaction_id=transaction_id,
         order_id=f"open-{unique_suffix}",
         cognito_user_id=cognito_user_id,
-        portfolio_id=portfolio_id,
+        allocation_id=allocation_id,
         portfolio_owner_cognito_user_id=owner_id,
         status="NEW",
     )
@@ -78,15 +96,24 @@ def test_order_repository_normalizes_and_filters_orders(
         }
         assert orders[0]["created_at"] == datetime(2024, 1, 1, tzinfo=timezone.utc)
         assert orders[0]["qty"] == 1.0
-        assert order_repository.get_unfilled_orders_by_transaction(transaction_id)[0][
-            "order_id"
-        ] == open_item["order_id"]
-        assert order_repository.get_unfilled_orders_by_cognito_user_id(
-            cognito_user_id
-        )[0]["order_id"] == open_item["order_id"]
-        assert order_repository.get_unfilled_orders_by_portfolio_id(portfolio_id)[0][
-            "order_id"
-        ] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_transaction(
+                transaction_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_cognito_user_id(
+                cognito_user_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
+        assert _wait_for_order(
+            load_orders=lambda: order_repository.get_unfilled_orders_by_allocation_id(
+                allocation_id
+            ),
+            order_id=open_item["order_id"],
+        )["order_id"] == open_item["order_id"]
     finally:
         for item in (filled_item, open_item):
             order_repository.order_table_client.delete_item(
@@ -100,6 +127,8 @@ def test_order_repository_normalizes_and_filters_orders(
 @pytest.mark.integration
 def test_order_repository_put_orders_and_missing_records(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
     transaction_id = f"repository-transaction-{unique_suffix}"
@@ -126,11 +155,11 @@ def test_order_repository_put_orders_and_missing_records(
 
     try:
         assert order_repository.put_orders(
-            portfolio_id=f"repository-portfolio-{unique_suffix}",
-            cognito_user_id=f"repository-user-{unique_suffix}",
+            allocation_id=f"repository-allocation-{unique_suffix}",
+            cognito_user_id=test_user_1.cognito_user_id,
             transaction_id=transaction_id,
             orders=[order],
-            portfolio_owner_cognito_user_id=f"repository-owner-{unique_suffix}",
+            portfolio_owner_cognito_user_id=test_user_2.cognito_user_id,
         ) == 1
         stored = order_repository.order_table_client.get_item(
             key={"transaction_id": transaction_id, "order_id": order_id}
@@ -155,45 +184,49 @@ def test_order_repository_parse_errors_are_wrapped(
 @pytest.mark.integration
 def test_order_repository_missing_portfolio_and_empty_paths(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     assert order_repository.put_orders(
-        portfolio_id=f"repository-portfolio-{uuid4()}",
-        cognito_user_id=f"repository-user-{uuid4()}",
+        allocation_id=f"repository-allocation-{uuid4()}",
+        cognito_user_id=test_user_1.cognito_user_id,
         transaction_id=f"repository-transaction-{uuid4()}",
         orders=[],
-        portfolio_owner_cognito_user_id=f"repository-owner-{uuid4()}",
+        portfolio_owner_cognito_user_id=test_user_2.cognito_user_id,
     ) == 0
 
     with pytest.raises(OrderNotFoundError):
-        order_repository.get_orders_by_portfolio(
+        order_repository.get_orders_by_allocation(
             cognito_user_id=f"missing-user-{uuid4()}",
-            portfolio_id=f"missing-portfolio-{uuid4()}",
+            allocation_id=f"missing-allocation-{uuid4()}",
         )
 
     assert order_repository.get_unfilled_orders_by_cognito_user_id(
         f"missing-user-{uuid4()}"
     ) == []
-    assert order_repository.get_unfilled_orders_by_portfolio_id(
-        f"missing-portfolio-{uuid4()}"
+    assert order_repository.get_unfilled_orders_by_allocation_id(
+        f"missing-allocation-{uuid4()}"
     ) == []
-    assert order_repository.get_portfolio_ids_of_unfilled_orders(
+    assert order_repository.get_allocation_ids_of_unfilled_orders(
         f"missing-user-{uuid4()}"
     ) == []
 
 
 @pytest.mark.integration
-def test_order_repository_portfolio_ids_of_unfilled_orders_are_deduped(
+def test_order_repository_allocation_ids_of_unfilled_orders_are_deduped(
     order_repository: OrderRepository,
+    test_user_1,
+    test_user_2,
 ) -> None:
     unique_suffix = uuid4().hex
-    cognito_user_id = f"repository-user-{unique_suffix}"
-    portfolio_id = f"repository-portfolio-{unique_suffix}"
-    owner_id = f"repository-owner-{unique_suffix}"
+    cognito_user_id = test_user_1.cognito_user_id
+    allocation_id = f"repository-allocation-{unique_suffix}"
+    owner_id = test_user_2.cognito_user_id
     filled_item = _order_item(
         transaction_id=f"filled-transaction-{unique_suffix}",
         order_id=f"filled-order-{unique_suffix}",
         cognito_user_id=cognito_user_id,
-        portfolio_id=portfolio_id,
+        allocation_id=allocation_id,
         portfolio_owner_cognito_user_id=owner_id,
         status="FILLED",
     )
@@ -202,7 +235,7 @@ def test_order_repository_portfolio_ids_of_unfilled_orders_are_deduped(
             transaction_id=f"open-transaction-{unique_suffix}-{index}",
             order_id=f"open-order-{unique_suffix}-{index}",
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=allocation_id,
             portfolio_owner_cognito_user_id=owner_id,
             status=status,
         )
@@ -213,9 +246,9 @@ def test_order_repository_portfolio_ids_of_unfilled_orders_are_deduped(
         for item in [filled_item, *open_items]:
             order_repository.order_table_client.put_item(item)
 
-        assert order_repository.get_portfolio_ids_of_unfilled_orders(
+        assert order_repository.get_allocation_ids_of_unfilled_orders(
             cognito_user_id
-        ) == [(portfolio_id, owner_id)]
+        ) == [(allocation_id, owner_id)]
     finally:
         for item in [filled_item, *open_items]:
             order_repository.order_table_client.delete_item(

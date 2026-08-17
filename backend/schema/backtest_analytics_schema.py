@@ -1,0 +1,37 @@
+# backend/schema/backtest_analytics_schema.py
+
+
+# Python imports
+from __future__ import annotations
+from pydantic import BaseModel, Field
+from datetime import date, datetime
+from typing import List, Optional, Literal
+
+
+class BacktestPositionRequest(BaseModel):
+    symbol: str
+    weight: float = Field(ge=0, le=1)
+    direction: Literal[-1,1]
+    leverage: float = 1.0
+
+
+class BacktestRequest(BaseModel):
+    start_date: date
+    end_date: date
+    positions: List[BacktestPositionRequest]
+
+
+class BacktestAnalyticsResponse(BaseModel):
+    start_date: date
+    end_date: date
+    timestamps: List[datetime]
+    cumulative_returns: List[float]
+    final_cumulative_return: Optional[float]
+    cagr: Optional[float]
+    leverage_adjusted_direction: Optional[float]
+    annualized_volatility: Optional[float]
+    alpha: Optional[float]
+    beta: Optional[float]
+    sharpe_ratio: Optional[float]
+    maximum_drawdown: Optional[float]
+    maximum_drawdown_duration: Optional[float]

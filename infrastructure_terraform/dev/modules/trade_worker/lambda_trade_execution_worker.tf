@@ -14,8 +14,8 @@ resource "aws_lambda_function" "trade_execution_worker" {
         ENV                                  = var.environment
         ALPACA_ENV                           = "sandbox"
         DEV_TRADE_EXECUTION_QUEUE_URL        = var.queue_url
+        ALLOCATION_DYNAMODB                  = "-allocation-dynamodb"
         MODEL_PORTFOLIO_DYNAMODB             = "-model-portfolio-dynamodb"
-        PORTFOLIO_ALLOCATION_DYNAMODB        = "-portfolio-allocation-dynamodb"
         ORDER_DYNAMODB                       = "-order-dynamodb"
         MODEL_PORTFOLIO_FOLLOWER_DYNAMODB    = "-model-portfolio-follower-dynamodb"
         USER_TRADE_LOCK_DYNAMODB             = "-user-trade-lock-dynamodb"

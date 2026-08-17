@@ -2,28 +2,48 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, RootModel
 from datetime import datetime
 
 
 class ModelPortfolioPositionRequest(BaseModel):
-    symbol: str
+    symbol: str = Field(min_length=1)
     target_weight: float = Field(ge=0, le=1)
-    direction: int
-    leverage: float
+    direction: Literal[1, -1]
+    leverage: Literal[1]
 
 
 class CreateModelPortfolioRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
+    visibility: Literal["PUBLIC", "PRIVATE"]
 
 
 class UpdateModelPortfolioRequest(BaseModel):
     positions: List[ModelPortfolioPositionRequest]
     description: Optional[str] = None
+    visibility: Literal["PUBLIC", "PRIVATE"]
 
+
+class AddAccessModelPortfolioRequest(BaseModel):
+    email_address: str = Field(min_length=1)
+
+class RemoveAccessModelPortfolioRequest(BaseModel):
+    cognito_user_id: str = Field(min_length=1)
+
+class RemoveAccessModelPortfolioResponse(BaseModel):
+    removed: bool
+    pending_removal: bool
+    message: Optional[str] = None
+
+class SharedWithUserModelPortfolioResponse(BaseModel):
+    cognito_user_id: str = Field(min_length=1)
+    email_address: str = Field(min_length=1)
+
+class SharedWithUsersModelPortfolioResponse(RootModel[List[SharedWithUserModelPortfolioResponse]]):
+    pass
 
 class ModelPortfolioPositionResponse(BaseModel):
     symbol: str
@@ -44,6 +64,7 @@ class ModelPortfolioResponse(BaseModel):
     portfolio_owner_display_name: Optional[str] = None
     portfolio_name: str
     description: Optional[str] = None
+    visibility: str
     position_history: List[ModelPortfolioSnapshotResponse]
     created_at: str
     updated_at: str
@@ -76,6 +97,7 @@ class ModelPortfolioMetadataResponse(BaseModel):
     created_at: str
     updated_at: str
     description: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class ModelPortfoliosMetadataResponse(RootModel[List[ModelPortfolioMetadataResponse]]):

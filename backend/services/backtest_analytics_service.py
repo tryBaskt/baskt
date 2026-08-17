@@ -142,8 +142,7 @@ class BacktestService:
         *,
         start_date: str,
         end_date: str,
-        positions_conf: List[BacktestPositionConfig],
-        price_col: str = "close",
+        positions_conf: List[BacktestPositionConfig]
     ) -> BacktestRunResult:
         """
         Run a backtest for the given portfolio configuration and date window.
@@ -152,9 +151,8 @@ class BacktestService:
             start_date: Inclusive start date in ISO format (YYYY-MM-DD).
             end_date: Inclusive end date in ISO format (YYYY-MM-DD).
             positions_conf: List of input position dictionaries. Each entry
-                should include symbol, direction, optional leverage, and either
-                weight or target_weight as a decimal fraction from 0 to 1.
-            price_col: Price column to use from historical bars (default: "close").
+                should include symbol, direction, optional leverage, and weight
+                as a decimal fraction from 0 to 1.
 
         Returns:
             BacktestRunResult: Dictionary containing dates, cumulative_returns,
@@ -170,17 +168,13 @@ class BacktestService:
         """
         if not positions_conf:
             raise BacktestServiceValidationError("At least one position is required")
-        if price_col.lower() != "close":
-            raise BacktestServiceValidationError(
-                "Only the 'close' price column is supported"
-            )
 
         # Build and validate position metadata before fetching prices once.
         positions: List[BacktestPosition] = []
         for p in positions_conf:
             try:
                 sym = str(p["symbol"]).upper()
-                raw_weight = p["weight"] if p.get("weight") is not None else p["target_weight"]
+                raw_weight = p["weight"]
                 weight = float(raw_weight)
                 direction = int(p["direction"])
                 if direction not in {-1, 1}:

@@ -26,10 +26,17 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
   const [allocationError, setAllocationError] = useState("");
   const [modelAnalyticsError, setModelAnalyticsError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [accesses, setAccesses] = useState([]);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareError, setShareError] = useState("");
   const [isBasktLoading, setIsBasktLoading] = useState(true);
   const [isAllocationLoading, setIsAllocationLoading] = useState(true);
   const [isModelAnalyticsLoading, setIsModelAnalyticsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAccessLoading, setIsAccessLoading] = useState(false);
+  const [isAccessSubmitting, setIsAccessSubmitting] = useState(false);
+  const [removingAccessId, setRemovingAccessId] = useState("");
 
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
@@ -61,7 +68,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setAllocationError("");
     try {
       const allocationPayload = await apiRequest(
-        `/account-analytics/portfolios/${portfolioId}/analytics`,
+        `/allocation_analytics/portfolios/${portfolioId}/analytics`,
         { signal }
       );
       setAllocationAnalytics(allocationPayload || null);
@@ -109,6 +116,27 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     }
   }
 
+  async function loadAccesses(signal) {
+    if (!portfolioId || !isOwner) return;
+    setIsAccessLoading(true);
+    setShareError("");
+    try {
+      const accessPayload = await apiRequest(
+        `/model-portfolios/${portfolioId}/accesses-by-portfolio-owner`,
+        { signal }
+      );
+      setAccesses(Array.isArray(accessPayload) ? accessPayload : []);
+    } catch (accessError) {
+      if (accessError?.name !== "AbortError") {
+        setShareError(accessError?.message || "Could not load shared access.");
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsAccessLoading(false);
+      }
+    }
+  }
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -136,6 +164,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     }
 
     setModelAnalytics(null);
+    setIsShareOpen(false);
+    setAccesses([]);
+    setShareEmail("");
+    setShareError("");
     setIsAllocationLoading(true);
     void loadBasktDetails();
     void loadModelAnalytics(controller.signal);
@@ -144,6 +176,74 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
       controller.abort();
     };
   }, [portfolioId]);
+
+  useEffect(() => {
+    if (!isShareOpen || !isOwner) return undefined;
+    const controller = new AbortController();
+    void loadAccesses(controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [isShareOpen, isOwner, portfolioId]);
+
+  useEffect(() => {
+    if (!isShareOpen) return undefined;
+
+    function closeOnEscape(event) {
+      if (event.key === "Escape") {
+        setIsShareOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isShareOpen]);
+
+  async function addAccess(event) {
+    event.preventDefault();
+    const normalizedEmail = shareEmail.trim();
+    if (!normalizedEmail) {
+      setShareError("Enter an email address.");
+      return;
+    }
+
+    setShareError("");
+    setSuccess("");
+    try {
+      setIsAccessSubmitting(true);
+      await apiRequest(`/model-portfolios/${portfolioId}/accesses`, {
+        method: "POST",
+        body: JSON.stringify({ email_address: normalizedEmail }),
+      });
+      setShareEmail("");
+      setSuccess("Access shared.");
+      await loadAccesses();
+    } catch (accessError) {
+      setShareError(accessError?.message || "Could not share access.");
+    } finally {
+      setIsAccessSubmitting(false);
+    }
+  }
+
+  async function removeAccess(cognitoUserId) {
+    setShareError("");
+    setSuccess("");
+    try {
+      setRemovingAccessId(cognitoUserId);
+      const removalResult = await apiRequest(`/model-portfolios/${portfolioId}/accesses`, {
+        method: "DELETE",
+        body: JSON.stringify({ cognito_user_id: cognitoUserId }),
+      });
+      setSuccess(removalResult?.message || "Access removed.");
+      await loadAccesses();
+    } catch (accessError) {
+      setShareError(accessError?.message || "Could not remove access.");
+    } finally {
+      setRemovingAccessId("");
+    }
+  }
 
   async function executeTrade(action) {
     setError("");
@@ -193,7 +293,12 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     <div className="page-stack investment-detail-page">
       <div className="detail-header">
         <button className="ghost-button" type="button" onClick={onBack}>Back</button>
-        {isOwner ? <button className="primary-button" type="button" onClick={onUpdate}>Update</button> : null}
+        {isOwner ? (
+          <>
+            <button className="ghost-button" type="button" onClick={() => setIsShareOpen(true)}>Share</button>
+            <button className="primary-button" type="button" onClick={onUpdate}>Update</button>
+          </>
+        ) : null}
       </div>
       <ErrorBanner message={error} />
       <SuccessBanner message={success} />
@@ -221,8 +326,73 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
               <span>Created <strong>{formatDate(baskt.created_at)}</strong></span>
               <span>Updated <strong>{formatDate(baskt.updated_at)}</strong></span>
               <span>Snapshots <strong>{baskt.position_history?.length || 0}</strong></span>
+              <span>Visibility <strong className={baskt.visibility === "PRIVATE" ? "visibility-value private" : "visibility-value public"}>{baskt.visibility === "PRIVATE" ? "Private" : "Public"}</strong></span>
             </div>
           </section>
+
+          {isOwner && isShareOpen ? (
+            <div className="share-modal-backdrop" role="presentation" onMouseDown={() => setIsShareOpen(false)}>
+              <section
+                className="share-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="share-modal-title"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="share-modal-header">
+                  <div>
+                    <h2 id="share-modal-title">Share {baskt.portfolio_name}</h2>
+                    <p>{baskt.visibility === "PRIVATE" ? "Only people with access can view this Baskt." : "Anyone can discover this public Baskt."}</p>
+                  </div>
+                  <button className="icon-button share-modal-close" type="button" aria-label="Close share dialog" onClick={() => setIsShareOpen(false)}>
+                    ×
+                  </button>
+                </div>
+
+                <form className="share-modal-form" onSubmit={addAccess}>
+                  <input
+                    type="email"
+                    value={shareEmail}
+                    onChange={(event) => setShareEmail(event.target.value)}
+                    placeholder="Add people by email"
+                    autoComplete="email"
+                    aria-label="Email address"
+                  />
+                  <button className="primary-button" type="submit" disabled={isAccessSubmitting || !shareEmail.trim()}>
+                    {isAccessSubmitting ? "Sharing..." : "Share"}
+                  </button>
+                </form>
+
+                {shareError ? <ErrorBanner message={shareError} /> : null}
+
+                <div className="share-modal-accesses" aria-live="polite">
+                  <h3>People with access</h3>
+                  {isAccessLoading ? (
+                    <p className="muted">Loading access...</p>
+                  ) : accesses.length ? (
+                    accesses.map((access) => (
+                      <div className="share-modal-access-row" key={access.cognito_user_id}>
+                        <div className="share-modal-avatar" aria-hidden="true">
+                          {(access.email_address || "?").slice(0, 1).toUpperCase()}
+                        </div>
+                        <span>{access.email_address}</span>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={removingAccessId === access.cognito_user_id}
+                          onClick={() => removeAccess(access.cognito_user_id)}
+                        >
+                          {removingAccessId === access.cognito_user_id ? "Removing..." : "Remove"}
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted">No shared access yet.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
 
           <section className="investment-performance-console">
             <div className="investment-console-heading">
@@ -398,7 +568,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
           <section className="rail-panel trade-action-panel">
             <div className="section-heading compact-heading">
               <div>
-                <h2>Deposit or withdraw</h2>
+                <h2>Deposit or Withdraw</h2>
               </div>
             </div>
             <label className="field">
@@ -429,7 +599,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
                       <small>{formatDateTime(transaction.created_at)}</small>
                     </span>
                     <span>
-                      <strong>{currency(transaction.cost_basis)}</strong>
+                      <strong>{currency(transaction.cost_basis, "Not available")}</strong>
+                      <small>Requested {currency(transaction.requested_amount, "Not available")}</small>
                       <small>{transaction.status}</small>
                     </span>
                   </div>

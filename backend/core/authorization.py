@@ -12,18 +12,23 @@ from fastapi import HTTPException, status
 from core.authentication import get_cognito_user_id
 from domain.baskt_account_domain import BasktAccount
 from domain.model_portfolio_domain import ModelPortfolio
-from domain.portfolio_allocation_domain import PortfolioAllocation
+from domain.allocation_domain import PortfolioAllocation, StockAllocation
 from repository.model_portfolio_repository import (
     ModelPortfolioBadGatewayError,
     ModelPortfolioInternalServerError,
     ModelPortfolioNotFoundError,
     ModelPortfolioRepository,
 )
-from repository.portfolio_allocation_repository import (
-    PortfolioAllocationBadGatewayError,
-    PortfolioAllocationInternalServerError,
-    PortfolioAllocationNotFoundError,
-    PortfolioAllocationRepository,
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessBadGatewayError,
+    ModelPortfolioAccessRepository,
+    ModelPortfolioAccessRepositoryError,
+)
+from repository.allocation_repository import (
+    AllocationBadGatewayError,
+    AllocationNotFoundError,
+    AllocationRepository,
+    AllocationRepositoryError,
 )
 
 
@@ -134,14 +139,14 @@ def require_model_portfolio_owner(
     return model_portfolio
 
 
-def require_model_portfolio_owner_match(
+def require_model_portfolio_access(
     *,
     portfolio_id: str,
-    portfolio_owner_cognito_user_id: str,
+    cognito_user_id: str,
     model_portfolio_repository: ModelPortfolioRepository,
-    cognito_user_id: Optional[str] = None,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
 ) -> ModelPortfolio:
-    """Load a model portfolio and ensure the supplied owner id is truthful."""
+    """Load a model portfolio and ensure the Cognito user can view/use it or is the owner."""
     try:
         model_portfolio = model_portfolio_repository.get_model_portfolio(
             portfolio_id=portfolio_id
@@ -162,67 +167,51 @@ def require_model_portfolio_owner_match(
             detail={"message": str(err), "code": err.code},
         ) from err
 
-    if (
-        model_portfolio.portfolio_owner_cognito_user_id
-        != portfolio_owner_cognito_user_id
-    ):
-        _audit_denied_access(
-            action="model_portfolio.owner_match",
-            user_id=cognito_user_id,
-            resource_type="model_portfolio",
-            resource_id=portfolio_id,
-            reason="supplied_owner_does_not_match_portfolio",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Portfolio owner does not match the requested model portfolio.",
-        )
+    if model_portfolio.portfolio_owner_cognito_user_id == cognito_user_id:
+        return model_portfolio
 
-    return model_portfolio
+    visibility = str(getattr(model_portfolio, "visibility", "PRIVATE")).upper()
+    if visibility == "PUBLIC":
+        return model_portfolio
 
-
-def require_portfolio_allocation_owner(
-    *,
-    portfolio_id: str,
-    cognito_user_id: str,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
-) -> PortfolioAllocation:
-    """Load a portfolio allocation owned by the Cognito user."""
     try:
-        return portfolio_allocation_repository.get_portfolio_allocation(
-            cognito_user_id=cognito_user_id,
+        has_access = model_portfolio_access_repository.has_access(
             portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=cognito_user_id,
         )
-    except PortfolioAllocationNotFoundError as err:
-        _audit_denied_access(
-            action="portfolio_allocation.owner",
-            user_id=cognito_user_id,
-            resource_type="portfolio_allocation",
-            resource_id=portfolio_id,
-            reason="allocation_not_found_or_not_owned",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Portfolio allocation not found.",
-        ) from err
-    except PortfolioAllocationBadGatewayError as err:
+    except ModelPortfolioAccessBadGatewayError as err:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(err), "code": err.code},
         ) from err
-    except PortfolioAllocationInternalServerError as err:
+    except ModelPortfolioAccessRepositoryError as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(err), "code": err.code},
         ) from err
 
+    if has_access:
+        return model_portfolio
 
-def get_optional_portfolio_allocation_owner(
+    _audit_denied_access(
+        action="model_portfolio.access",
+        user_id=cognito_user_id,
+        resource_type="model_portfolio",
+        resource_id=portfolio_id,
+        reason="private_model_portfolio_access_missing",
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Authenticated user is not allowed to access this model portfolio.",
+    )
+
+
+def get_optional_allocation_owner(
     *,
-    portfolio_id: str,
+    allocation_id: str,
     cognito_user_id: str,
-    portfolio_allocation_repository: PortfolioAllocationRepository,
-) -> Optional[PortfolioAllocation]:
+    allocation_repository: AllocationRepository,
+) -> Optional[PortfolioAllocation | StockAllocation]:
     """
     Load a Cognito user's allocation when it exists.
 
@@ -230,19 +219,33 @@ def get_optional_portfolio_allocation_owner(
     inspect a page before investing. Upstream failures still become HTTP errors.
     """
     try:
-        return portfolio_allocation_repository.get_portfolio_allocation(
+        return allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
-            portfolio_id=portfolio_id,
+            allocation_id=allocation_id,
         )
-    except PortfolioAllocationNotFoundError:
+    except AllocationNotFoundError:
         return None
-    except PortfolioAllocationBadGatewayError as err:
+    except AllocationBadGatewayError as err:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(err), "code": err.code},
         ) from err
-    except PortfolioAllocationInternalServerError as err:
+    except AllocationRepositoryError as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(err), "code": err.code},
         ) from err
+
+
+# def get_optional_portfolio_allocation_owner(
+#     *,
+#     allocation_id: str,
+#     cognito_user_id: str,
+#     allocation_repository: AllocationRepository,
+# ) -> Optional[PortfolioAllocation | StockAllocation]:
+#     """Backward-compatible alias for allocation ownership checks."""
+#     return get_optional_allocation_owner(
+#         allocation_id=allocation_id,
+#         cognito_user_id=cognito_user_id,
+#         allocation_repository=allocation_repository,
+#     )

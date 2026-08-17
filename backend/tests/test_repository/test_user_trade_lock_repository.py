@@ -8,8 +8,9 @@ from repository.user_trade_lock_repository import UserTradeLockRepository
 @pytest.mark.integration
 def test_user_trade_lock_repository_acquire_renew_release(
     user_trade_lock_repository: UserTradeLockRepository,
+    test_user_1,
 ) -> None:
-    cognito_user_id = f"repository-lock-user-{uuid4()}"
+    cognito_user_id = test_user_1.cognito_user_id
     owner_token = str(uuid4())
     other_owner_token = str(uuid4())
 
@@ -61,8 +62,9 @@ def test_user_trade_lock_repository_acquire_renew_release(
 @pytest.mark.integration
 def test_user_trade_lock_repository_expired_lock_can_be_reacquired(
     user_trade_lock_repository: UserTradeLockRepository,
+    test_user_2,
 ) -> None:
-    cognito_user_id = f"repository-expired-lock-user-{uuid4()}"
+    cognito_user_id = test_user_2.cognito_user_id
     expired_owner_token = str(uuid4())
     new_owner_token = str(uuid4())
 

@@ -61,6 +61,15 @@ function normalizePosition(position) {
   };
 }
 
+function toBacktestPosition(position) {
+  return {
+    symbol: position.symbol,
+    weight: position.target_weight,
+    direction: position.direction,
+    leverage: position.leverage,
+  };
+}
+
 function formatWeightInputValue(targetWeight) {
   if (targetWeight === "") {
     return "";
@@ -73,6 +82,7 @@ function formatWeightInputValue(targetWeight) {
 export default function MakeABaskt({ editingPortfolioId, onSaved }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState("PUBLIC");
   const [positions, setPositions] = useState([]);
   const [stockSearch, setStockSearch] = useState("");
   const [backtestStartDate, setBacktestStartDate] = useState(getDefaultBacktestStartDate);
@@ -118,6 +128,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
     if (!editingPortfolioId) {
       setName("");
       setDescription("");
+      setVisibility("PUBLIC");
       setPositions([]);
       setIsPortfolioLoading(false);
       return () => controller.abort();
@@ -132,6 +143,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
         });
         setName(payload.portfolio_name || "");
         setDescription(payload.description || "");
+        setVisibility(payload.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC");
         setPositions(
           payload.position_history?.at(-1)?.positions?.map(normalizePosition) || []
         );
@@ -220,7 +232,7 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
           body: JSON.stringify({
             start_date: backtestStartDate,
             end_date: backtestEndDate,
-            positions: validPositions,
+            positions: validPositions.map(toBacktestPosition),
           }),
         });
         setBacktest(payload);
@@ -334,8 +346,8 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
     try {
       setIsSaving(true);
       const payload = editingPortfolioId
-        ? { positions: validPositions, description }
-        : { name: name.trim(), description, positions: validPositions };
+        ? { positions: validPositions, description, visibility }
+        : { name: name.trim(), description, positions: validPositions, visibility };
 
       await apiRequest(
         editingPortfolioId ? `/model-portfolios/${editingPortfolioId}` : "/model-portfolios",
@@ -398,6 +410,25 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
               rows="3"
             />
           </label>
+          <div className="visibility-toggle">
+            <span>Visibility</span>
+            <div className="segmented-control" aria-label="Baskt visibility">
+              <button
+                type="button"
+                className={visibility === "PUBLIC" ? "active" : ""}
+                onClick={() => setVisibility("PUBLIC")}
+              >
+                Public
+              </button>
+              <button
+                type="button"
+                className={visibility === "PRIVATE" ? "active" : ""}
+                onClick={() => setVisibility("PRIVATE")}
+              >
+                Private
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="allocation-toolbar">
@@ -467,14 +498,16 @@ export default function MakeABaskt({ editingPortfolioId, onSaved }) {
                   <strong>%</strong>
                 </div>
               </label>
-              <label>
+              <label className={!position.shortable ? "side-field side-field-disabled" : "side-field"}>
                 <span>Side</span>
                 <select value={position.direction} onChange={(event) => updatePositionDirection(index, event.target.value)}>
                   <option value={1}>Long</option>
                   <option value={-1} disabled={!position.shortable}>Short</option>
                 </select>
                 {!position.shortable ? (
-                  <small className="field-help">Shorting unavailable for this stock.</small>
+                  <small className="side-field-tooltip" role="tooltip">
+                    <strong>Shorting unavailable for this stock</strong>
+                  </small>
                 ) : null}
               </label>
               <label>

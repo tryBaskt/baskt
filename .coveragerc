@@ -3,6 +3,7 @@ source =
     backend
 omit =
     backend/tests/*
+    backend/tests_v2/*
     backend/new_tests/*
     backend/schema/*
     backend/domain/*
@@ -19,6 +20,7 @@ omit =
 show_missing = true
 omit =
     backend/tests/*
+    backend/tests_v2/*
     backend/new_tests/*
     backend/schema/*
     backend/domain/*

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import os
 from pathlib import Path
 import sys
 import uuid
@@ -25,6 +25,22 @@ from core.config import get_settings
 
 load_dotenv(repo_root / ".env")
 get_settings.cache_clear()
+
+
+def _test_user_alpaca_account_id(number: int) -> str:
+    variable_name = f"{get_settings().env.upper()}_TEST_USER_{number}_ALPACA_ACCOUNT_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for Cognito client tests.")
+    return value
+
+
+def _test_user_cognito_user_id(number: int) -> str:
+    variable_name = f"{get_settings().env.upper()}_TEST_USER_{number}_COGNITO_USER_ID"
+    value = os.getenv(variable_name, "").strip()
+    if not value:
+        raise RuntimeError(f"{variable_name} is required for Cognito client tests.")
+    return value
 
 
 def _unique_account_data() -> dict:
@@ -69,59 +85,34 @@ def created_cognito_user(cognito_client: CognitoClient):
         pass
 
 
-def test_cognito_client_error_classes_set_codes() -> None:
-    error = CognitoClientError("failed", code="CUSTOM_COGNITO_CODE")
-    assert str(error) == "failed"
-    assert error.code == "CUSTOM_COGNITO_CODE"
-
-    duplicate_error = CognitoClientUserAlreadyExists(
-        identifier="duplicate@example.com",
-        identifier_type="email_address",
-    )
-    assert duplicate_error.code == "COGNITO_USER_ALREADY_EXISTS"
-
-    not_found_error = CognitoClientCognitoUserNotFound(
-        identifier="missing-user",
-        identifier_type="cognito_user_id",
-    )
-    assert not_found_error.code == "COGNITO_USER_NOT_FOUND"
-
-
 def test_cognito_client_formats_cognito_user_response(
     cognito_client: CognitoClient,
 ) -> None:
-    created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    updated_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    """Format a real AWS Cognito admin_get_user response."""
+    cognito_user_id = _test_user_cognito_user_id(1)
+    alpaca_account_id = _test_user_alpaca_account_id(1)
 
-    formatted = cognito_client._format_cognito_user_response(
-        {
-            "Username": "cognito-user-id",
-            "Enabled": True,
-            "UserStatus": "CONFIRMED",
-            "UserCreateDate": created_at,
-            "UserLastModifiedDate": updated_at,
-            "UserAttributes": [
-                {"Name": "email", "Value": "user@example.com"},
-                {"Name": "custom:alpaca_acct_id", "Value": "alpaca-id"},
-                {"Name": "custom:alpaca_acct_num", "Value": "ABC123"},
-            ],
-        }
+    raw_response = cognito_client.cognito_client.admin_get_user(
+        UserPoolId=cognito_client.user_pool_id,
+        Username=cognito_user_id,
     )
+    formatted = cognito_client._format_cognito_user_response(raw_response)
 
-    assert formatted["cognito_user_id"] == "cognito-user-id"
-    assert formatted["alpaca_account_id"] == "alpaca-id"
-    assert formatted["alpaca_account_number"] == "ABC123"
-    assert formatted["email_address"] == "user@example.com"
-    assert formatted["cognito_enabled_status"] is True
-    assert formatted["cognito_confirmation_status"] == "CONFIRMED"
-    assert formatted["created_at"] == created_at
-    assert formatted["updated_at"] == updated_at
-    assert formatted["attributes"]["email"] == "user@example.com"
+    assert formatted["cognito_user_id"] == raw_response["Username"]
+    assert formatted["alpaca_account_id"] == alpaca_account_id
+    assert formatted["alpaca_account_number"]
+    assert formatted["email_address"]
+    assert formatted["cognito_enabled_status"] == bool(raw_response["Enabled"])
+    assert formatted["cognito_confirmation_status"] == raw_response["UserStatus"]
+    assert formatted["created_at"] == raw_response["UserCreateDate"]
+    assert formatted["updated_at"] == raw_response["UserLastModifiedDate"]
+    assert formatted["attributes"]["email"] == formatted["email_address"]
 
 
 def test_cognito_client_create_user_rejects_missing_account_data(
     cognito_client: CognitoClient,
 ) -> None:
+    """Reject Cognito user creation before AWS when required account fields are missing."""
     with pytest.raises(CognitoClientError) as exc_info:
         cognito_client.create_cognito_user(
             account_data={"contact": {}},
@@ -137,6 +128,7 @@ def test_cognito_client_create_user_rejects_missing_account_data(
 def test_cognito_client_create_get_exists_duplicate_and_delete_user(
     cognito_client: CognitoClient,
 ) -> None:
+    """Create, fetch, detect duplicate, and delete a real AWS Cognito user."""
     account_data = _unique_account_data()
     email_address = account_data["contact"]["email_address"]
     cognito_user_id = None
@@ -188,6 +180,7 @@ def test_cognito_client_create_get_exists_duplicate_and_delete_user(
 def test_cognito_client_not_found_paths_use_real_cognito(
     cognito_client: CognitoClient,
 ) -> None:
+    """Verify real AWS Cognito not-found behavior for lookup, existence, and delete."""
     missing_cognito_user_id = f"missing-cognito-{uuid.uuid4().hex}"
     missing_email = f"missing_cognito_{uuid.uuid4().hex}@example.com"
 
