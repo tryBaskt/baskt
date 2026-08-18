@@ -481,11 +481,6 @@ def build_mock_alpaca_broker_client(
             raise Exception(f"No position found for asset id '{asset_id}'")
         return position
 
-    def get_trade_account(account_id: str, cognito_user_id: str):
-        if account_id == funded_1000_alpaca_account_id:
-            return SimpleNamespace(multiplier="1", shorting_enabled=False)
-        return SimpleNamespace(multiplier="2", shorting_enabled=True)
-
     def get_order_by_id(
         alpaca_account_id: str,
         cognito_user_id: str,
@@ -534,7 +529,6 @@ def build_mock_alpaca_broker_client(
     mock.execute_short_to_long_buy.side_effect = execute_short_to_long_buy
     mock.get_baskt_positions_dict.side_effect = get_baskt_positions_dict
     mock.get_position_by_asset_id.side_effect = get_position_by_asset_id
-    mock.get_trade_account.side_effect = get_trade_account
     mock.get_latest_price.side_effect = get_latest_price
     mock.get_order_by_id.side_effect = get_order_by_id
     mock.execute_close_all_position.side_effect = execute_close_all_position
