@@ -1,14 +1,12 @@
 uvicorn main:app --reload
 npm run dev:dev
-pytest --cov=backend --cov-report=term-missing backend/tests -v -s --mock_alpaca
+pytest backend/tests_v2 -s --mock_alpaca
 
 Things to be aware of:
 1. Email verified is set to true in CognitoClient.create_cognito_user()
 2. Need to create authorization for a non active alpaca account
 3. Fix the calendar hours thing in deployables
-4. Ensure when giving access to a user, the user has an active baskt and alpaca account
-and make sure model portfolio exists - this needs to be done at route level
-5. Baskt ACcount email index
+4. Baskt ACcount email index
 
 
 
