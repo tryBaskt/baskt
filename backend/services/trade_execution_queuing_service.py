@@ -15,7 +15,6 @@ from domain.allocation_domain import (
     PortfolioAllocation,
     PortfolioAllocationTransactionSnapshot,
     StockAllocation,
-    StockAllocationPositionSnapshot,
     StockAllocationTransactionSnapshot,
 )
 from repository.model_portfolio_repository import ModelPortfolioRepository
@@ -106,20 +105,57 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_SEND_FAILED",
             ) from error
 
-    def _queue_transaction(
+    def _queue_portfolio_transaction(
         self,
         *,
-        allocation: PortfolioAllocation | StockAllocation,
-        transaction: PortfolioAllocationTransactionSnapshot | StockAllocationTransactionSnapshot,
+        allocation: PortfolioAllocation,
+        transaction: PortfolioAllocationTransactionSnapshot,
         action: str,
         payload: Dict[str, Any],
     ) -> str:
-        """Persist a transaction before publishing the message that executes it."""
+        """Persist a portfolio transaction before publishing its execution message."""
         if self.allocation_repository.is_exists_allocation_for_user(
             cognito_user_id=allocation.cognito_user_id,
             allocation_id=allocation.allocation_id,
         ):
-            allocation = self.allocation_repository.get_allocation(
+            allocation = self.allocation_repository.get_portfolio_allocation(
+                cognito_user_id=allocation.cognito_user_id,
+                allocation_id=allocation.allocation_id,
+            )
+
+        allocation.transaction_history.append(transaction)
+        allocation.open_orders = True
+
+        self.allocation_repository.set_allocation(
+            allocation=allocation
+        )
+        try:
+            return self._send_message(action=action, payload=payload)
+        except Exception:
+            transaction.status = "FAILED"
+            transaction.updated_at = datetime.now(timezone.utc)
+            transaction.status_explanation = (
+                "The trade passed validation but could not be added to the execution queue."
+            )
+            self.allocation_repository.set_allocation(
+                allocation=allocation
+            )
+            raise
+
+    def _queue_stock_transaction(
+        self,
+        *,
+        allocation: StockAllocation,
+        transaction: StockAllocationTransactionSnapshot,
+        action: str,
+        payload: Dict[str, Any],
+    ) -> str:
+        """Persist a stock transaction before publishing its execution message."""
+        if self.allocation_repository.is_exists_allocation_for_user(
+            cognito_user_id=allocation.cognito_user_id,
+            allocation_id=allocation.allocation_id,
+        ):
+            allocation = self.allocation_repository.get_stock_allocation(
                 cognito_user_id=allocation.cognito_user_id,
                 allocation_id=allocation.allocation_id,
             )
@@ -166,13 +202,13 @@ class TradeExecutionQueuingService:
             )
 
     @staticmethod
-    def _new_transaction(
+    def _new_portfolio_transaction(
         *,
         requested_amount: Optional[float],
         transaction_type: str,
         portfolio_snapshot_id: Optional[str] = None
     ) -> PortfolioAllocationTransactionSnapshot:
-        """Build the initial transaction state owned by the queuing service."""
+        """Build the initial portfolio transaction state owned by the queuing service."""
         queued_at = datetime.now(timezone.utc)
         return PortfolioAllocationTransactionSnapshot(
             transaction_id=str(uuid.uuid4()),
@@ -184,27 +220,43 @@ class TradeExecutionQueuingService:
             portfolio_snapshot_id=portfolio_snapshot_id
         )
 
-    def _allocation_equity(self, allocation: PortfolioAllocation) -> float:
-        """Return the current absolute market value of an allocation."""
-        if not allocation.position_history:
+    @staticmethod
+    def _new_stock_transaction(
+        *,
+        requested_amount: Optional[float],
+        transaction_type: str,
+    ) -> StockAllocationTransactionSnapshot:
+        """Build the initial stock transaction state owned by the queuing service."""
+        queued_at = datetime.now(timezone.utc)
+        return StockAllocationTransactionSnapshot(
+            transaction_id=str(uuid.uuid4()),
+            created_at=queued_at,
+            updated_at=queued_at,
+            requested_amount=requested_amount,
+            transaction_type=transaction_type,
+            status="QUEUED",
+        )
+
+    def _portfolio_allocation_equity(self, allocation: PortfolioAllocation) -> float:
+        """Return the current absolute market value of a portfolio allocation."""
+        if not allocation.position_history or not allocation.position_history[-1].positions:
             return 0.0
-        latest_snapshot = allocation.position_history[-1]
-        if isinstance(latest_snapshot, StockAllocationPositionSnapshot) and latest_snapshot.position is None:
+        _, equity, _ = self.allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
+            position_snapshot=allocation.position_history[-1]
+        )
+        return float(equity)
+
+    def _stock_allocation_equity(self, allocation: StockAllocation) -> float:
+        """Return the current absolute market value of a stock allocation."""
+        if not allocation.position_history or allocation.position_history[-1].position is None:
             return 0.0
-        if not isinstance(latest_snapshot, StockAllocationPositionSnapshot) and not latest_snapshot.positions:
-            return 0.0
-        if isinstance(latest_snapshot, StockAllocationPositionSnapshot):
-            equity, _ = self.allocation_repository.calculate_stock_allocation_position_snapshot_current_value(
-                position_snapshot=latest_snapshot
-            )
-        else:
-            _, equity, _ = self.allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(
-                position_snapshot=latest_snapshot
-            )
+        equity, _ = self.allocation_repository.calculate_stock_allocation_position_snapshot_current_value(
+            position_snapshot=allocation.position_history[-1]
+        )
         return float(equity)
 
     @staticmethod
-    def _stock_direction(allocation: PortfolioAllocation) -> Optional[int]:
+    def _stock_direction(allocation: StockAllocation) -> Optional[int]:
         """Return the current stock direction, or None for an empty allocation."""
         if not allocation.position_history or allocation.position_history[-1].position is None:
             return None
@@ -248,6 +300,19 @@ class TradeExecutionQueuingService:
         alpaca_account_id: str,
     ) -> None:
         self._validate_required("asset_id", asset_id)
+        self._validate_common_trade_fields(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+        )
+
+    def _validate_common_portfolio_fields(
+        self,
+        *,
+        portfolio_id: str,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+    ) -> None:
+        self._validate_required("portfolio_id", portfolio_id)
         self._validate_common_trade_fields(
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
@@ -316,7 +381,7 @@ class TradeExecutionQueuingService:
                 alpaca_account_id = follower_dict["alpaca_account_id"]
                 with self._user_trade_lock(cognito_user_id=cognito_user_id):
 
-                    portfolio_allocation = self.allocation_repository.get_allocation(
+                    portfolio_allocation = self.allocation_repository.get_portfolio_allocation(
                         cognito_user_id=cognito_user_id,
                         allocation_id=portfolio_id,
                         with_wait=True
@@ -331,13 +396,13 @@ class TradeExecutionQueuingService:
                     if already_targets_snapshot:
                         continue
 
-                    transaction = self._new_transaction(
+                    transaction = self._new_portfolio_transaction(
                         requested_amount=None,
                         transaction_type="UPDATE",
                         portfolio_snapshot_id=portfolio_snapshot_id
                     )
 
-                    message_ids[cognito_user_id] = self._queue_transaction(
+                    message_ids[cognito_user_id] = self._queue_portfolio_transaction(
                         allocation=portfolio_allocation,
                         transaction=transaction,
                         action="portfolio_update",
@@ -373,11 +438,11 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue a model-portfolio deposit."""
         try:
-            self._validate_common_trade_fields(
+            self._validate_common_portfolio_fields(
+                portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
             )
-            self._validate_required("portfolio_id", portfolio_id)
             self._validate_amount(amount)
             self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
@@ -402,12 +467,12 @@ class TradeExecutionQueuingService:
                 cognito_user_id=cognito_user_id,
                 allocation_id=portfolio_id,
             ):
-                allocation = self.allocation_repository.get_allocation(
+                allocation = self.allocation_repository.get_portfolio_allocation(
                     cognito_user_id=cognito_user_id,
                     allocation_id=portfolio_id,
                 )
 
-            projected_equity = self._allocation_equity(allocation) + amount
+            projected_equity = self._portfolio_allocation_equity(allocation) + amount
             if projected_equity < MINIMUM_PORTFOLIO_BALANCE:
                 raise TradeExecutionQueuingInternalServerError(
                     message=(
@@ -417,7 +482,7 @@ class TradeExecutionQueuingService:
                     code="TRADE_EXECUTION_QUEUE_MINIMUM_BALANCE",
                 )
 
-            transaction = self._new_transaction(
+            transaction = self._new_portfolio_transaction(
                 requested_amount=float(amount), transaction_type="DEPOSIT"
             )
             created_allocation_access = False
@@ -436,7 +501,7 @@ class TradeExecutionQueuingService:
                     created_allocation_access = True
             
             try:
-                return self._queue_transaction(
+                return self._queue_portfolio_transaction(
                     allocation=allocation,
                     transaction=transaction,
                     action="portfolio_deposit",
@@ -481,22 +546,22 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue a partial model-portfolio withdrawal."""
         try:
-            self._validate_common_trade_fields(
+            self._validate_common_portfolio_fields(
+                portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
             )
-            self._validate_required("portfolio_id", portfolio_id)
             portfolio_owner_cognito_user_id = (
                 self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(
                     portfolio_id=portfolio_id
                 )
             )
             self._validate_amount(amount)
-            allocation = self.allocation_repository.get_allocation(
+            allocation = self.allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id,
                 allocation_id=portfolio_id,
             )
-            equity = self._allocation_equity(allocation)
+            equity = self._portfolio_allocation_equity(allocation)
             if amount > equity:
                 raise TradeExecutionQueuingInternalServerError(
                     message=f"Withdrawal ${amount:.2f} exceeds allocation equity ${equity:.2f}.",
@@ -512,10 +577,10 @@ class TradeExecutionQueuingService:
                     code="TRADE_EXECUTION_QUEUE_MINIMUM_BALANCE",
                 )
 
-            transaction = self._new_transaction(
+            transaction = self._new_portfolio_transaction(
                 requested_amount=float(amount), transaction_type="WITHDRAW"
             )
-            return self._queue_transaction(
+            return self._queue_portfolio_transaction(
                 allocation=allocation,
                 transaction=transaction,
                 action="portfolio_withdraw",
@@ -549,17 +614,17 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue liquidation of a model-portfolio allocation."""
         try:
-            self._validate_common_trade_fields(
+            self._validate_common_portfolio_fields(
+                portfolio_id=portfolio_id,
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
             )
-            self._validate_required("portfolio_id", portfolio_id)
             portfolio_owner_cognito_user_id = (
                 self.model_portfolio_repository.get_portfolio_cognito_owner_id_by_portfolio(
                     portfolio_id=portfolio_id
                 )
             )
-            allocation = self.allocation_repository.get_allocation(
+            allocation = self.allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id,
                 allocation_id=portfolio_id,
             )
@@ -569,10 +634,10 @@ class TradeExecutionQueuingService:
                     code="TRADE_EXECUTION_QUEUE_NO_POSITIONS",
                 )
 
-            transaction = self._new_transaction(
+            transaction = self._new_portfolio_transaction(
                 requested_amount=None, transaction_type="WITHDRAW_ALL"
             )
-            return self._queue_transaction(
+            return self._queue_portfolio_transaction(
                 allocation=allocation,
                 transaction=transaction,
                 action="portfolio_withdraw_all",
@@ -607,7 +672,7 @@ class TradeExecutionQueuingService:
             cognito_user_id=cognito_user_id,
             allocation_id=asset_id,
         ):
-            allocation = self.allocation_repository.get_allocation(
+            allocation = self.allocation_repository.get_stock_allocation(
                 cognito_user_id=cognito_user_id,
                 allocation_id=asset_id,
             )
@@ -653,7 +718,7 @@ class TradeExecutionQueuingService:
             asset_id=asset_id,
             cognito_user_id=cognito_user_id,
         )
-        current_equity = self._allocation_equity(allocation)
+        current_equity = self._stock_allocation_equity(allocation)
         current_direction = self._stock_direction(allocation)
         opens_or_increases_short = trade_direction == -1 and (
             current_direction in {None, -1} or amount > current_equity
@@ -679,11 +744,11 @@ class TradeExecutionQueuingService:
                 code="TRADE_EXECUTION_QUEUE_MINIMUM_BALANCE",
             )
 
-        transaction = self._new_transaction(
+        transaction = self._new_stock_transaction(
             requested_amount=float(amount),
             transaction_type=transaction_type,
         )
-        return self._queue_transaction(
+        return self._queue_stock_transaction(
             allocation=allocation,
             transaction=transaction,
             action=f"stock_{action_name}",
@@ -794,7 +859,7 @@ class TradeExecutionQueuingService:
                 alpaca_account_id=alpaca_account_id,
             )
             self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
-            allocation = self.allocation_repository.get_allocation(
+            allocation = self.allocation_repository.get_stock_allocation(
                 cognito_user_id=cognito_user_id,
                 allocation_id=asset_id,
             )
@@ -804,10 +869,10 @@ class TradeExecutionQueuingService:
                     code="TRADE_EXECUTION_QUEUE_NO_POSITIONS",
                 )
 
-            transaction = self._new_transaction(
+            transaction = self._new_stock_transaction(
                 requested_amount=None, transaction_type="CLOSE"
             )
-            return self._queue_transaction(
+            return self._queue_stock_transaction(
                 allocation=allocation,
                 transaction=transaction,
                 action="stock_close",
