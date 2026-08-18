@@ -9,6 +9,8 @@ from domain.allocation_domain import (
     PortfolioAllocationPosition,
     PortfolioAllocationPositionSnapshot,
     PortfolioAllocation,
+    StockAllocation,
+    StockAllocationTransactionSnapshot,
     StockAllocationPosition,
     StockAllocationPositionSnapshot,
 )
@@ -98,11 +100,11 @@ class TradeExecutionService:
 
     @staticmethod
     def _find_transaction(
-        portfolio_allocation: PortfolioAllocation,
+        allocation: PortfolioAllocation | StockAllocation,
         transaction_id: str,
-    ) -> PortfolioAllocationTransactionSnapshot:
+    ) -> PortfolioAllocationTransactionSnapshot | StockAllocationTransactionSnapshot:
         """Return the queued transaction that owns an execution request."""
-        for transaction in portfolio_allocation.transaction_history:
+        for transaction in allocation.transaction_history:
             if transaction.transaction_id == transaction_id:
                 return transaction
         raise TradeExecutionInternalServerError(
@@ -669,11 +671,11 @@ class TradeExecutionService:
         portfolio_snapshot_id: Optional[str] = None
     ) -> bool:
         """Submit planned orders and update the transaction created by the queue."""
-        portfolio_allocation = self.allocation_repository.get_allocation(
+        allocation = self.allocation_repository.get_allocation(
             cognito_user_id=cognito_user_id,
             allocation_id=allocation_id,
         )
-        transaction = self._find_transaction(portfolio_allocation, transaction_id)
+        transaction = self._find_transaction(allocation, transaction_id)
 
         # SQS is at-least-once. A message that already advanced beyond QUEUED
         # must not submit the same broker orders again.
@@ -683,9 +685,7 @@ class TradeExecutionService:
         transaction.status = "PROCESSING"
         transaction.updated_at = datetime.now(timezone.utc)
         transaction.status_explanation = None
-        self.allocation_repository.set_allocation(
-            allocation=portfolio_allocation
-        )
+        self.allocation_repository.set_allocation(allocation=allocation)
 
         baskt_positions_dict = self.alpaca_broker_client.get_baskt_positions_dict(
             alpaca_account_id=alpaca_account_id,
@@ -722,7 +722,7 @@ class TradeExecutionService:
         if not order_results:
             transaction.filled_at = transaction.updated_at
         self.allocation_repository.set_allocation(
-            allocation=portfolio_allocation
+            allocation=allocation
         )
         return True
 

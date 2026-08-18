@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
@@ -31,6 +31,10 @@ export default function StockPage({ stockId, onBack }) {
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
   const [isAllocationLoading, setIsAllocationLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const currentStockIdRef = useRef(stockId);
+  const tradeRequestIdRef = useRef(0);
+
+  currentStockIdRef.current = stockId;
 
   const selectedAnalytics =
     stockAnalytics?.[selectedPeriod] || stockAnalytics?.[selectedPeriod.toLowerCase()];
@@ -102,21 +106,23 @@ export default function StockPage({ stockId, onBack }) {
     }
   }
 
-  async function loadAllocationAnalytics(signal) {
+  async function loadAllocationAnalytics(signal, targetStockId = stockId) {
     setIsAllocationLoading(true);
     setAllocationError("");
     try {
       const payload = await apiRequest(
-        `/allocation_analytics/stocks/${stockId}/analytics`,
+        `/allocation_analytics/stocks/${targetStockId}/analytics`,
         { signal }
       );
-      setAllocationAnalytics(payload || null);
+      if (!signal?.aborted && currentStockIdRef.current === targetStockId) {
+        setAllocationAnalytics(payload || null);
+      }
     } catch (error) {
-      if (error?.name !== "AbortError") {
+      if (error?.name !== "AbortError" && currentStockIdRef.current === targetStockId) {
         setAllocationError(error?.message || "Could not load your stock allocation.");
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && currentStockIdRef.current === targetStockId) {
         setIsAllocationLoading(false);
       }
     }
@@ -131,10 +137,15 @@ export default function StockPage({ stockId, onBack }) {
     setStockError("");
     setAnalyticsError("");
     setAllocationError("");
+    setTradeError("");
+    setSuccess("");
+    setAmount("");
     setIsStockLoading(true);
     setIsAnalyticsLoading(true);
     setIsAllocationLoading(true);
+    setIsSubmitting(false);
     setActiveTradeTab("buy");
+    tradeRequestIdRef.current += 1;
 
     void loadStockDetails(controller.signal).then((loadedStock) => {
       if (!loadedStock || controller.signal.aborted) {
@@ -143,7 +154,7 @@ export default function StockPage({ stockId, onBack }) {
         return;
       }
 
-      void loadAllocationAnalytics(controller.signal);
+      void loadAllocationAnalytics(controller.signal, stockId);
 
       void apiRequest(`/stock-analytics/${encodeURIComponent(loadedStock.symbol)}`, {
         signal: controller.signal,
@@ -179,6 +190,12 @@ export default function StockPage({ stockId, onBack }) {
   }, [activeTradeTab, isSecondaryTradeUnavailable]);
 
   async function executeTrade(action) {
+    if (!stock) return;
+
+    const requestStockId = stock.stock_id;
+    const requestSymbol = stock.symbol;
+    const requestId = tradeRequestIdRef.current + 1;
+    tradeRequestIdRef.current = requestId;
     setTradeError("");
     setSuccess("");
 
@@ -201,19 +218,26 @@ export default function StockPage({ stockId, onBack }) {
       if (needsAmount) {
         requestOptions.body = JSON.stringify({ amount: numericAmount });
       }
-      await apiRequest(`/trade-execution/stocks/${stock.stock_id}/${action}`, requestOptions);
+      await apiRequest(`/trade-execution/stocks/${requestStockId}/${action}`, requestOptions);
+      if (tradeRequestIdRef.current !== requestId || currentStockIdRef.current !== requestStockId) {
+        return;
+      }
       const actionLabel = action === "sell" && !hasOpenPosition ? "Short" : "Sell";
       setSuccess(
         action === "close"
-          ? `Close request submitted for ${stock.symbol}.`
+          ? `Close request submitted for ${requestSymbol}.`
           : `${action === "buy" ? "Buy" : actionLabel} request submitted.`
       );
       setAmount("");
-      await loadAllocationAnalytics();
+      await loadAllocationAnalytics(undefined, requestStockId);
     } catch (error) {
-      setTradeError(error?.message || "Stock trade request failed.");
+      if (tradeRequestIdRef.current === requestId && currentStockIdRef.current === requestStockId) {
+        setTradeError(error?.message || "Stock trade request failed.");
+      }
     } finally {
-      setIsSubmitting(false);
+      if (tradeRequestIdRef.current === requestId && currentStockIdRef.current === requestStockId) {
+        setIsSubmitting(false);
+      }
     }
   }
 
