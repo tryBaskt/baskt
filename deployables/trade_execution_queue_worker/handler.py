@@ -14,8 +14,12 @@ if str(BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(BACKEND_PATH))
 
 from clients.alpaca_broker_client import AlpacaBrokerClient
+from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
 from core.config import get_settings
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessRepository,
+)
 from repository.model_portfolio_follower_repository import (
     ModelPortfolioFollowerRepository,
 )
@@ -41,6 +45,10 @@ def _trade_execution_service() -> TradeExecutionService:
     settings = get_settings()
     boto3_session = boto3.Session(region_name=settings.aws_region)
     dynamodb = boto3_session.resource("dynamodb", region_name=settings.aws_region)
+    cognito_idp_client = boto3_session.client(
+        "cognito-idp",
+        region_name=settings.cognito_region,
+    )
 
     alpaca_broker_client = AlpacaBrokerClient(
         alpaca_broker_api_key=settings.alpaca_broker_api_key,
@@ -58,6 +66,21 @@ def _trade_execution_service() -> TradeExecutionService:
         ),
         alpaca_broker_client=alpaca_broker_client,
     )
+    cognito_client = CognitoClient(
+        env=settings.env,
+        region=settings.cognito_region,
+        user_pool_id=settings.cognito_user_pool_id,
+        app_client_id=settings.cognito_app_client_id,
+        cognito_client=cognito_idp_client,
+    )
+    model_portfolio_access_repository = ModelPortfolioAccessRepository(
+        dynamodb_client=DynamoDBClient(
+            table=dynamodb.Table(settings.model_portfolio_access_dynamodb)
+        ),
+        cognito_client=cognito_client,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+    )
     model_portfolio_repository = ModelPortfolioRepository(
         dynamodb_client=DynamoDBClient(
             table=dynamodb.Table(settings.model_portfolios_dynamodb)
@@ -65,6 +88,7 @@ def _trade_execution_service() -> TradeExecutionService:
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
     allocation_repository = AllocationRepository(
         alpaca_broker_client=alpaca_broker_client,
@@ -89,6 +113,7 @@ def _trade_execution_service() -> TradeExecutionService:
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 
