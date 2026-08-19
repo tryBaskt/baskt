@@ -35,6 +35,12 @@ FLOAT_ERROR = 1e-6
 get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def pause_between_test_cases():
+    yield
+    sleep(5)
+
+
 def _test_settings():
     return get_settings()
 

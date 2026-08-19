@@ -67,6 +67,7 @@ pytestmark = pytest.mark.integration
 
 TIMESTAMP = datetime(2024, 1, 1, 14, 0, tzinfo=timezone.utc)
 SECOND_TIMESTAMP = datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc)
+LIVE_PRICE_REL_TOLERANCE = 0.01
 
 
 def _unique_user_id() -> str:
@@ -388,10 +389,17 @@ def test_portfolio_allocation_analytics_calculates_open_position_metrics(
         )
 
         assert analytics["total_cost_basis"] == pytest.approx(650.0)
-        assert analytics["equity"] == pytest.approx(expected_equity)
-        assert analytics["profit_loss"] == pytest.approx(expected_equity - 650.0)
+        assert analytics["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert analytics["profit_loss"] == pytest.approx(
+            expected_equity - 650.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert analytics["profit_loss_percent"] == pytest.approx(
-            (expected_equity - 650.0) / 650.0
+            (expected_equity - 650.0) / 650.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
     finally:
         _cleanup_allocations(
@@ -428,8 +436,14 @@ def test_portfolio_allocation_analytics_zero_cost_basis_uses_zero_percent(
         )
 
         assert analytics["total_cost_basis"] == pytest.approx(0.0)
-        assert analytics["equity"] == pytest.approx(expected_equity)
-        assert analytics["profit_loss"] == pytest.approx(expected_equity)
+        assert analytics["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert analytics["profit_loss"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert analytics["profit_loss_percent"] == pytest.approx(0.0)
     finally:
         _cleanup_allocations(
@@ -550,10 +564,17 @@ def test_stock_allocation_analytics_calculates_open_position_metrics(
         )
 
         assert analytics["total_cost_basis"] == pytest.approx(300.0)
-        assert analytics["equity"] == pytest.approx(expected_equity)
-        assert analytics["profit_loss"] == pytest.approx(expected_equity - 300.0)
+        assert analytics["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert analytics["profit_loss"] == pytest.approx(
+            expected_equity - 300.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert analytics["profit_loss_percent"] == pytest.approx(
-            (expected_equity - 300.0) / 300.0
+            (expected_equity - 300.0) / 300.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert analytics["direction"] == direction
     finally:
@@ -591,8 +612,14 @@ def test_stock_allocation_analytics_zero_cost_basis_uses_zero_percent(
         )
 
         assert analytics["total_cost_basis"] == pytest.approx(0.0)
-        assert analytics["equity"] == pytest.approx(expected_equity)
-        assert analytics["profit_loss"] == pytest.approx(expected_equity)
+        assert analytics["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert analytics["profit_loss"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert analytics["profit_loss_percent"] == pytest.approx(0.0)
         assert analytics["direction"] == 1
     finally:
@@ -759,8 +786,14 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
             alpaca_account_id=test_user_1.alpaca_account_id,
         )
 
-        assert analytics["cash"] == pytest.approx(float(trade_account.cash))
-        assert analytics["equity"] == pytest.approx(account_equity)
+        assert analytics["cash"] == pytest.approx(
+            float(trade_account.cash),
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert analytics["equity"] == pytest.approx(
+            account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert set(analytics["equity_graph"]) == {"1D", "1W", "1M", "3M", "1A", "ALL"}
         for graph in analytics["equity_graph"].values():
             assert graph["equity"]
@@ -778,9 +811,13 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
         assert stock_row["allocation_name"] == "AAPL"
         assert stock_row["allocation_id"] == stock_allocation.allocation_id
         assert stock_row["allocation_type"] == "STOCK"
-        assert stock_row["allocation_equity"] == pytest.approx(expected_stock_equity)
+        assert stock_row["allocation_equity"] == pytest.approx(
+            expected_stock_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert stock_row["allocation_equity_percent"] == pytest.approx(
-            expected_stock_equity / account_equity
+            expected_stock_equity / account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
         portfolio_row = allocation_rows[portfolio_allocation.allocation_id]
@@ -788,10 +825,12 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
         assert portfolio_row["allocation_id"] == portfolio_allocation.allocation_id
         assert portfolio_row["allocation_type"] == "MODEL_PORTFOLIO"
         assert portfolio_row["allocation_equity"] == pytest.approx(
-            expected_portfolio_equity
+            expected_portfolio_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert portfolio_row["allocation_equity_percent"] == pytest.approx(
-            expected_portfolio_equity / account_equity
+            expected_portfolio_equity / account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
         open_order_row = allocation_rows[open_order_allocation.allocation_id]

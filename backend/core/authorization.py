@@ -235,17 +235,3 @@ def get_optional_allocation_owner(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(err), "code": err.code},
         ) from err
-
-
-# def get_optional_portfolio_allocation_owner(
-#     *,
-#     allocation_id: str,
-#     cognito_user_id: str,
-#     allocation_repository: AllocationRepository,
-# ) -> Optional[PortfolioAllocation | StockAllocation]:
-#     """Backward-compatible alias for allocation ownership checks."""
-#     return get_optional_allocation_owner(
-#         allocation_id=allocation_id,
-#         cognito_user_id=cognito_user_id,
-#         allocation_repository=allocation_repository,
-#     )

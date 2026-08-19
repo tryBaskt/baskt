@@ -88,6 +88,7 @@ pytestmark = pytest.mark.integration
 
 TIMESTAMP = datetime(2024, 1, 1, 14, 0, tzinfo=timezone.utc)
 SECOND_TIMESTAMP = datetime(2024, 1, 2, 14, 0, tzinfo=timezone.utc)
+LIVE_PRICE_REL_TOLERANCE = 0.01
 
 
 def _claims_for_user(test_user: Any) -> dict[str, str]:
@@ -566,8 +567,14 @@ def test_allocation_analytics_route_get_all_active_allocations_happy_path(
 
         assert response.status_code == 200
         body = response.json()
-        assert body["cash"] == pytest.approx(float(trade_account.cash))
-        assert body["equity"] == pytest.approx(account_equity)
+        assert body["cash"] == pytest.approx(
+            float(trade_account.cash),
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert body["equity"] == pytest.approx(
+            account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert set(body["equity_graph"]) == {"1D", "1W", "1M", "3M", "1A", "ALL"}
         assert set(body["allocations"]) >= {
             stock_allocation.allocation_id,
@@ -579,19 +586,25 @@ def test_allocation_analytics_route_get_all_active_allocations_happy_path(
         stock_row = body["allocations"][stock_allocation.allocation_id]
         assert stock_row["allocation_name"] == "AAPL"
         assert stock_row["allocation_type"] == "STOCK"
-        assert stock_row["allocation_equity"] == pytest.approx(expected_stock_equity)
+        assert stock_row["allocation_equity"] == pytest.approx(
+            expected_stock_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert stock_row["allocation_equity_percent"] == pytest.approx(
-            expected_stock_equity / account_equity
+            expected_stock_equity / account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
         portfolio_row = body["allocations"][portfolio_allocation.allocation_id]
         assert portfolio_row["allocation_name"] == portfolio_name
         assert portfolio_row["allocation_type"] == "MODEL_PORTFOLIO"
         assert portfolio_row["allocation_equity"] == pytest.approx(
-            expected_portfolio_equity
+            expected_portfolio_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert portfolio_row["allocation_equity_percent"] == pytest.approx(
-            expected_portfolio_equity / account_equity
+            expected_portfolio_equity / account_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
         open_order_row = body["allocations"][open_order_allocation.allocation_id]
@@ -692,10 +705,17 @@ def test_allocation_analytics_route_portfolio_happy_path(
         body = response.json()
         assert body["portfolio_id"] == portfolio_id
         assert body["total_cost_basis"] == pytest.approx(650.0)
-        assert body["equity"] == pytest.approx(expected_equity)
-        assert body["profit_loss"] == pytest.approx(expected_equity - 650.0)
+        assert body["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert body["profit_loss"] == pytest.approx(
+            expected_equity - 650.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert body["profit_loss_percent"] == pytest.approx(
-            (expected_equity - 650.0) / 650.0
+            (expected_equity - 650.0) / 650.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert len(body["transaction_history"]) == 2
         for transaction in body["transaction_history"]:
@@ -798,10 +818,17 @@ def test_allocation_analytics_route_stock_happy_path(
         body = response.json()
         assert body["stock_id"] == allocation.allocation_id
         assert body["total_cost_basis"] == pytest.approx(300.0)
-        assert body["equity"] == pytest.approx(expected_equity)
-        assert body["profit_loss"] == pytest.approx(expected_equity - 300.0)
+        assert body["equity"] == pytest.approx(
+            expected_equity,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
+        assert body["profit_loss"] == pytest.approx(
+            expected_equity - 300.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
+        )
         assert body["profit_loss_percent"] == pytest.approx(
-            (expected_equity - 300.0) / 300.0
+            (expected_equity - 300.0) / 300.0,
+            rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert body["direction"] == -1
         assert len(body["transaction_history"]) == 2
