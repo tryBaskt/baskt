@@ -92,6 +92,12 @@ UPDATE_AFTER_COOLDOWN = CREATED_AT + timedelta(minutes=2)
 POLL_TIMEOUT_SECONDS = 60.0
 
 
+@pytest.fixture(autouse=True)
+def pause_between_test_cases():
+    yield
+    sleep(5)
+
+
 def _delete_user_trade_lock(
     *,
     user_trade_lock_repository: UserTradeLockRepository,
