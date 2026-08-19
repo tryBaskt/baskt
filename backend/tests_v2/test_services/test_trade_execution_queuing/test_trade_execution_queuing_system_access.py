@@ -1,4 +1,3 @@
-from time import sleep
 from datetime import timedelta
 import uuid
 
@@ -40,12 +39,6 @@ Coverage goals:
 - Owner grants upgrade allocation access, survive withdraw-all, and second
   deposits do not create duplicate access records.
 """
-
-
-@pytest.fixture(autouse=True)
-def pause_between_test_cases():
-    yield
-    sleep(5)
 
 
 def _create_portfolio(

@@ -1,4 +1,3 @@
-from time import sleep
 import uuid
 import pytest
 
@@ -9,12 +8,6 @@ from alpaca.trading.models import Order
 from .conftest import (
     TestEngine, 
 )
-
-
-@pytest.fixture(autouse=True)
-def pause_between_test_cases():
-    yield
-    sleep(5)
 
 
 def _stock_asset_id(test_engine: TestEngine, symbol: str) -> str:
