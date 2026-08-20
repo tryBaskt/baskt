@@ -1153,6 +1153,70 @@ def test_model_portfolio_route_analytics_happy_path_metrics_workflow(
         )
 
 
+def test_model_portfolio_route_analytics_omits_periods_before_any_trading_workflow(
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    test_user_1: Any,
+) -> None:
+    client = _client_for_user(
+        test_user=test_user_1,
+        model_portfolio_repository=model_portfolio_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
+        baskt_account_repository=baskt_account_repository,
+        model_portfolio_analytics_service=model_portfolio_analytics_service,
+    )
+    current_datetime = datetime(2024, 7, 13, 14, tzinfo=timezone.utc)
+    portfolio_id = _put_raw_model_portfolio(
+        model_portfolio_repository=model_portfolio_repository,
+        owner_cognito_user_id=test_user_1.cognito_user_id,
+        snapshots=[
+            _raw_model_snapshot(
+                timestamp=datetime(2024, 7, 13, 13, tzinfo=timezone.utc),
+                positions=[
+                    _raw_model_position(
+                        symbol="AAPL",
+                        target_weight=1.0,
+                        direction=1,
+                        model_filled_quantity=10.0,
+                        model_filled_avg_price=230.0,
+                    ),
+                ],
+            )
+        ],
+        visibility="PRIVATE",
+    )
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return current_datetime.replace(tzinfo=None)
+            return current_datetime.astimezone(tz)
+
+    try:
+        with patch.object(
+            analytics_service_module,
+            "datetime",
+            FixedDateTime,
+        ):
+            response = client.get(f"/model-portfolios/{portfolio_id}/analytics")
+
+        assert response.status_code == 200
+        assert response.json() == {}
+    finally:
+        _delete_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
 def test_model_portfolio_route_update_description_visibility_positions_workflow(
     model_portfolio_repository: ModelPortfolioRepository,
     model_portfolio_access_repository: ModelPortfolioAccessRepository,
