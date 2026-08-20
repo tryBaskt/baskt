@@ -112,6 +112,41 @@ class ModelPortfolioAnalyticsService:
             code="MODEL_PORTFOLIO_ANALYTICS_MARKET_SESSION_NOT_FOUND",
         )
 
+    def _has_trading_time_between(
+        self,
+        *,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> bool:
+        """Return True when a market session overlaps the given UTC window."""
+        if end_datetime <= start_datetime:
+            return False
+
+        market_timezone = ZoneInfo("America/New_York")
+        start_market_date = start_datetime.astimezone(market_timezone).date()
+        end_market_date = end_datetime.astimezone(market_timezone).date()
+        sessions = self.asset_analytics_service.get_market_calendar(
+            start_date=start_market_date,
+            end_date=end_market_date,
+        )
+        for session in sessions:
+            session_open = session.open
+            session_close = session.close
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
+                session_open = session_open.replace(tzinfo=market_timezone)
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
+                session_close = session_close.replace(tzinfo=market_timezone)
+
+            session_open_utc = session_open.astimezone(timezone.utc)
+            session_close_utc = session_close.astimezone(timezone.utc)
+            if max(start_datetime, session_open_utc) < min(
+                end_datetime,
+                session_close_utc,
+            ):
+                return True
+
+        return False
+
 
     def get_positions_updated_weights(
         self,
@@ -362,6 +397,7 @@ class ModelPortfolioAnalyticsService:
         period: str,
         delta: timedelta,
         timeframe: str,
+        portfolio_created_at: Optional[datetime] = None,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Calculate one model portfolio analytics period.
 
@@ -389,6 +425,13 @@ class ModelPortfolioAnalyticsService:
                 period_start_datetime,
                 period_end_datetime,
             ) = self.get_one_day_session_bounds(current_datetime)
+        portfolio_created_at = portfolio_created_at or min(
+            snapshot.timestamp for snapshot in model_portfolio_snapshots
+        )
+        has_trading_time_since_creation = self._has_trading_time_between(
+            start_datetime=portfolio_created_at,
+            end_datetime=current_datetime,
+        )
 
         analytics_snapshots = self.get_analytics_snapshots(
             period=period,
@@ -403,7 +446,16 @@ class ModelPortfolioAnalyticsService:
             analytics_snapshots=analytics_snapshots,
         )
         if full_segment_prices_df.empty:
-            return period, None
+            if not has_trading_time_since_creation:
+                return period, None
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message=(
+                    "No model portfolio price data available after trading "
+                    f"time elapsed for portfolio '{portfolio_id}' during "
+                    f"period '{period}'"
+                ),
+                code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING_AFTER_TRADING",
+            )
 
         for index, analytics_snapshot in enumerate(analytics_snapshots):
             segment_start = analytics_snapshot.timestamp
@@ -433,6 +485,8 @@ class ModelPortfolioAnalyticsService:
             .bfill()
         )
         if simulation_prices.empty or simulation_prices.isna().any().any():
+            if not has_trading_time_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     "No complete price data available for model "
@@ -494,6 +548,8 @@ class ModelPortfolioAnalyticsService:
                 ] = price_row.price
 
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
+            if not has_trading_time_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     f"Benchmark price data for '{benchmark_symbol}' is missing "
@@ -512,11 +568,18 @@ class ModelPortfolioAnalyticsService:
         )
         simulation_prices = simulation_prices.loc[common_price_index]
         benchmark_prices = benchmark_prices.loc[common_price_index]
-        if simulation_prices.empty or benchmark_prices.empty:
+        if (
+            simulation_prices.empty
+            or benchmark_prices.empty
+            or len(common_price_index) < 2
+        ):
+            if not has_trading_time_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
-                    "No benchmark-aligned price data available for model "
-                    f"portfolio '{portfolio_id}' during period '{period}'"
+                    "No benchmark-aligned price data available after trading "
+                    f"time elapsed for model portfolio '{portfolio_id}' "
+                    f"during period '{period}'"
                 ),
                 code="MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_ALIGNED_PRICE_DATA_MISSING",
             )
@@ -629,7 +692,10 @@ class ModelPortfolioAnalyticsService:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
 
-            model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
+            model_portfolio = self.model_portfolio_repository.get_model_portfolio(
+                portfolio_id=portfolio_id
+            )
+            model_portfolio_snapshots = model_portfolio.position_history
             if not model_portfolio_snapshots: 
                 return {}
             model_portfolio_snapshots = sorted(
@@ -650,6 +716,7 @@ class ModelPortfolioAnalyticsService:
                     period=period,
                     delta=delta,
                     timeframe=timeframe,
+                    portfolio_created_at=model_portfolio.created_at,
                 )
 
             with ThreadPoolExecutor(
