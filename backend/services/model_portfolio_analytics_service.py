@@ -147,6 +147,73 @@ class ModelPortfolioAnalyticsService:
 
         return False
 
+    def _has_expected_bar_since_creation(
+        self,
+        *,
+        start_datetime: datetime,
+        end_datetime: datetime,
+        timeframe: str,
+    ) -> bool:
+        """Return True when the elapsed market time should have produced a bar."""
+        if end_datetime <= start_datetime:
+            return False
+
+        normalized_timeframe = timeframe.lower()
+        if normalized_timeframe in {"1d", "1day", "day"}:
+            market_timezone = ZoneInfo("America/New_York")
+            sessions = self.asset_analytics_service.get_market_calendar(
+                start_date=start_datetime.astimezone(market_timezone).date(),
+                end_date=end_datetime.astimezone(market_timezone).date(),
+            )
+            for session in sessions:
+                session_close = session.close
+                if session_close.tzinfo is None or session_close.utcoffset() is None:
+                    session_close = session_close.replace(tzinfo=market_timezone)
+                session_close_utc = session_close.astimezone(timezone.utc)
+                if start_datetime < session_close_utc <= end_datetime:
+                    return True
+            return False
+
+        required_market_seconds = {
+            "5min": 5 * 60,
+            "5m": 5 * 60,
+            "1h": 60 * 60,
+            "1hour": 60 * 60,
+            "hour": 60 * 60,
+        }.get(normalized_timeframe)
+        if required_market_seconds is None:
+            return self._has_trading_time_between(
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+            )
+
+        market_timezone = ZoneInfo("America/New_York")
+        sessions = self.asset_analytics_service.get_market_calendar(
+            start_date=start_datetime.astimezone(market_timezone).date(),
+            end_date=end_datetime.astimezone(market_timezone).date(),
+        )
+        elapsed_market_seconds = 0.0
+        for session in sessions:
+            session_open = session.open
+            session_close = session.close
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
+                session_open = session_open.replace(tzinfo=market_timezone)
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
+                session_close = session_close.replace(tzinfo=market_timezone)
+
+            session_open_utc = session_open.astimezone(timezone.utc)
+            session_close_utc = session_close.astimezone(timezone.utc)
+            overlap_start = max(start_datetime, session_open_utc)
+            overlap_end = min(end_datetime, session_close_utc)
+            if overlap_start < overlap_end:
+                elapsed_market_seconds += (
+                    overlap_end - overlap_start
+                ).total_seconds()
+                if elapsed_market_seconds >= required_market_seconds:
+                    return True
+
+        return False
+
 
     def get_positions_updated_weights(
         self,
@@ -428,9 +495,10 @@ class ModelPortfolioAnalyticsService:
         portfolio_created_at = portfolio_created_at or min(
             snapshot.timestamp for snapshot in model_portfolio_snapshots
         )
-        has_trading_time_since_creation = self._has_trading_time_between(
+        has_expected_bar_since_creation = self._has_expected_bar_since_creation(
             start_datetime=portfolio_created_at,
             end_datetime=current_datetime,
+            timeframe=timeframe,
         )
 
         analytics_snapshots = self.get_analytics_snapshots(
@@ -446,13 +514,13 @@ class ModelPortfolioAnalyticsService:
             analytics_snapshots=analytics_snapshots,
         )
         if full_segment_prices_df.empty:
-            if not has_trading_time_since_creation:
+            if not has_expected_bar_since_creation:
                 return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
-                    "No model portfolio price data available after trading "
-                    f"time elapsed for portfolio '{portfolio_id}' during "
-                    f"period '{period}'"
+                    "No model portfolio price data available after expected "
+                    f"'{timeframe}' bar data should be available for "
+                    f"portfolio '{portfolio_id}' during period '{period}'"
                 ),
                 code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING_AFTER_TRADING",
             )
@@ -485,7 +553,7 @@ class ModelPortfolioAnalyticsService:
             .bfill()
         )
         if simulation_prices.empty or simulation_prices.isna().any().any():
-            if not has_trading_time_since_creation:
+            if not has_expected_bar_since_creation:
                 return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
@@ -548,7 +616,7 @@ class ModelPortfolioAnalyticsService:
                 ] = price_row.price
 
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
-            if not has_trading_time_since_creation:
+            if not has_expected_bar_since_creation:
                 return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
@@ -573,13 +641,13 @@ class ModelPortfolioAnalyticsService:
             or benchmark_prices.empty
             or len(common_price_index) < 2
         ):
-            if not has_trading_time_since_creation:
+            if not has_expected_bar_since_creation:
                 return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
-                    "No benchmark-aligned price data available after trading "
-                    f"time elapsed for model portfolio '{portfolio_id}' "
-                    f"during period '{period}'"
+                    "No benchmark-aligned price data available after expected "
+                    f"'{timeframe}' bar data should be available for model "
+                    f"portfolio '{portfolio_id}' during period '{period}'"
                 ),
                 code="MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_ALIGNED_PRICE_DATA_MISSING",
             )

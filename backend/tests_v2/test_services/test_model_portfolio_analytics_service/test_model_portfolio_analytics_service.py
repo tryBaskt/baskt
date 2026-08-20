@@ -53,8 +53,9 @@ Coverage goals:
   benchmark-aligned metric fields, unusable-period omission, snapshot sorting,
   non-UTC current_datetime rejection, and natural invalid-symbol failure.
 - _calculate_model_portfolio_period(): omit empty analytics only when no market
-  trading time has elapsed since portfolio creation; raise when trading time
-  elapsed but benchmark-aligned analytics cannot be calculated.
+  bar is expected for the period timeframe since portfolio creation; raise when
+  expected bar data should exist but benchmark-aligned analytics cannot be
+  calculated.
 """
 
 
@@ -1630,7 +1631,40 @@ def test_calculate_model_portfolio_period_omits_when_no_trading_time_elapsed(
     assert payload is None
 
 
-def test_calculate_model_portfolio_period_raises_when_trading_time_elapsed_without_analytics(
+def test_calculate_model_portfolio_period_omits_daily_period_before_completed_bar(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+) -> None:
+    snapshot = ModelPortfolioSnapshot(
+        snapshot_id=f"snapshot-{uuid4()}",
+        timestamp=_utc_datetime(2024, 7, 12, 14),
+        positions=[
+            ModelPortfolioPosition(
+                symbol="AAPL",
+                target_weight=1.0,
+                direction=1,
+                leverage=1.0,
+                model_filled_quantity=10.0,
+                model_filled_avg_price=230.0,
+            )
+        ],
+    )
+
+    period, payload = (
+        model_portfolio_analytics_service._calculate_model_portfolio_period(
+            portfolio_id=f"tests-v2-no-completed-daily-bar-{uuid4()}",
+            current_datetime=_utc_datetime(2024, 7, 12, 14, 1),
+            model_portfolio_snapshots=[snapshot],
+            period="1M",
+            delta=timedelta(days=30),
+            timeframe="1D",
+        )
+    )
+
+    assert period == "1M"
+    assert payload is None
+
+
+def test_calculate_model_portfolio_period_raises_when_expected_bar_elapsed_without_analytics(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
 ) -> None:
     snapshot = ModelPortfolioSnapshot(
@@ -1651,7 +1685,7 @@ def test_calculate_model_portfolio_period_raises_when_trading_time_elapsed_witho
     with pytest.raises(ModelPortfolioAnalyticsInternalServerError) as exc_info:
         model_portfolio_analytics_service._calculate_model_portfolio_period(
             portfolio_id=f"tests-v2-trading-time-no-analytics-{uuid4()}",
-            current_datetime=_utc_datetime(2024, 7, 12, 14, 1),
+            current_datetime=_utc_datetime(2024, 7, 12, 15, 1),
             model_portfolio_snapshots=[snapshot],
             period="1W",
             delta=timedelta(minutes=1),
