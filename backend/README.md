@@ -1,6 +1,6 @@
 uvicorn main:app --reload
 npm run dev:dev
-pytest backend/tests_v2 -s --mock_alpaca
+pytest backend/tests_v2 --mock_alpaca
 
 Things to be aware of:
 1. Email verified is set to true in CognitoClient.create_cognito_user()

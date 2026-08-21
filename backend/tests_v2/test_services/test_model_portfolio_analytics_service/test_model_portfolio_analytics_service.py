@@ -51,11 +51,9 @@ Coverage goals:
   chart data, session/lookback/all-time windows, rebalance stitching,
   long/short exposure metrics, final-return and max-drawdown consistency,
   benchmark-aligned metric fields, unusable-period omission, snapshot sorting,
-  non-UTC current_datetime rejection, and natural invalid-symbol failure.
-- _calculate_model_portfolio_period(): omit empty analytics only when no market
-  bar is expected for the period timeframe since portfolio creation; raise when
-  expected bar data should exist but benchmark-aligned analytics cannot be
-  calculated.
+  young-portfolio period sharing for <= one trading day and < one trading week,
+  branch boundaries for trading-minute thresholds, non-UTC current_datetime
+  rejection, and natural invalid-symbol failure.
 """
 
 
@@ -1363,6 +1361,287 @@ def test_get_model_portfolio_bars_returns_empty_when_portfolio_has_no_snapshots(
         )
 
         assert response == {}
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+@pytest.mark.parametrize("trading_minutes", [5, 120, 390])
+def test_get_model_portfolio_bars_reuses_one_day_response_for_one_trading_day_or_less(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+    trading_minutes: int,
+) -> None:
+    portfolio_id: str | None = None
+    period_calls: list[tuple[str, timedelta, str]] = []
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 10, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=230.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: trading_minutes,
+        )
+
+        def calculate_period(**kwargs):
+            period_calls.append(
+                (kwargs["period"], kwargs["delta"], kwargs["timeframe"])
+            )
+            return kwargs["period"], {
+                "period": kwargs["period"],
+                "timeframe": kwargs["timeframe"],
+                "marker": str(uuid4()),
+            }
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 10, 16),
+        )
+
+        assert period_calls == [("1D", timedelta(days=1), "5Min")]
+        assert set(response) == {"1D", "1W", "1M", "3M", "1A", "all"}
+        assert response["1D"]["timeframe"] == "5Min"
+        for period in ["1W", "1M", "3M", "1A", "all"]:
+            assert response[period] == response["1D"]
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+@pytest.mark.parametrize("trading_minutes", [391, 4 * 390, (7 * 390) - 1])
+def test_get_model_portfolio_bars_reuses_week_response_before_one_trading_week(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+    trading_minutes: int,
+) -> None:
+    portfolio_id: str | None = None
+    period_calls: list[tuple[str, timedelta, str]] = []
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 8, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=225.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: trading_minutes,
+        )
+
+        def calculate_period(**kwargs):
+            period_calls.append(
+                (kwargs["period"], kwargs["delta"], kwargs["timeframe"])
+            )
+            return kwargs["period"], {
+                "period": kwargs["period"],
+                "timeframe": kwargs["timeframe"],
+                "marker": str(uuid4()),
+            }
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 12, 16),
+        )
+
+        assert period_calls == [
+            ("1D", timedelta(days=1), "5Min"),
+            ("1W", timedelta(weeks=1), "1H"),
+        ]
+        assert set(response) == {"1D", "1W", "1M", "3M", "1A", "all"}
+        assert response["1D"]["timeframe"] == "5Min"
+        assert response["1W"]["timeframe"] == "1H"
+        for period in ["1M", "3M", "1A", "all"]:
+            assert response[period] == response["1W"]
+        assert response["1D"] != response["1W"]
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+@pytest.mark.parametrize("trading_minutes", [0, 4])
+def test_get_model_portfolio_bars_returns_empty_before_five_trading_minutes(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+    trading_minutes: int,
+) -> None:
+    portfolio_id: str | None = None
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 10, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=230.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: trading_minutes,
+        )
+
+        def calculate_period(**kwargs):
+            raise AssertionError("period calculation should not run")
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 10, 14, 4),
+        )
+
+        assert response == {}
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_get_model_portfolio_bars_uses_default_periods_at_one_trading_week_boundary(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portfolio_id: str | None = None
+    period_calls: list[tuple[str, timedelta, str]] = []
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 1, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=215.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: 7 * 390,
+        )
+
+        def calculate_period(**kwargs):
+            period_calls.append(
+                (kwargs["period"], kwargs["delta"], kwargs["timeframe"])
+            )
+            return kwargs["period"], {
+                "period": kwargs["period"],
+                "timeframe": kwargs["timeframe"],
+                "marker": str(uuid4()),
+            }
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 8, 20),
+        )
+
+        period_order = {"1D": 0, "1W": 1, "1M": 2, "3M": 3, "1A": 4, "all": 5}
+        period_calls.sort(key=lambda call: period_order[call[0]])
+        assert period_calls == [
+            ("1D", timedelta(days=1), "5Min"),
+            ("1W", timedelta(weeks=1), "1H"),
+            ("1M", timedelta(days=30), "1D"),
+            ("3M", timedelta(days=90), "1D"),
+            ("1A", timedelta(days=365), "1D"),
+            ("all", timedelta(days=1), "1D"),
+        ]
+        assert set(response) == {"1D", "1W", "1M", "3M", "1A", "all"}
+        assert response["1M"] != response["1W"]
+        assert response["3M"] != response["1M"]
+        assert response["1A"] != response["3M"]
+        assert response["all"] != response["1A"]
     finally:
         _delete_model_portfolio(
             model_portfolio_repository=model_portfolio_repository,
