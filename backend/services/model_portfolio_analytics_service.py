@@ -592,8 +592,54 @@ class ModelPortfolioAnalyticsService:
             "maximum_drawdown_duration": model_portfolio_analytics.maximum_drawdown_duration,
         }
 
+    def calculate_trading_minutes(
+        self,
+        model_portfolio_created_at: datetime,
+        current_datetime: datetime,
+    ) -> int:
+        if (
+            model_portfolio_created_at.tzinfo is None
+            or model_portfolio_created_at.utcoffset() != timedelta(0)
+            or current_datetime.tzinfo is None
+            or current_datetime.utcoffset() != timedelta(0)
+        ):
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message="model_portfolio_created_at and current_datetime must be timezone-aware UTC",
+                code="MODEL_PORTFOLIO_ANALYTICS_TIMEZONE_REQUIRED",
+            )
 
+        if current_datetime <= model_portfolio_created_at:
+            return 0
 
+        try:
+            market_timezone = ZoneInfo("America/New_York")
+            sessions = self.asset_analytics_service.get_market_calendar(
+                start_date=model_portfolio_created_at.astimezone(market_timezone).date(),
+                end_date=current_datetime.astimezone(market_timezone).date(),
+            )
+
+            trading_seconds = 0.0
+            for session in sessions:
+                session_open = session.open
+                session_close = session.close
+                if session_open.tzinfo is None or session_open.utcoffset() is None:
+                    session_open = session_open.replace(tzinfo=market_timezone)
+                if session_close.tzinfo is None or session_close.utcoffset() is None:
+                    session_close = session_close.replace(tzinfo=market_timezone)
+
+                session_open_utc = session_open.astimezone(timezone.utc)
+                session_close_utc = session_close.astimezone(timezone.utc)
+                trading_start = max(model_portfolio_created_at, session_open_utc)
+                trading_end = min(current_datetime, session_close_utc)
+                if trading_start < trading_end:
+                    trading_seconds += (trading_end - trading_start).total_seconds()
+
+            return int(trading_seconds // 60)
+        except AssetAnalyticsInternalServerError as error:
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message=f"Failed to calculate model portfolio trading minutes: {error}",
+                code="MODEL_PORTFOLIO_ANALYTICS_TRADING_MINUTES_FAILED",
+            ) from error
 
     def get_model_portfolio_bars(
         self,
@@ -629,9 +675,13 @@ class ModelPortfolioAnalyticsService:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
 
-            model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
-            if not model_portfolio_snapshots: 
+            model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
+            model_portfolio_snapshots = model_portfolio.position_history
+            trading_minutes = self.calculate_trading_minutes(model_portfolio_created_at=model_portfolio.created_at, current_datetime=current_datetime)
+
+            if trading_minutes < 5 or not model_portfolio_snapshots:
                 return {}
+
             model_portfolio_snapshots = sorted(
                 model_portfolio_snapshots,
                 key=lambda snapshot: snapshot.timestamp,
@@ -639,30 +689,79 @@ class ModelPortfolioAnalyticsService:
 
             response: Dict[str, Dict[str, Any]] = {}
 
-            def calculate_period(
-                period_config: Tuple[str, timedelta, str],
-            ) -> Tuple[str, Optional[Dict[str, Any]]]:
-                period, delta, timeframe = period_config
-                return self._calculate_model_portfolio_period(
+            one_trading_day_minutes = int(60 * 6.5)
+            one_trading_week_minutes = one_trading_day_minutes * 7
+
+            if 5 <= trading_minutes <= one_trading_day_minutes:
+                _, period_response = self._calculate_model_portfolio_period(
                     portfolio_id=portfolio_id,
                     current_datetime=current_datetime,
                     model_portfolio_snapshots=model_portfolio_snapshots,
-                    period=period,
-                    delta=delta,
-                    timeframe=timeframe,
+                    period="1D",
+                    delta=timedelta(days=1),
+                    timeframe="5Min"
+                )
+                response = {
+                    "1D": period_response,
+                    "1W": period_response,
+                    "1M": period_response,
+                    "3M": period_response,
+                    "1A": period_response,
+                    "all": period_response
+                }
+            elif one_trading_day_minutes < trading_minutes < one_trading_week_minutes:
+                print("sdjfoisdjof")
+                _, daily_response = self._calculate_model_portfolio_period(
+                    portfolio_id=portfolio_id,
+                    current_datetime=current_datetime,
+                    model_portfolio_snapshots=model_portfolio_snapshots,
+                    period="1D",
+                    delta=timedelta(days=1),
+                    timeframe="5Min"
+                )
+                _, weekly_response = self._calculate_model_portfolio_period(
+                    portfolio_id=portfolio_id,
+                    current_datetime=current_datetime,
+                    model_portfolio_snapshots=model_portfolio_snapshots,
+                    period="1W",
+                    delta=timedelta(weeks=1),
+                    timeframe="1H"
                 )
 
-            with ThreadPoolExecutor(
-                max_workers=len(period_timedelta_timeframe),
-                thread_name_prefix="model-portfolio-period",
-            ) as executor:
-                period_results = executor.map(
-                    calculate_period,
-                    period_timedelta_timeframe,
-                )
-                for period, period_response in period_results:
-                    if period_response is not None:
-                        response[period] = period_response
+                response = {
+                    "1D": daily_response,
+                    "1W": weekly_response,
+                    "1M": weekly_response,
+                    "3M": weekly_response,
+                    "1A": weekly_response,
+                    "all": weekly_response
+                }
+
+            else:
+                def calculate_period(
+                    period_config: Tuple[str, timedelta, str],
+                ) -> Tuple[str, Optional[Dict[str, Any]]]:
+                    period, delta, timeframe = period_config
+                    return self._calculate_model_portfolio_period(
+                        portfolio_id=portfolio_id,
+                        current_datetime=current_datetime,
+                        model_portfolio_snapshots=model_portfolio_snapshots,
+                        period=period,
+                        delta=delta,
+                        timeframe=timeframe,
+                    )
+
+                with ThreadPoolExecutor(
+                    max_workers=len(period_timedelta_timeframe),
+                    thread_name_prefix="model-portfolio-period",
+                ) as executor:
+                    period_results = executor.map(
+                        calculate_period,
+                        period_timedelta_timeframe,
+                    )
+                    for period, period_response in period_results:
+                        if period_response is not None:
+                            response[period] = period_response
 
             return response
 
