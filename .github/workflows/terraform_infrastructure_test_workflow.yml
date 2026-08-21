@@ -589,6 +589,12 @@ jobs:
       TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
       TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
       TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
+      TEST_TEST_USER_1_COGNITO_USER_ID: ${{ vars.TEST_TEST_USER_1_COGNITO_USER_ID || secrets.TEST_TEST_USER_1_COGNITO_USER_ID }}
+      TEST_TEST_USER_1_ALPACA_ACCOUNT_ID: ${{ vars.TEST_TEST_USER_1_ALPACA_ACCOUNT_ID || secrets.TEST_TEST_USER_1_ALPACA_ACCOUNT_ID }}
+      TEST_TEST_USER_1_EMAIL_ADDRESS: ${{ vars.TEST_TEST_USER_1_EMAIL_ADDRESS || secrets.TEST_TEST_USER_1_EMAIL_ADDRESS }}
+      TEST_TEST_USER_2_COGNITO_USER_ID: ${{ vars.TEST_TEST_USER_2_COGNITO_USER_ID || secrets.TEST_TEST_USER_2_COGNITO_USER_ID }}
+      TEST_TEST_USER_2_ALPACA_ACCOUNT_ID: ${{ vars.TEST_TEST_USER_2_ALPACA_ACCOUNT_ID || secrets.TEST_TEST_USER_2_ALPACA_ACCOUNT_ID }}
+      TEST_TEST_USER_2_EMAIL_ADDRESS: ${{ vars.TEST_TEST_USER_2_EMAIL_ADDRESS || secrets.TEST_TEST_USER_2_EMAIL_ADDRESS }}
 
     steps:
       - name: Checkout repository
@@ -615,8 +621,8 @@ jobs:
 
       - name: Run backend tests
         run: |
-          backend/.venv/bin/python -m coverage run -m pytest \
-            backend/tests \
+          backend/.venv/bin/python -m pytest \
+            backend/tests_v2 \
             --tb=long \
             --junitxml=backend-test-results.xml
 
@@ -751,6 +757,12 @@ jobs:
       TEST_COGNITO_USER_POOL_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_user_pool_id }}
       TEST_COGNITO_APP_CLIENT_ID: ${{ needs.deploy-test-infrastructure.outputs.test_cognito_app_client_id }}
       TEST_TRADE_EXECUTION_QUEUE_URL: ${{ needs.deploy-test-infrastructure.outputs.test_trade_execution_queue_url }}
+      TEST_TEST_USER_1_COGNITO_USER_ID: ${{ vars.TEST_TEST_USER_1_COGNITO_USER_ID || secrets.TEST_TEST_USER_1_COGNITO_USER_ID }}
+      TEST_TEST_USER_1_ALPACA_ACCOUNT_ID: ${{ vars.TEST_TEST_USER_1_ALPACA_ACCOUNT_ID || secrets.TEST_TEST_USER_1_ALPACA_ACCOUNT_ID }}
+      TEST_TEST_USER_1_EMAIL_ADDRESS: ${{ vars.TEST_TEST_USER_1_EMAIL_ADDRESS || secrets.TEST_TEST_USER_1_EMAIL_ADDRESS }}
+      TEST_TEST_USER_2_COGNITO_USER_ID: ${{ vars.TEST_TEST_USER_2_COGNITO_USER_ID || secrets.TEST_TEST_USER_2_COGNITO_USER_ID }}
+      TEST_TEST_USER_2_ALPACA_ACCOUNT_ID: ${{ vars.TEST_TEST_USER_2_ALPACA_ACCOUNT_ID || secrets.TEST_TEST_USER_2_ALPACA_ACCOUNT_ID }}
+      TEST_TEST_USER_2_EMAIL_ADDRESS: ${{ vars.TEST_TEST_USER_2_EMAIL_ADDRESS || secrets.TEST_TEST_USER_2_EMAIL_ADDRESS }}
 
     steps:
       - name: Checkout repository
@@ -777,8 +789,8 @@ jobs:
 
       - name: Run backend tests with mock Alpaca
         run: |
-          backend/.venv/bin/python -m coverage run -m pytest \
-            backend/tests \
+          backend/.venv/bin/python -m pytest \
+            backend/tests_v2 \
             --mock_alpaca \
             --tb=long \
             --junitxml=backend-test-results-mock-alpaca.xml

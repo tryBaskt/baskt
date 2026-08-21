@@ -17,7 +17,7 @@ from alpaca.broker.models import Account
 from fastapi import APIRouter, Depends, HTTPException
 
 # Baskt imports
-from core.authorization import require_active_alpaca_account
+from core.authorization import require_active_alpaca_account, require_model_portfolio_access
 from core.authentication import (
 	get_current_alpaca_account,
 	get_current_baskt_account,
@@ -26,8 +26,12 @@ from core.authentication import (
 
 )
 from core.deps import (
+    get_model_portfolio_access_repository,
+    get_model_portfolio_repository,
     get_trade_execution_queuing_service,
 )
+from repository.model_portfolio_access_repository import ModelPortfolioAccessRepository
+from repository.model_portfolio_repository import ModelPortfolioRepository
 from schema.trade_execution_schema import (
     BuyStockRequest,
     BuyStockResponse,
@@ -95,11 +99,23 @@ def deposit_into_portfolio(
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
     baskt_account: BasktAccount = Depends(get_current_baskt_account),
     alpaca_account: Account = Depends(get_current_alpaca_account),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(
+        get_model_portfolio_repository
+    ),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
+        get_model_portfolio_access_repository
+    ),
 ) -> DepositIntoPortfolioResponse:
     try:
         cognito_user_id = get_cognito_user_id(baskt_account)
         alpaca_account_id = get_alpaca_account_id(baskt_account)
         require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+        require_model_portfolio_access(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+        )
 
         queuing_service.queue_portfolio_deposit(
             portfolio_id=portfolio_id,
@@ -120,12 +136,24 @@ def withdraw_from_portfolio(
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
     baskt_account: BasktAccount = Depends(get_current_baskt_account),
     alpaca_account: Any = Depends(get_current_alpaca_account),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(
+        get_model_portfolio_repository
+    ),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
+        get_model_portfolio_access_repository
+    ),
 ) -> WithdrawFromPortfolioResponse:
     """Withdraw funds from a portfolio proportional to latest snapshot allocations."""
     try:
         cognito_user_id = get_cognito_user_id(baskt_account)
         alpaca_account_id = get_alpaca_account_id(baskt_account)
         require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
+        require_model_portfolio_access(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+        )
 
         queuing_service.queue_portfolio_withdrawal(
             portfolio_id=portfolio_id,
@@ -145,11 +173,23 @@ def sell_all_from_portfolio(
     queuing_service: TradeExecutionQueuingService = Depends(get_trade_execution_queuing_service),
     baskt_account: BasktAccount = Depends(get_current_baskt_account),
     alpaca_account: Any = Depends(get_current_alpaca_account),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(
+        get_model_portfolio_repository
+    ),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
+        get_model_portfolio_access_repository
+    ),
 ) -> WithdrawAllPortfolioResponse:
     try:
         cognito_user_id = get_cognito_user_id(baskt_account)
         alpaca_account_id = get_alpaca_account_id(baskt_account)
         require_active_alpaca_account(baskt_account=baskt_account,alpaca_account=alpaca_account)
+        require_model_portfolio_access(
+            portfolio_id=portfolio_id,
+            cognito_user_id=cognito_user_id,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+        )
 
         queuing_service.queue_portfolio_withdraw_all(
             portfolio_id=portfolio_id,

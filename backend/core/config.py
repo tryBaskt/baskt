@@ -56,9 +56,9 @@ class Settings(BaseSettings):
         default="-model-portfolio-dynamodb",
         alias="MODEL_PORTFOLIO_DYNAMODB"
     )
-    portfolio_allocation_dynamodb_suffix: str = Field(
-        default="-portfolio-allocation-dynamodb",
-        alias="PORTFOLIO_ALLOCATION_DYNAMODB"
+    allocation_dynamodb_suffix: str = Field(
+        default="-allocation-dynamodb",
+        alias="ALLOCATION_DYNAMODB"
     )
     order_dynamodb_suffix: str = Field(
         default="-order-dynamodb",
@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     model_portfolio_follower_dynamodb_suffix: str = Field(
         default="-model-portfolio-follower-dynamodb",
         alias="MODEL_PORTFOLIO_FOLLOWER_DYNAMODB"
+    )
+    model_portfolio_access_dynamodb_suffix: str = Field(
+        default="-model-portfolio-access-dynamodb",
+        alias="MODEL_PORTFOLIO_ACCESS_DYNAMODB",
     )
     user_trade_lock_dynamodb_suffix: str = Field(
         default="-user-trade-lock-dynamodb",
@@ -196,10 +200,10 @@ class Settings(BaseSettings):
         return f"{self.env}{self.model_portfolios_dynamodb_suffix}"
 
     @property
-    def portfolio_allocation_dynamodb(self) -> str:
+    def allocation_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
-        return f"{self.env}{self.portfolio_allocation_dynamodb_suffix}"
-    
+        return f"{self.env}{self.allocation_dynamodb_suffix}"
+
     @property
     def order_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
@@ -209,6 +213,11 @@ class Settings(BaseSettings):
     def model_portfolio_follower_dynamodb(self) -> str:
         """Full table name with environment prefix: {env}{suffix}"""
         return f"{self.env}{self.model_portfolio_follower_dynamodb_suffix}"
+
+    @property
+    def model_portfolio_access_dynamodb(self) -> str:
+        """Full table name with environment prefix: {env}{suffix}"""
+        return f"{self.env}{self.model_portfolio_access_dynamodb_suffix}"
     
     @property
     def user_trade_lock_dynamodb(self) -> str:

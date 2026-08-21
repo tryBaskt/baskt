@@ -94,7 +94,7 @@ class AssetAnalyticsService:
         *,
         symbols: List[str],
         timestamp: datetime,
-    ) -> Dict[str, float]:
+    ) -> pd.DataFrame:
         """Get Alpaca prices at or immediately before a timestamp.
 
         Args:

@@ -13,6 +13,9 @@ from clients.dynamodb_client import (
 	to_dynamodb_value,
 )
 
+DEFAULT_LOCK_WAIT_SECONDS = 30.0
+LOCK_POLL_SECONDS = 0.25
+
 
 class UserTradeLockInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "USER_TRADE_LOCK_INTERNAL_SERVER_ERROR") -> None:
@@ -139,7 +142,7 @@ class UserTradeLockRepository:
 		cognito_user_id: str,
 		owner_token: str,
 		lease_seconds: int = 30,
-		wait_seconds: int = 30,
+		wait_seconds: float = DEFAULT_LOCK_WAIT_SECONDS,
 	) -> bool:
 		"""
 		Acquire lock for a user if absent or expired.
@@ -159,7 +162,7 @@ class UserTradeLockRepository:
 			lock.
 			UserTradeLockInternalServerError: If an unexpected error occurs.
 		"""
-		deadline = time.monotonic() + max(0, int(wait_seconds))
+		deadline = time.monotonic() + max(0.0, float(wait_seconds))
 
 		try:
 			while True:
@@ -185,7 +188,7 @@ class UserTradeLockRepository:
 						raise
 					if time.monotonic() >= deadline:
 						return False
-					time.sleep(0.25)
+					time.sleep(min(LOCK_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
 		except ClientError as e:
 			raise UserTradeLockBadGatewayError(
 				operation="acquiring lock",

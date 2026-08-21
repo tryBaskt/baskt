@@ -229,15 +229,15 @@ class ModelPortfolioFollowerRepository:
             portfolio_id: Identifier of the portfolio to query followers for.
 
         Returns:
-            List[str]: User IDs that currently follow the portfolio.
+            List[Dict[str, str]]: Follower records containing Alpaca account
+            IDs and Cognito user IDs. Returns an empty list when the portfolio
+            has no followers.
 
         Raises:
             ModelPortfolioFollowerUnprocessableEntityError: If follower records
             cannot be parsed.
             ModelPortfolioFollowerBadGatewayError: If DynamoDB fails while
             fetching followers.
-            ModelPortfolioFollowerNotFoundError: If no followers are found for
-            the portfolio.
         """
         try:
             items = self.dynamodb.query(
@@ -252,9 +252,7 @@ class ModelPortfolioFollowerRepository:
             ) from e
 
         if not items:
-            raise ModelPortfolioFollowerNotFoundError(
-                portfolio_id=portfolio_id
-            )
+            return []
         
         try:
             return [{"alpaca_account_id": item["alpaca_account_id"], "cognito_user_id": item["cognito_user_id"]} for item in items if ("cognito_user_id" in item and "alpaca_account_id" in item)]

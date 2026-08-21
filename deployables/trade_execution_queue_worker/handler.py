@@ -14,8 +14,12 @@ if str(BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(BACKEND_PATH))
 
 from clients.alpaca_broker_client import AlpacaBrokerClient
+from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
 from core.config import get_settings
+from repository.model_portfolio_access_repository import (
+    ModelPortfolioAccessRepository,
+)
 from repository.model_portfolio_follower_repository import (
     ModelPortfolioFollowerRepository,
 )
@@ -24,7 +28,7 @@ from repository.model_portfolio_update_lock_repository import (
     ModelPortfolioUpdateLockRepository,
 )
 from repository.order_repository import OrderRepository
-from repository.portfolio_allocation_repository import PortfolioAllocationRepository
+from repository.allocation_repository import AllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from services.trade_execution_service import TradeExecutionService
 
@@ -41,6 +45,10 @@ def _trade_execution_service() -> TradeExecutionService:
     settings = get_settings()
     boto3_session = boto3.Session(region_name=settings.aws_region)
     dynamodb = boto3_session.resource("dynamodb", region_name=settings.aws_region)
+    cognito_idp_client = boto3_session.client(
+        "cognito-idp",
+        region_name=settings.cognito_region,
+    )
 
     alpaca_broker_client = AlpacaBrokerClient(
         alpaca_broker_api_key=settings.alpaca_broker_api_key,
@@ -58,6 +66,21 @@ def _trade_execution_service() -> TradeExecutionService:
         ),
         alpaca_broker_client=alpaca_broker_client,
     )
+    cognito_client = CognitoClient(
+        env=settings.env,
+        region=settings.cognito_region,
+        user_pool_id=settings.cognito_user_pool_id,
+        app_client_id=settings.cognito_app_client_id,
+        cognito_client=cognito_idp_client,
+    )
+    model_portfolio_access_repository = ModelPortfolioAccessRepository(
+        dynamodb_client=DynamoDBClient(
+            table=dynamodb.Table(settings.model_portfolio_access_dynamodb)
+        ),
+        cognito_client=cognito_client,
+        model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+    )
     model_portfolio_repository = ModelPortfolioRepository(
         dynamodb_client=DynamoDBClient(
             table=dynamodb.Table(settings.model_portfolios_dynamodb)
@@ -65,11 +88,12 @@ def _trade_execution_service() -> TradeExecutionService:
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
-    portfolio_allocation_repository = PortfolioAllocationRepository(
+    allocation_repository = AllocationRepository(
         alpaca_broker_client=alpaca_broker_client,
         dynamodb_client=DynamoDBClient(
-            table=dynamodb.Table(settings.portfolio_allocation_dynamodb)
+            table=dynamodb.Table(settings.allocation_dynamodb)
         ),
     )
     order_repository = OrderRepository(
@@ -85,10 +109,11 @@ def _trade_execution_service() -> TradeExecutionService:
     return TradeExecutionService(
         alpaca_broker_client=alpaca_broker_client,
         model_portfolio_repository=model_portfolio_repository,
-        portfolio_allocation_repository=portfolio_allocation_repository,
+        allocation_repository=allocation_repository,
         order_repository=order_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         user_trade_lock_repository=user_trade_lock_repository,
+        model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
 
@@ -111,7 +136,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
             portfolio_id=payload["portfolio_id"],
             cognito_user_id=payload["cognito_user_id"],
             alpaca_account_id=payload["alpaca_account_id"],
-            model_portfolio_snapshot_id=payload["model_portfolio_snapshot_id"],
+            portfolio_snapshot_id=payload["portfolio_snapshot_id"],
             transaction_id=payload["transaction_id"],
         )
         return
@@ -147,7 +172,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_buy":
         service.execute_buy_to_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             deposit_amount=float(payload["amount"]),
             cognito_user_id=payload["cognito_user_id"],
@@ -157,7 +182,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_sell":
         service.execute_sell_to_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             withdraw_amount=float(payload["amount"]),
             alpaca_account_id=payload["alpaca_account_id"],
@@ -167,7 +192,7 @@ def _execute_message(message: Dict[str, Any]) -> None:
 
     if action == "stock_close":
         service.execute_close_stock(
-            asset_id=payload["asset_id"],
+            stock_id=payload["asset_id"],
             transaction_id=payload["transaction_id"],
             alpaca_account_id=payload["alpaca_account_id"],
             cognito_user_id=payload["cognito_user_id"],

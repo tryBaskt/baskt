@@ -52,7 +52,7 @@ class ModelPortfolioAnalyticsService:
         """Resolve the market session represented by the 1D period.
 
         Args:
-            current_datetime: Timezone-aware timestamp used as "now."
+            current_datetime: UTC timestamp used as "now."
 
         Returns:
             Tuple[datetime, datetime]: UTC start and end timestamps. During a
@@ -60,19 +60,20 @@ class ModelPortfolioAnalyticsService:
             cover the most recent completed trading session.
 
         Raises:
-            ModelPortfolioAnalyticsInternalServerError: If current_datetime is naive
-            or Alpaca returns no usable recent market session.
+            ModelPortfolioAnalyticsInternalServerError: If current_datetime is
+            not timezone-aware UTC or Alpaca returns no usable recent market
+            session.
         """
         if (
             current_datetime.tzinfo is None
-            or current_datetime.utcoffset() is None
+            or current_datetime.utcoffset() != timedelta(0)
         ):
             raise ModelPortfolioAnalyticsInternalServerError(
-                message="current_datetime must be timezone-aware",
+                message="current_datetime must be timezone-aware UTC",
                 code="MODEL_PORTFOLIO_ANALYTICS_TIMEZONE_REQUIRED",
             )
 
-        current_utc = current_datetime.astimezone(timezone.utc)
+        current_utc = current_datetime
         market_timezone = ZoneInfo("America/New_York")
         current_market_date = current_utc.astimezone(market_timezone).date()
         sessions = self.asset_analytics_service.get_market_calendar(
@@ -84,10 +85,11 @@ class ModelPortfolioAnalyticsService:
         for session in sessions:
             session_open = session.open
             session_close = session.close
-            if session_open.tzinfo is None:
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
                 session_open = session_open.replace(tzinfo=market_timezone)
-            if session_close.tzinfo is None:
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
                 session_close = session_close.replace(tzinfo=market_timezone)
+
             normalized_sessions.append(
                 (
                     session_open.astimezone(timezone.utc),
@@ -109,6 +111,108 @@ class ModelPortfolioAnalyticsService:
             ),
             code="MODEL_PORTFOLIO_ANALYTICS_MARKET_SESSION_NOT_FOUND",
         )
+
+    def _has_trading_time_between(
+        self,
+        *,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> bool:
+        """Return True when a market session overlaps the given UTC window."""
+        if end_datetime <= start_datetime:
+            return False
+
+        market_timezone = ZoneInfo("America/New_York")
+        start_market_date = start_datetime.astimezone(market_timezone).date()
+        end_market_date = end_datetime.astimezone(market_timezone).date()
+        sessions = self.asset_analytics_service.get_market_calendar(
+            start_date=start_market_date,
+            end_date=end_market_date,
+        )
+        for session in sessions:
+            session_open = session.open
+            session_close = session.close
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
+                session_open = session_open.replace(tzinfo=market_timezone)
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
+                session_close = session_close.replace(tzinfo=market_timezone)
+
+            session_open_utc = session_open.astimezone(timezone.utc)
+            session_close_utc = session_close.astimezone(timezone.utc)
+            if max(start_datetime, session_open_utc) < min(
+                end_datetime,
+                session_close_utc,
+            ):
+                return True
+
+        return False
+
+    def _has_expected_bar_since_creation(
+        self,
+        *,
+        start_datetime: datetime,
+        end_datetime: datetime,
+        timeframe: str,
+    ) -> bool:
+        """Return True when the elapsed market time should have produced a bar."""
+        if end_datetime <= start_datetime:
+            return False
+
+        normalized_timeframe = timeframe.lower()
+        if normalized_timeframe in {"1d", "1day", "day"}:
+            market_timezone = ZoneInfo("America/New_York")
+            sessions = self.asset_analytics_service.get_market_calendar(
+                start_date=start_datetime.astimezone(market_timezone).date(),
+                end_date=end_datetime.astimezone(market_timezone).date(),
+            )
+            for session in sessions:
+                session_close = session.close
+                if session_close.tzinfo is None or session_close.utcoffset() is None:
+                    session_close = session_close.replace(tzinfo=market_timezone)
+                session_close_utc = session_close.astimezone(timezone.utc)
+                if start_datetime < session_close_utc <= end_datetime:
+                    return True
+            return False
+
+        required_market_seconds = {
+            "5min": 5 * 60,
+            "5m": 5 * 60,
+            "1h": 60 * 60,
+            "1hour": 60 * 60,
+            "hour": 60 * 60,
+        }.get(normalized_timeframe)
+        if required_market_seconds is None:
+            return self._has_trading_time_between(
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+            )
+
+        market_timezone = ZoneInfo("America/New_York")
+        sessions = self.asset_analytics_service.get_market_calendar(
+            start_date=start_datetime.astimezone(market_timezone).date(),
+            end_date=end_datetime.astimezone(market_timezone).date(),
+        )
+        elapsed_market_seconds = 0.0
+        for session in sessions:
+            session_open = session.open
+            session_close = session.close
+            if session_open.tzinfo is None or session_open.utcoffset() is None:
+                session_open = session_open.replace(tzinfo=market_timezone)
+            if session_close.tzinfo is None or session_close.utcoffset() is None:
+                session_close = session_close.replace(tzinfo=market_timezone)
+
+            session_open_utc = session_open.astimezone(timezone.utc)
+            session_close_utc = session_close.astimezone(timezone.utc)
+            overlap_start = max(start_datetime, session_open_utc)
+            overlap_end = min(end_datetime, session_close_utc)
+            if overlap_start < overlap_end:
+                elapsed_market_seconds += (
+                    overlap_end - overlap_start
+                ).total_seconds()
+                if elapsed_market_seconds >= required_market_seconds:
+                    return True
+
+        return False
 
 
     def get_positions_updated_weights(
@@ -143,12 +247,22 @@ class ModelPortfolioAnalyticsService:
                 symbols=symbols,
                 timestamp=end_datetime,
             )
-            symbol_prices_start = (
-                symbol_prices_start_df.set_index("symbol")["price"].to_dict()
-            )
-            symbol_prices_end = (
-                symbol_prices_end_df.set_index("symbol")["price"].to_dict()
-            )
+            symbol_prices_start = {
+                str(symbol): float(price)
+                for symbol, price in (
+                    symbol_prices_start_df.set_index("symbol")["price"]
+                    .to_dict()
+                    .items()
+                )
+            }
+            symbol_prices_end = {
+                str(symbol): float(price)
+                for symbol, price in (
+                    symbol_prices_end_df.set_index("symbol")["price"]
+                    .to_dict()
+                    .items()
+                )
+            }
 
             start_position_values: Dict[str, float] = {}
             end_position_values: Dict[str, float] = {}
@@ -350,6 +464,7 @@ class ModelPortfolioAnalyticsService:
         period: str,
         delta: timedelta,
         timeframe: str,
+        portfolio_created_at: Optional[datetime] = None,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Calculate one model portfolio analytics period.
 
@@ -377,6 +492,14 @@ class ModelPortfolioAnalyticsService:
                 period_start_datetime,
                 period_end_datetime,
             ) = self.get_one_day_session_bounds(current_datetime)
+        portfolio_created_at = portfolio_created_at or min(
+            snapshot.timestamp for snapshot in model_portfolio_snapshots
+        )
+        has_expected_bar_since_creation = self._has_expected_bar_since_creation(
+            start_datetime=portfolio_created_at,
+            end_datetime=current_datetime,
+            timeframe=timeframe,
+        )
 
         analytics_snapshots = self.get_analytics_snapshots(
             period=period,
@@ -391,7 +514,16 @@ class ModelPortfolioAnalyticsService:
             analytics_snapshots=analytics_snapshots,
         )
         if full_segment_prices_df.empty:
-            return period, None
+            if not has_expected_bar_since_creation:
+                return period, None
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message=(
+                    "No model portfolio price data available after expected "
+                    f"'{timeframe}' bar data should be available for "
+                    f"portfolio '{portfolio_id}' during period '{period}'"
+                ),
+                code="MODEL_PORTFOLIO_ANALYTICS_PRICE_DATA_MISSING_AFTER_TRADING",
+            )
 
         for index, analytics_snapshot in enumerate(analytics_snapshots):
             segment_start = analytics_snapshot.timestamp
@@ -421,6 +553,8 @@ class ModelPortfolioAnalyticsService:
             .bfill()
         )
         if simulation_prices.empty or simulation_prices.isna().any().any():
+            if not has_expected_bar_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     "No complete price data available for model "
@@ -482,6 +616,8 @@ class ModelPortfolioAnalyticsService:
                 ] = price_row.price
 
         if benchmark_prices_df.empty or benchmark_symbol not in benchmark_prices_df:
+            if not has_expected_bar_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
                     f"Benchmark price data for '{benchmark_symbol}' is missing "
@@ -500,10 +636,17 @@ class ModelPortfolioAnalyticsService:
         )
         simulation_prices = simulation_prices.loc[common_price_index]
         benchmark_prices = benchmark_prices.loc[common_price_index]
-        if simulation_prices.empty or benchmark_prices.empty:
+        if (
+            simulation_prices.empty
+            or benchmark_prices.empty
+            or len(common_price_index) < 2
+        ):
+            if not has_expected_bar_since_creation:
+                return period, None
             raise ModelPortfolioAnalyticsInternalServerError(
                 message=(
-                    "No benchmark-aligned price data available for model "
+                    "No benchmark-aligned price data available after expected "
+                    f"'{timeframe}' bar data should be available for model "
                     f"portfolio '{portfolio_id}' during period '{period}'"
                 ),
                 code="MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_ALIGNED_PRICE_DATA_MISSING",
@@ -580,8 +723,54 @@ class ModelPortfolioAnalyticsService:
             "maximum_drawdown_duration": model_portfolio_analytics.maximum_drawdown_duration,
         }
 
+    def calculate_trading_minutes(
+        self,
+        model_portfolio_created_at: datetime,
+        current_datetime: datetime,
+    ) -> int:
+        if (
+            model_portfolio_created_at.tzinfo is None
+            or model_portfolio_created_at.utcoffset() != timedelta(0)
+            or current_datetime.tzinfo is None
+            or current_datetime.utcoffset() != timedelta(0)
+        ):
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message="model_portfolio_created_at and current_datetime must be timezone-aware UTC",
+                code="MODEL_PORTFOLIO_ANALYTICS_TIMEZONE_REQUIRED",
+            )
 
+        if current_datetime <= model_portfolio_created_at:
+            return 0
 
+        try:
+            market_timezone = ZoneInfo("America/New_York")
+            sessions = self.asset_analytics_service.get_market_calendar(
+                start_date=model_portfolio_created_at.astimezone(market_timezone).date(),
+                end_date=current_datetime.astimezone(market_timezone).date(),
+            )
+
+            trading_seconds = 0.0
+            for session in sessions:
+                session_open = session.open
+                session_close = session.close
+                if session_open.tzinfo is None or session_open.utcoffset() is None:
+                    session_open = session_open.replace(tzinfo=market_timezone)
+                if session_close.tzinfo is None or session_close.utcoffset() is None:
+                    session_close = session_close.replace(tzinfo=market_timezone)
+
+                session_open_utc = session_open.astimezone(timezone.utc)
+                session_close_utc = session_close.astimezone(timezone.utc)
+                trading_start = max(model_portfolio_created_at, session_open_utc)
+                trading_end = min(current_datetime, session_close_utc)
+                if trading_start < trading_end:
+                    trading_seconds += (trading_end - trading_start).total_seconds()
+
+            return int(trading_seconds // 60)
+        except AssetAnalyticsInternalServerError as error:
+            raise ModelPortfolioAnalyticsInternalServerError(
+                message=f"Failed to calculate model portfolio trading minutes: {error}",
+                code="MODEL_PORTFOLIO_ANALYTICS_TRADING_MINUTES_FAILED",
+            ) from error
 
     def get_model_portfolio_bars(
         self,
@@ -617,9 +806,13 @@ class ModelPortfolioAnalyticsService:
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
 
-            model_portfolio_snapshots = self.model_portfolio_repository.get_position_history(portfolio_id=portfolio_id)
-            if not model_portfolio_snapshots: 
+            model_portfolio = self.model_portfolio_repository.get_model_portfolio(portfolio_id=portfolio_id)
+            model_portfolio_snapshots = model_portfolio.position_history
+            trading_minutes = self.calculate_trading_minutes(model_portfolio_created_at=model_portfolio.created_at, current_datetime=current_datetime)
+
+            if trading_minutes < 5 or not model_portfolio_snapshots:
                 return {}
+
             model_portfolio_snapshots = sorted(
                 model_portfolio_snapshots,
                 key=lambda snapshot: snapshot.timestamp,
@@ -627,30 +820,79 @@ class ModelPortfolioAnalyticsService:
 
             response: Dict[str, Dict[str, Any]] = {}
 
-            def calculate_period(
-                period_config: Tuple[str, timedelta, str],
-            ) -> Tuple[str, Optional[Dict[str, Any]]]:
-                period, delta, timeframe = period_config
-                return self._calculate_model_portfolio_period(
+            one_trading_day_minutes = int(60 * 6.5)
+            one_trading_week_minutes = one_trading_day_minutes * 7
+
+            if 5 <= trading_minutes <= one_trading_day_minutes:
+                _, period_response = self._calculate_model_portfolio_period(
                     portfolio_id=portfolio_id,
                     current_datetime=current_datetime,
                     model_portfolio_snapshots=model_portfolio_snapshots,
-                    period=period,
-                    delta=delta,
-                    timeframe=timeframe,
+                    period="1D",
+                    delta=timedelta(days=1),
+                    timeframe="5Min"
+                )
+                response = {
+                    "1D": period_response,
+                    "1W": period_response,
+                    "1M": period_response,
+                    "3M": period_response,
+                    "1A": period_response,
+                    "all": period_response
+                }
+            elif one_trading_day_minutes < trading_minutes < one_trading_week_minutes:
+                print("sdjfoisdjof")
+                _, daily_response = self._calculate_model_portfolio_period(
+                    portfolio_id=portfolio_id,
+                    current_datetime=current_datetime,
+                    model_portfolio_snapshots=model_portfolio_snapshots,
+                    period="1D",
+                    delta=timedelta(days=1),
+                    timeframe="5Min"
+                )
+                _, weekly_response = self._calculate_model_portfolio_period(
+                    portfolio_id=portfolio_id,
+                    current_datetime=current_datetime,
+                    model_portfolio_snapshots=model_portfolio_snapshots,
+                    period="1W",
+                    delta=timedelta(weeks=1),
+                    timeframe="1H"
                 )
 
-            with ThreadPoolExecutor(
-                max_workers=len(period_timedelta_timeframe),
-                thread_name_prefix="model-portfolio-period",
-            ) as executor:
-                period_results = executor.map(
-                    calculate_period,
-                    period_timedelta_timeframe,
-                )
-                for period, period_response in period_results:
-                    if period_response is not None:
-                        response[period] = period_response
+                response = {
+                    "1D": daily_response,
+                    "1W": weekly_response,
+                    "1M": weekly_response,
+                    "3M": weekly_response,
+                    "1A": weekly_response,
+                    "all": weekly_response
+                }
+
+            else:
+                def calculate_period(
+                    period_config: Tuple[str, timedelta, str],
+                ) -> Tuple[str, Optional[Dict[str, Any]]]:
+                    period, delta, timeframe = period_config
+                    return self._calculate_model_portfolio_period(
+                        portfolio_id=portfolio_id,
+                        current_datetime=current_datetime,
+                        model_portfolio_snapshots=model_portfolio_snapshots,
+                        period=period,
+                        delta=delta,
+                        timeframe=timeframe,
+                    )
+
+                with ThreadPoolExecutor(
+                    max_workers=len(period_timedelta_timeframe),
+                    thread_name_prefix="model-portfolio-period",
+                ) as executor:
+                    period_results = executor.map(
+                        calculate_period,
+                        period_timedelta_timeframe,
+                    )
+                    for period, period_response in period_results:
+                        if period_response is not None:
+                            response[period] = period_response
 
             return response
 
