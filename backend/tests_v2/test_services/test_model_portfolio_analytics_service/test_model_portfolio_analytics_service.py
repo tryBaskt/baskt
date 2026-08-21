@@ -1877,6 +1877,106 @@ def test_get_model_portfolio_bars_omits_periods_with_no_usable_snapshots(
         )
 
 
+def test_calculate_model_portfolio_period_omits_when_no_trading_time_elapsed(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+) -> None:
+    snapshot = ModelPortfolioSnapshot(
+        snapshot_id=f"snapshot-{uuid4()}",
+        timestamp=_utc_datetime(2024, 7, 13, 13),
+        positions=[
+            ModelPortfolioPosition(
+                symbol="AAPL",
+                target_weight=1.0,
+                direction=1,
+                leverage=1.0,
+                model_filled_quantity=10.0,
+                model_filled_avg_price=230.0,
+            )
+        ],
+    )
+
+    period, payload = (
+        model_portfolio_analytics_service._calculate_model_portfolio_period(
+            portfolio_id=f"tests-v2-no-trading-time-{uuid4()}",
+            current_datetime=_utc_datetime(2024, 7, 13, 14),
+            model_portfolio_snapshots=[snapshot],
+            period="1W",
+            delta=timedelta(hours=1),
+            timeframe="1H",
+        )
+    )
+
+    assert period == "1W"
+    assert payload is None
+
+
+def test_calculate_model_portfolio_period_omits_daily_period_before_completed_bar(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+) -> None:
+    snapshot = ModelPortfolioSnapshot(
+        snapshot_id=f"snapshot-{uuid4()}",
+        timestamp=_utc_datetime(2024, 7, 12, 14),
+        positions=[
+            ModelPortfolioPosition(
+                symbol="AAPL",
+                target_weight=1.0,
+                direction=1,
+                leverage=1.0,
+                model_filled_quantity=10.0,
+                model_filled_avg_price=230.0,
+            )
+        ],
+    )
+
+    period, payload = (
+        model_portfolio_analytics_service._calculate_model_portfolio_period(
+            portfolio_id=f"tests-v2-no-completed-daily-bar-{uuid4()}",
+            current_datetime=_utc_datetime(2024, 7, 12, 14, 1),
+            model_portfolio_snapshots=[snapshot],
+            period="1M",
+            delta=timedelta(days=30),
+            timeframe="1D",
+        )
+    )
+
+    assert period == "1M"
+    assert payload is None
+
+
+def test_calculate_model_portfolio_period_raises_when_expected_bar_elapsed_without_analytics(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+) -> None:
+    snapshot = ModelPortfolioSnapshot(
+        snapshot_id=f"snapshot-{uuid4()}",
+        timestamp=_utc_datetime(2024, 7, 12, 14),
+        positions=[
+            ModelPortfolioPosition(
+                symbol="AAPL",
+                target_weight=1.0,
+                direction=1,
+                leverage=1.0,
+                model_filled_quantity=10.0,
+                model_filled_avg_price=230.0,
+            )
+        ],
+    )
+
+    with pytest.raises(ModelPortfolioAnalyticsInternalServerError) as exc_info:
+        model_portfolio_analytics_service._calculate_model_portfolio_period(
+            portfolio_id=f"tests-v2-trading-time-no-analytics-{uuid4()}",
+            current_datetime=_utc_datetime(2024, 7, 12, 15, 1),
+            model_portfolio_snapshots=[snapshot],
+            period="1W",
+            delta=timedelta(minutes=1),
+            timeframe="1H",
+        )
+
+    assert (
+        exc_info.value.code
+        == "MODEL_PORTFOLIO_ANALYTICS_BENCHMARK_ALIGNED_PRICE_DATA_MISSING"
+    )
+
+
 @pytest.mark.parametrize(
     "current_datetime",
     [
