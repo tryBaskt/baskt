@@ -28,12 +28,12 @@ Coverage goals:
   periods through the real market-data and analytics stack; verify usable payload
   shape, UTC timestamps, prices, timeframe mapping, metric fields, and period
   omission when the earliest price timestamp leaves no usable window.
-- get_stock_bars(): return the default 1D, 1W, 1M, 3M, 1A, and all periods for
+- get_stock_analytics_by_periods(): return the default 1D, 1W, 1M, 3M, 1A, and all periods for
   a real stock with expected timeframes, ordered keys, UTC timestamps, aligned
   prices, and metric fields; filter to requested periods; use
   datetime.now(timezone.utc) when current_datetime is omitted; immediately reject
   non-UTC current_datetime; and raise naturally for invalid symbols.
-- get_stock_bars(): use a recently IPO'd stock to verify the 1A period still
+- get_stock_analytics_by_periods(): use a recently IPO'd stock to verify the 1A period still
   works when the stock's earliest available price is inside the one-year
   lookback window.
 
@@ -415,10 +415,10 @@ def test_calculate_stock_period_raises_for_natural_invalid_symbol_failure(
         )
 
 
-def test_get_stock_bars_returns_default_periods_with_valid_metrics(
+def test_get_stock_analytics_by_periods_returns_default_periods_with_valid_metrics(
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
-    bars = stock_analytics_service.get_stock_bars(
+    bars = stock_analytics_service.get_stock_analytics_by_periods(
         symbol="AAPL",
         current_datetime=_utc_datetime(2024, 7, 5, 19, 0),
     )
@@ -432,10 +432,10 @@ def test_get_stock_bars_returns_default_periods_with_valid_metrics(
         )
 
 
-def test_get_stock_bars_filters_requested_periods(
+def test_get_stock_analytics_by_periods_filters_requested_periods(
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
-    bars = stock_analytics_service.get_stock_bars(
+    bars = stock_analytics_service.get_stock_analytics_by_periods(
         symbol="AAPL",
         current_datetime=_utc_datetime(2024, 7, 5, 19, 0),
         periods=["1D", "1M"],
@@ -452,7 +452,7 @@ def test_get_stock_bars_filters_requested_periods(
     )
 
 
-def test_get_stock_bars_recent_ipo_one_year_period_uses_shortened_history(
+def test_get_stock_analytics_by_periods_recent_ipo_one_year_period_uses_shortened_history(
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
     symbol = "JMKE"
@@ -462,7 +462,7 @@ def test_get_stock_bars_recent_ipo_one_year_period_uses_shortened_history(
         current_datetime=current_datetime,
     )
 
-    bars = stock_analytics_service.get_stock_bars(
+    bars = stock_analytics_service.get_stock_analytics_by_periods(
         symbol=symbol,
         current_datetime=current_datetime,
     )
@@ -478,10 +478,10 @@ def test_get_stock_bars_recent_ipo_one_year_period_uses_shortened_history(
     assert bars["1A"]["timestamp"][-1] <= current_datetime
 
 
-def test_get_stock_bars_uses_utc_now_when_current_datetime_is_missing(
+def test_get_stock_analytics_by_periods_uses_utc_now_when_current_datetime_is_missing(
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
-    bars = stock_analytics_service.get_stock_bars(symbol="AAPL")
+    bars = stock_analytics_service.get_stock_analytics_by_periods(symbol="AAPL")
 
     assert set(bars).issubset(set(DEFAULT_PERIOD_TIMEFRAMES))
     assert bars
@@ -501,12 +501,12 @@ def test_get_stock_bars_uses_utc_now_when_current_datetime_is_missing(
         datetime(2024, 7, 5, 20, 0, tzinfo=timezone(timedelta(hours=1))),
     ],
 )
-def test_get_stock_bars_rejects_non_utc_current_datetime(
+def test_get_stock_analytics_by_periods_rejects_non_utc_current_datetime(
     current_datetime: datetime,
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
     with pytest.raises(StockAnalyticsInternalServerError) as error:
-        stock_analytics_service.get_stock_bars(
+        stock_analytics_service.get_stock_analytics_by_periods(
             symbol="AAPL",
             current_datetime=current_datetime,
         )
@@ -514,11 +514,11 @@ def test_get_stock_bars_rejects_non_utc_current_datetime(
     assert error.value.code == "STOCK_ANALYTICS_TIMEZONE_REQUIRED"
 
 
-def test_get_stock_bars_raises_for_natural_invalid_symbol_failure(
+def test_get_stock_analytics_by_periods_raises_for_natural_invalid_symbol_failure(
     stock_analytics_service: StockAnalyticsService,
 ) -> None:
     with pytest.raises(StockAnalyticsInternalServerError):
-        stock_analytics_service.get_stock_bars(
+        stock_analytics_service.get_stock_analytics_by_periods(
             symbol=f"NOTAREALBASKTSTOCK{datetime.now().microsecond}",
             current_datetime=_utc_datetime(2024, 7, 5, 19, 0),
         )

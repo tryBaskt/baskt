@@ -574,7 +574,7 @@ class ModelPortfolioRepository:
         return last_n_snapshots
     
 
-    def calculate_positions_current_weight(
+    def calculate_positions_current_weight_and_percent_price_change(
         self,
         model_portfolio_snapshot: ModelPortfolioSnapshot,
     ) -> tuple[Dict[str, float], float, Dict[str, float]]:
@@ -612,6 +612,7 @@ class ModelPortfolioRepository:
 
         # Create current position weight dict
         position_values: Dict[str, float] = {}
+        position_percent_price_change: Dict[str, float] = {}
         for position in curr_positions:
             current_price = quotes[position.symbol]
             filled_quantity = position.model_filled_quantity
@@ -622,10 +623,12 @@ class ModelPortfolioRepository:
                 entry_price + position.direction * (current_price - entry_price)
             )
 
+            position_percent_price_change[position.symbol] = (current_price-entry_price) / entry_price
+
         # Total value
         total_value = sum(position_values.values())
         if total_value == 0:
-            return {symbol: 0.0 for symbol in position_values}, 0.0, quotes
+            return {symbol: 0.0 for symbol in position_values}, {symbol: 0.0 for symbol in position_values}, 0.0, quotes
 
 
         return (
@@ -633,6 +636,7 @@ class ModelPortfolioRepository:
                 symbol: value / total_value
                 for symbol, value in position_values.items()
             },
+            position_percent_price_change,
             total_value, 
             quotes
         )

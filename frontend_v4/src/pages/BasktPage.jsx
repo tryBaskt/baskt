@@ -515,7 +515,13 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
                 <h2>Current positions</h2>
               </div>
             </div>
-            <PositionsTable positions={latestSnapshot?.positions || []} currentWeights={baskt.positions_current_weight} />
+            <PositionsTable
+              positions={latestSnapshot?.positions || []}
+              currentWeights={baskt.positions_current_weight}
+              currentPercentPriceChanges={baskt.positions_current_percent_price_change}
+              showCurrentWeight
+              showPercentPriceChange
+            />
           </section>
 
           <section className="panel investment-panel">

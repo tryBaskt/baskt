@@ -772,7 +772,7 @@ class ModelPortfolioAnalyticsService:
                 code="MODEL_PORTFOLIO_ANALYTICS_TRADING_MINUTES_FAILED",
             ) from error
 
-    def get_model_portfolio_bars(
+    def get_model_portfolio_analytics_by_periods(
         self,
         portfolio_id: str,
         current_datetime: Optional[datetime] = None,

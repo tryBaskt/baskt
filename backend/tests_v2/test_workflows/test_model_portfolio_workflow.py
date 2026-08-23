@@ -1004,7 +1004,9 @@ def test_model_portfolio_route_get_detail_response_and_current_weights_workflow(
         }
 
         current_weights = body["positions_current_weight"]
+        current_percent_price_change = body["positions_current_percent_price_change"]
         assert set(current_weights) == {"AAPL", "MSFT"}
+        assert set(current_percent_price_change) == {"AAPL", "MSFT"}
         assert sum(current_weights.values()) == pytest.approx(1.0)
     finally:
         _delete_portfolio(

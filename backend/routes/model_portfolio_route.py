@@ -226,7 +226,7 @@ def get_model_portfolio(
             model_portfolio_access_repository=model_portfolio_access_repository,
         )
         model_portfolio_current_snapshot: ModelPortfolioSnapshot = model_portfolio.position_history[-1]
-        positions_current_weight,_,_ = service.calculate_positions_current_weight(model_portfolio_snapshot=model_portfolio_current_snapshot)
+        positions_current_weight,positions_current_percent_price_change,_,_ = service.calculate_positions_current_weight_and_percent_price_change(model_portfolio_snapshot=model_portfolio_current_snapshot)
     except HTTPException:
         raise
     except Exception as e:
@@ -262,6 +262,7 @@ def get_model_portfolio(
         created_at=model_portfolio.created_at.isoformat(),
         updated_at=model_portfolio.updated_at.isoformat(),
         positions_current_weight=positions_current_weight,
+        positions_current_percent_price_change=positions_current_percent_price_change
     )
 
 
@@ -567,7 +568,7 @@ def get_model_portfolio_analytics(
             model_portfolio_access_repository=model_portfolio_access_repository,
         )
         return ModelPortfolioAnalyticsResponse(
-            root=service.get_model_portfolio_bars(
+            root=service.get_model_portfolio_analytics_by_periods(
                 portfolio_id=portfolio_id,
                 periods=periods,
             )

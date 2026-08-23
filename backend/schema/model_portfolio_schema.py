@@ -69,6 +69,7 @@ class ModelPortfolioResponse(BaseModel):
     created_at: str
     updated_at: str
     positions_current_weight: Dict[str, float]
+    positions_current_percent_price_change: Dict[str, float]
 
 
 class ModelPortfolioAnalyticsPeriodResponse(BaseModel):

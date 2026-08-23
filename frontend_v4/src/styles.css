@@ -1614,6 +1614,14 @@ td {
   text-align: left;
 }
 
+td.positive {
+  color: var(--success);
+}
+
+td.negative {
+  color: var(--danger);
+}
+
 th {
   color: var(--muted);
   font-size: 12px;

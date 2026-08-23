@@ -84,7 +84,7 @@ def get_stock_analytics(
             )
     
         return StockAnalyticsResponse(
-            root=service.get_stock_bars(
+            root=service.get_stock_analytics_by_periods(
                 symbol=symbol.upper(),
                 periods=periods,
             )

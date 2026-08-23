@@ -351,7 +351,7 @@ class StockAnalyticsService:
         return earliest_datetime.astimezone(timezone.utc)
 
 
-    def get_stock_bars(
+    def get_stock_analytics_by_periods(
         self,
         symbol: str,
         current_datetime: Optional[datetime] = None,
