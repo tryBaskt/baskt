@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
 from core.authentication import get_current_baskt_account
@@ -70,6 +72,7 @@ def get_stock_analytics(
     symbol: str,
     baskt_account: BasktAccount = Depends(get_current_baskt_account),
     service: StockAnalyticsService = Depends(get_stock_analytics_service),
+    periods: Optional[List[str]] = Query(default=None),
 ) -> StockAnalyticsResponse:
     """Return standard-period performance analytics for one stock symbol."""
     try:
@@ -81,7 +84,10 @@ def get_stock_analytics(
             )
     
         return StockAnalyticsResponse(
-            root=service.get_stock_bars(symbol=symbol.upper())
+            root=service.get_stock_bars(
+                symbol=symbol.upper(),
+                periods=periods,
+            )
         )
     except Exception as error:
         _raise_stock_http_exception(error)

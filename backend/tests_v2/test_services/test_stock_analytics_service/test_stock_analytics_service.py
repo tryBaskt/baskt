@@ -28,11 +28,11 @@ Coverage goals:
   periods through the real market-data and analytics stack; verify usable payload
   shape, UTC timestamps, prices, timeframe mapping, metric fields, and period
   omission when the earliest price timestamp leaves no usable window.
-- get_stock_bars(): return the default all, 1D, 1W, 1M, 3M, and 1A periods for
+- get_stock_bars(): return the default 1D, 1W, 1M, 3M, 1A, and all periods for
   a real stock with expected timeframes, ordered keys, UTC timestamps, aligned
-  prices, and metric fields; use datetime.now(timezone.utc) when current_datetime
-  is omitted; immediately reject non-UTC current_datetime; and raise naturally
-  for invalid symbols.
+  prices, and metric fields; filter to requested periods; use
+  datetime.now(timezone.utc) when current_datetime is omitted; immediately reject
+  non-UTC current_datetime; and raise naturally for invalid symbols.
 - get_stock_bars(): use a recently IPO'd stock to verify the 1A period still
   works when the stock's earliest available price is inside the one-year
   lookback window.
@@ -423,13 +423,33 @@ def test_get_stock_bars_returns_default_periods_with_valid_metrics(
         current_datetime=_utc_datetime(2024, 7, 5, 19, 0),
     )
 
-    assert list(bars) == ["all", "1D", "1W", "1M", "3M", "1A"]
+    assert list(bars) == ["1D", "1W", "1M", "3M", "1A", "all"]
     assert set(bars) == set(DEFAULT_PERIOD_TIMEFRAMES)
     for period, expected_timeframe in DEFAULT_PERIOD_TIMEFRAMES.items():
         _assert_period_payload_is_valid(
             bars[period],
             expected_timeframe=expected_timeframe,
         )
+
+
+def test_get_stock_bars_filters_requested_periods(
+    stock_analytics_service: StockAnalyticsService,
+) -> None:
+    bars = stock_analytics_service.get_stock_bars(
+        symbol="AAPL",
+        current_datetime=_utc_datetime(2024, 7, 5, 19, 0),
+        periods=["1D", "1M"],
+    )
+
+    assert set(bars) == {"1D", "1M"}
+    _assert_period_payload_is_valid(
+        bars["1D"],
+        expected_timeframe=DEFAULT_PERIOD_TIMEFRAMES["1D"],
+    )
+    _assert_period_payload_is_valid(
+        bars["1M"],
+        expected_timeframe=DEFAULT_PERIOD_TIMEFRAMES["1M"],
+    )
 
 
 def test_get_stock_bars_recent_ipo_one_year_period_uses_shortened_history(

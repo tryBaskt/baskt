@@ -32,8 +32,8 @@ Coverage goals:
   active allocation rows.
 - get_all_active_allocation_analytics(): include active stock/portfolio
   allocations, skip inactive allocations, include open-order-only allocations at
-  zero equity, calculate allocation equity percentages, and use symbol/name
-  display values.
+  zero equity, calculate allocation equity percentages, include stock position
+  direction, and use symbol/name display values.
 
 Skipped by design:
 - Forced lower-level Alpaca/DynamoDB failure wrapping, because that would require
@@ -728,6 +728,7 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
         cognito_user_id=cognito_user_id,
         total_cost_basis=300.0,
         symbol="AAPL",
+        direction=-1,
     )
     portfolio_allocation = _portfolio_allocation(
         cognito_user_id=cognito_user_id,
@@ -799,18 +800,23 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
             assert graph["equity"]
             assert graph["timestamp"]
 
-        allocation_rows = analytics["allocations"]
-        assert set(allocation_rows) == {
+        stock_rows = analytics["stock_allocations"]
+        portfolio_rows = analytics["portfolio_allocations"]
+        assert set(stock_rows) == {
             stock_allocation.allocation_id,
+        }
+        assert set(portfolio_rows) == {
             portfolio_allocation.allocation_id,
             open_order_allocation.allocation_id,
         }
-        assert inactive_allocation.allocation_id not in allocation_rows
+        assert inactive_allocation.allocation_id not in stock_rows
+        assert inactive_allocation.allocation_id not in portfolio_rows
 
-        stock_row = allocation_rows[stock_allocation.allocation_id]
-        assert stock_row["allocation_name"] == "AAPL"
+        stock_row = stock_rows[stock_allocation.allocation_id]
+        assert stock_row["stock_symbol"] == "AAPL"
         assert stock_row["allocation_id"] == stock_allocation.allocation_id
         assert stock_row["allocation_type"] == "STOCK"
+        assert stock_row["direction"] == -1
         assert stock_row["allocation_equity"] == pytest.approx(
             expected_stock_equity,
             rel=LIVE_PRICE_REL_TOLERANCE,
@@ -820,8 +826,8 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
             rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
-        portfolio_row = allocation_rows[portfolio_allocation.allocation_id]
-        assert portfolio_row["allocation_name"] == portfolio_allocation.portfolio_name
+        portfolio_row = portfolio_rows[portfolio_allocation.allocation_id]
+        assert portfolio_row["portfolio_name"] == portfolio_allocation.portfolio_name
         assert portfolio_row["allocation_id"] == portfolio_allocation.allocation_id
         assert portfolio_row["allocation_type"] == "MODEL_PORTFOLIO"
         assert portfolio_row["allocation_equity"] == pytest.approx(
@@ -833,8 +839,8 @@ def test_all_active_allocation_analytics_returns_account_graph_and_allocations(
             rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
-        open_order_row = allocation_rows[open_order_allocation.allocation_id]
-        assert open_order_row["allocation_name"] == open_order_allocation.portfolio_name
+        open_order_row = portfolio_rows[open_order_allocation.allocation_id]
+        assert open_order_row["portfolio_name"] == open_order_allocation.portfolio_name
         assert open_order_row["allocation_type"] == "MODEL_PORTFOLIO"
         assert open_order_row["allocation_equity"] == pytest.approx(0.0)
         assert open_order_row["allocation_equity_percent"] == pytest.approx(0.0)

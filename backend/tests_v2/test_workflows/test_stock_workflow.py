@@ -40,7 +40,8 @@ Coverage goals:
   stock ids return 400.
 - get_stock_analytics(): authenticated users with a Baskt account can fetch
   AAPL analytics and receive default-period payloads with prices, UTC
-  timestamps, and metric fields.
+  timestamps, and metric fields; requested period filters return only those
+  periods.
 - get_stock_analytics(): recently IPO'd stocks still return a valid 1A
   analytics payload when their history starts inside the one-year lookback.
 - get_stock_analytics(): random symbols fail through the stock analytics route
@@ -178,8 +179,12 @@ def _assert_metric_is_valid(value: float | int | None) -> None:
         assert math.isfinite(float(value))
 
 
-def _assert_analytics_payload(payload: dict[str, Any]) -> None:
-    assert set(payload) == set(DEFAULT_PERIOD_TIMEFRAMES)
+def _assert_analytics_payload(
+    payload: dict[str, Any],
+    *,
+    expected_periods: set[str] | None = None,
+) -> None:
+    assert set(payload) == (expected_periods or set(DEFAULT_PERIOD_TIMEFRAMES))
     for period, period_payload in payload.items():
         assert period_payload["timeframe"] == DEFAULT_PERIOD_TIMEFRAMES[period]
         assert len(period_payload["timestamp"]) == len(period_payload["prices"])
@@ -363,6 +368,26 @@ def test_stock_route_get_stock_analytics_happy_path_for_aapl(
 
     assert response.status_code == 200
     _assert_analytics_payload(response.json())
+
+
+def test_stock_route_get_stock_analytics_filters_requested_periods(
+    alpaca_broker_client: AlpacaBrokerClient,
+    stock_analytics_service: StockAnalyticsService,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+) -> None:
+    client = _client_for_user(
+        test_user=test_user_1,
+        baskt_account_repository=baskt_account_repository,
+        alpaca_broker_client=alpaca_broker_client,
+        stock_analytics_service=stock_analytics_service,
+    )
+
+    response = client.get("/stock-analytics/aapl?periods=1D&periods=1M")
+
+    assert response.status_code == 200
+    response_body = response.json()
+    _assert_analytics_payload(response_body, expected_periods={"1D", "1M"})
 
 
 def test_stock_route_get_stock_analytics_recent_ipo_returns_one_year_payload(

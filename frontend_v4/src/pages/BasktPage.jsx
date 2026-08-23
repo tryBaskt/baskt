@@ -3,7 +3,7 @@ import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import PositionsTable from "../components/PositionsTable";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
-import { apiRequest } from "../lib/api";
+import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDate, formatDateTime, formatMetricNumber, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
@@ -91,7 +91,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setModelAnalyticsError("");
     try {
       const modelAnalyticsPayload = await apiRequest(
-        `/model-portfolios/${portfolioId}/analytics`,
+        `/model-portfolios/${portfolioId}/analytics${toQuery({ periods: modelAnalyticsPeriods })}`,
         { signal }
       );
       setModelAnalytics(modelAnalyticsPayload || null);

@@ -52,8 +52,8 @@ Coverage goals:
   long/short exposure metrics, final-return and max-drawdown consistency,
   benchmark-aligned metric fields, unusable-period omission, snapshot sorting,
   young-portfolio period sharing for <= one trading day and < one trading week,
-  branch boundaries for trading-minute thresholds, non-UTC current_datetime
-  rejection, and natural invalid-symbol failure.
+  custom period filtering, branch boundaries for trading-minute thresholds,
+  non-UTC current_datetime rejection, and natural invalid-symbol failure.
 """
 
 
@@ -1506,6 +1506,77 @@ def test_get_model_portfolio_bars_reuses_week_response_before_one_trading_week(
         for period in ["1M", "3M", "1A", "all"]:
             assert response[period] == response["1W"]
         assert response["1D"] != response["1W"]
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_get_model_portfolio_bars_filters_requested_periods_before_one_trading_week(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portfolio_id: str | None = None
+    period_calls: list[tuple[str, timedelta, str]] = []
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 8, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=225.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: 4 * 390,
+        )
+
+        def calculate_period(**kwargs):
+            period_calls.append(
+                (kwargs["period"], kwargs["delta"], kwargs["timeframe"])
+            )
+            return kwargs["period"], {
+                "period": kwargs["period"],
+                "timeframe": kwargs["timeframe"],
+                "marker": str(uuid4()),
+            }
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 12, 16),
+            periods=["1D", "1M"],
+        )
+
+        assert period_calls == [
+            ("1D", timedelta(days=1), "5Min"),
+            ("1W", timedelta(weeks=1), "1H"),
+        ]
+        assert set(response) == {"1D", "1M"}
+        assert response["1D"]["period"] == "1D"
+        assert response["1M"]["period"] == "1W"
     finally:
         _delete_model_portfolio(
             model_portfolio_repository=model_portfolio_repository,

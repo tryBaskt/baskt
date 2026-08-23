@@ -81,7 +81,8 @@ Coverage goals:
   without model portfolio access, and return default-period analytics for a
   persisted portfolio with more than seven snapshots and a start time more than
   one year before the deterministic analytics clock, including metric
-  verification from the returned cumulative-return series.
+  verification from the returned cumulative-return series; requested period
+  filters return only those periods.
 - Authentication workflow: token Alpaca-account mismatches and unknown token
   Cognito user ids are rejected by the real Baskt account auth dependency.
 
@@ -1143,6 +1144,23 @@ def test_model_portfolio_route_analytics_happy_path_metrics_workflow(
             body["all"]["timestamp"][0].replace("Z", "+00:00")
         )
         assert first_all_timestamp == datetime(2023, 6, 30, 14, tzinfo=timezone.utc)
+
+        with patch.object(
+            analytics_service_module,
+            "datetime",
+            FixedDateTime,
+        ):
+            filtered_response = client.get(
+                f"/model-portfolios/{portfolio_id}/analytics?periods=1D&periods=1M"
+            )
+
+        assert filtered_response.status_code == 200
+        filtered_body = filtered_response.json()
+        assert set(filtered_body) == {"1D", "1M"}
+        assert filtered_body["1D"]["timeframe"] == "5Min"
+        assert filtered_body["1M"]["timeframe"] == "1D"
+        for period_response in filtered_body.values():
+            _assert_analytics_period_metrics(period_response)
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,

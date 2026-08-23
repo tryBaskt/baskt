@@ -89,7 +89,8 @@ def get_all_allocation_analytics(
 				cash=0.0,
 				equity=0.0,
 				equity_graph={},
-				allocations={}
+				stock_allocations={},
+				portfolio_allocations={}
 			)
 
 		allocation_ids_owner_ids = order_repository.get_allocation_ids_of_unfilled_orders(cognito_user_id=cognito_user_id)
@@ -113,7 +114,8 @@ def get_all_allocation_analytics(
 			cash = account_analytics_dict["cash"],
 			equity=account_analytics_dict["equity"],
 			equity_graph=equity_graph_response,
-			allocations=account_analytics_dict.get("allocations", {})
+			stock_allocations=account_analytics_dict["stock_allocations"],
+			portfolio_allocations=account_analytics_dict["portfolio_allocations"]
 		)
 	except Exception as err:
 		_raise_allocation_analytics_http_exception(err=err)

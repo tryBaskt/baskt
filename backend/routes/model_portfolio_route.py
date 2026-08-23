@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Type
+from typing import List, Optional, Type
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
 from core.authorization import require_model_portfolio_access, require_model_portfolio_owner
@@ -538,6 +538,7 @@ def get_model_portfolio_analytics(
     model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
         get_model_portfolio_access_repository
     ),
+    periods: Optional[List[str]] = Query(default=None),
 ) -> ModelPortfolioAnalyticsResponse:
     """
     Get model portfolio cumulative return series for standard periods.
@@ -566,7 +567,10 @@ def get_model_portfolio_analytics(
             model_portfolio_access_repository=model_portfolio_access_repository,
         )
         return ModelPortfolioAnalyticsResponse(
-            root=service.get_model_portfolio_bars(portfolio_id=portfolio_id)
+            root=service.get_model_portfolio_bars(
+                portfolio_id=portfolio_id,
+                periods=periods,
+            )
         )
     except HTTPException:
         raise

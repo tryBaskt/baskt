@@ -776,14 +776,7 @@ class ModelPortfolioAnalyticsService:
         self,
         portfolio_id: str,
         current_datetime: Optional[datetime] = None,
-        period_timedelta_timeframe: List[Tuple[str,timedelta, str]] = [
-                ("1D", timedelta(days=1),"5Min"),
-                ("1W", timedelta(weeks=1), "1H"),
-                ("1M", timedelta(days=30), "1D"),
-                ("3M", timedelta(days=90), "1D"),
-                ("1A", timedelta(days=365), "1D"),
-                ("all", timedelta(days=1), "1D")
-            ]
+        periods: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get model portfolio cumulative return series for standard periods.
@@ -802,7 +795,26 @@ class ModelPortfolioAnalyticsService:
             loaded, Alpaca price bars cannot be fetched, or any unexpected error
             occurs while calculating returns.
         """
+        PERIOD_TIMEDELTA_TIMEFRAME_DICT = {
+            "1D": ("1D", timedelta(days=1),"5Min"),
+            "1W": ("1W", timedelta(weeks=1), "1H"),
+            "1M": ("1M", timedelta(days=30), "1D"),
+            "3M": ("3M", timedelta(days=90), "1D"),
+            "1A": ("1A", timedelta(days=365), "1D"),
+            "all": ("all", timedelta(days=1), "1D")
+        }
         try:
+            requested_periods = periods or ["1D", "1W", "1M", "3M", "1A", "all"]
+            invalid_periods = [
+                period
+                for period in requested_periods
+                if period not in PERIOD_TIMEDELTA_TIMEFRAME_DICT
+            ]
+            if invalid_periods:
+                raise ModelPortfolioAnalyticsInternalServerError(
+                    message=f"Unsupported model portfolio analytics periods: {invalid_periods}",
+                    code="MODEL_PORTFOLIO_ANALYTICS_UNSUPPORTED_PERIOD",
+                )
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
 
@@ -832,41 +844,36 @@ class ModelPortfolioAnalyticsService:
                     delta=timedelta(days=1),
                     timeframe="5Min"
                 )
-                response = {
-                    "1D": period_response,
-                    "1W": period_response,
-                    "1M": period_response,
-                    "3M": period_response,
-                    "1A": period_response,
-                    "all": period_response
-                }
-            elif one_trading_day_minutes < trading_minutes < one_trading_week_minutes:
-                print("sdjfoisdjof")
-                _, daily_response = self._calculate_model_portfolio_period(
-                    portfolio_id=portfolio_id,
-                    current_datetime=current_datetime,
-                    model_portfolio_snapshots=model_portfolio_snapshots,
-                    period="1D",
-                    delta=timedelta(days=1),
-                    timeframe="5Min"
-                )
-                _, weekly_response = self._calculate_model_portfolio_period(
-                    portfolio_id=portfolio_id,
-                    current_datetime=current_datetime,
-                    model_portfolio_snapshots=model_portfolio_snapshots,
-                    period="1W",
-                    delta=timedelta(weeks=1),
-                    timeframe="1H"
-                )
+                for period in requested_periods:
+                    response[period] = period_response
 
-                response = {
-                    "1D": daily_response,
-                    "1W": weekly_response,
-                    "1M": weekly_response,
-                    "3M": weekly_response,
-                    "1A": weekly_response,
-                    "all": weekly_response
-                }
+            elif one_trading_day_minutes < trading_minutes < one_trading_week_minutes:
+
+                if "1D" in requested_periods:
+                    _, daily_response = self._calculate_model_portfolio_period(
+                        portfolio_id=portfolio_id,
+                        current_datetime=current_datetime,
+                        model_portfolio_snapshots=model_portfolio_snapshots,
+                        period="1D",
+                        delta=timedelta(days=1),
+                        timeframe="5Min"
+                    )
+                    response["1D"] = daily_response
+
+                weekly_response = None
+                if any(period != "1D" for period in requested_periods):
+                    _, weekly_response = self._calculate_model_portfolio_period(
+                        portfolio_id=portfolio_id,
+                        current_datetime=current_datetime,
+                        model_portfolio_snapshots=model_portfolio_snapshots,
+                        period="1W",
+                        delta=timedelta(weeks=1),
+                        timeframe="1H"
+                    )
+
+                for period in requested_periods:
+                    if period not in response:
+                        response[period] = weekly_response
 
             else:
                 def calculate_period(
@@ -882,13 +889,18 @@ class ModelPortfolioAnalyticsService:
                         timeframe=timeframe,
                     )
 
+                period_timedelta_timeframe_list = [
+                    PERIOD_TIMEDELTA_TIMEFRAME_DICT[period]
+                    for period in requested_periods
+                ]
+
                 with ThreadPoolExecutor(
-                    max_workers=len(period_timedelta_timeframe),
+                    max_workers=len(period_timedelta_timeframe_list),
                     thread_name_prefix="model-portfolio-period",
                 ) as executor:
                     period_results = executor.map(
                         calculate_period,
-                        period_timedelta_timeframe,
+                        period_timedelta_timeframe_list,
                     )
                     for period, period_response in period_results:
                         if period_response is not None:
@@ -908,4 +920,5 @@ class ModelPortfolioAnalyticsService:
                 message=f"Failed to calculate model portfolio bars for portfolio '{portfolio_id}': {e}",
                 code="MODEL_PORTFOLIO_ANALYTICS_GET_BARS_FAILED",
             ) from e
+
         
