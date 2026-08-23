@@ -3,7 +3,6 @@
 # Python imports
 from __future__ import annotations
 from typing import Dict, Any, List
-
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from repository.allocation_repository import AllocationRepository
@@ -154,33 +153,49 @@ class AllocationAnalyticsService:
             all_allocation_analytics["cash"] = float(trade_account.cash)
             all_allocation_analytics["equity"] = float(trade_account.equity)
 
-            all_allocation_analytics["allocations"] = {}
-            allocations = self.allocation_repository.get_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
-            for allocation in allocations:
-                if not (allocation.open_orders or allocation.open_positions):
+            all_allocation_analytics["portfolio_allocations"] = {}
+            all_allocation_analytics["stock_allocations"] = {}
+            portfolio_allocations = self.allocation_repository.get_portfolio_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+            stock_allocations = self.allocation_repository.get_stock_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+
+            for portfolio_allocation in portfolio_allocations:
+                if not (portfolio_allocation.open_orders or portfolio_allocation.open_positions):
                     continue
 
                 allocation_equity = 0.0
-                if allocation.open_positions:
-                    latest_position_snapshot = allocation.position_history[-1]
-                    if isinstance(latest_position_snapshot, StockAllocationPositionSnapshot):
-                        allocation_equity, _ = self.allocation_repository.calculate_stock_allocation_position_snapshot_current_value(position_snapshot=latest_position_snapshot)
-                    else:
-                        _, allocation_equity, _ = self.allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(position_snapshot=latest_position_snapshot)
+                if portfolio_allocation.open_positions:
+                    latest_position_snapshot = portfolio_allocation.position_history[-1]
+                    _, allocation_equity, _ = self.allocation_repository.calculate_portfolio_allocation_position_snapshot_current_value(position_snapshot=latest_position_snapshot)
 
-                allocation_name = (
-                    allocation.symbol
-                    if allocation.allocation_type == "STOCK"
-                    else allocation.portfolio_name
-                )
+                all_allocation_analytics["portfolio_allocations"][portfolio_allocation.allocation_id] = {
+                    "portfolio_name": portfolio_allocation.portfolio_name,
+                    "allocation_id": portfolio_allocation.allocation_id,
+                    "allocation_type": portfolio_allocation.allocation_type,
+                    "allocation_equity": allocation_equity,
+                    "allocation_equity_percent": allocation_equity / float(trade_account.equity) if float(trade_account.equity) > 0.0 else 0.0,
+                }
 
-                all_allocation_analytics["allocations"][allocation.allocation_id] = {
-                    "allocation_name": allocation_name,
-                    "allocation_id": allocation.allocation_id,
-                    "allocation_type": allocation.allocation_type,
+            for stock_allocation in stock_allocations:
+                if not (stock_allocation.open_orders or stock_allocation.open_positions):
+                    continue
+
+                allocation_equity = 0.0
+                if stock_allocation.open_positions:
+                    latest_position_snapshot = stock_allocation.position_history[-1]
+                    allocation_equity, _ = self.allocation_repository.calculate_stock_allocation_position_snapshot_current_value(position_snapshot=latest_position_snapshot)
+                    direction = latest_position_snapshot.position.direction
+                else:
+                    direction = None
+
+                all_allocation_analytics["stock_allocations"][stock_allocation.allocation_id] = {
+                    "stock_symbol": stock_allocation.symbol,
+                    "allocation_id": stock_allocation.allocation_id,
+                    "allocation_type": stock_allocation.allocation_type,
+                    "direction": direction,
                     "allocation_equity": allocation_equity,
                     "allocation_equity_percent": allocation_equity / float(trade_account.equity) if float(trade_account.equity) > 0.0 else 0.0
                 }
+
             return all_allocation_analytics
         
         except Exception as err:

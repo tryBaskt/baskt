@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
-import { apiRequest } from "../lib/api";
+import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDateTime, formatMetricNumber, percent } from "../lib/format";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
 
@@ -156,9 +156,12 @@ export default function StockPage({ stockId, onBack }) {
 
       void loadAllocationAnalytics(controller.signal, stockId);
 
-      void apiRequest(`/stock-analytics/${encodeURIComponent(loadedStock.symbol)}`, {
-        signal: controller.signal,
-      })
+      void apiRequest(
+        `/stock-analytics/${encodeURIComponent(loadedStock.symbol)}${toQuery({ periods: PERIODS })}`,
+        {
+          signal: controller.signal,
+        }
+      )
         .then((payload) => {
           setStockAnalytics(payload || null);
           if (!payload?.[selectedPeriod]) {

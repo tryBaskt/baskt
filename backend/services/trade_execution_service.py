@@ -1013,7 +1013,7 @@ class TradeExecutionService:
                 position.symbol: position
                 for position in new_model_portfolio_positions
             }
-            new_model_portfolio_weights_dict, _, new_model_portfolio_quotes = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=new_model_portfolio_snapshot)
+            new_model_portfolio_weights_dict, _, _, new_model_portfolio_quotes = self.model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(model_portfolio_snapshot=new_model_portfolio_snapshot)
 
             # Get current portfolio allocation positions
             portfolio_allocation_position_snapshot = self.allocation_repository.get_latest_portfolio_allocation_position_snapshot(
@@ -1203,7 +1203,7 @@ class TradeExecutionService:
             curr_portfolio_snapshot_id = curr_model_portfolio_snapshot.snapshot_id
             curr_model_portfolio_positions = curr_model_portfolio_snapshot.positions
             symbols = [position.symbol for position in curr_model_portfolio_positions]
-            model_portfolio_position_weight_dict,_,_ = self.model_portfolio_repository.calculate_positions_current_weight(model_portfolio_snapshot=curr_model_portfolio_snapshot)
+            model_portfolio_position_weight_dict,_,_,_ = self.model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(model_portfolio_snapshot=curr_model_portfolio_snapshot)
 
             # Get the portfolio allocation equity (if any)
             portfolio_allocation_equity = 0.0
