@@ -78,6 +78,12 @@ Coverage goals:
   portfolio can withdraw after it becomes private; the visibility change marks
   ALLOCATION access TO_BE_DELETED, and withdraw-all removes the follower and
   access record. The owner never grants explicit access in that case.
+- Withdraw-all warning signal: private portfolios return false from the
+  non-allocation access route when the trader only has ALLOCATION access, and
+  true when the portfolio is public or the owner has granted explicit access.
+- Owner-granted access survives unwind: a non-owner who receives
+  PORTFOLIO_OWNER access keeps protected portfolio access after withdraw-all
+  removes the follower/allocation state.
 - Authentication: token Alpaca-account mismatches and unknown token Cognito user
   ids are rejected by the real Baskt account auth dependency before queueing.
 
@@ -1424,6 +1430,328 @@ def test_trade_execution_public_deposit_then_private_partial_withdraw_keeps_foll
         assert access_record is not None
         assert access_record.granted_access_by == "ALLOCATION"
         assert access_record.status == "TO_BE_DELETED"
+    finally:
+        if portfolio_id is not None:
+            _cleanup_trade_state(
+                trade_execution_service=trade_execution_service,
+                allocation_repository=allocation_repository,
+                order_repository=order_repository,
+                model_portfolio_follower_repository=model_portfolio_follower_repository,
+                user_trade_lock_repository=user_trade_lock_repository,
+                cognito_user_id=trader_user.cognito_user_id,
+                alpaca_account_id=trader_user.alpaca_account_id,
+                allocation_id=portfolio_id,
+            )
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_trade_execution_private_withdraw_all_warns_and_removes_allocation_access(
+    account_lifecycle_service: AccountLifecycleService,
+    trade_execution_service: TradeExecutionService,
+    trade_execution_queuing_service: TradeExecutionQueuingService,
+    sqs_client: Any,
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    allocation_repository: AllocationRepository,
+    order_repository: OrderRepository,
+    user_trade_lock_repository: UserTradeLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    owner_user = test_user_2
+    trader_user = test_user_1
+    portfolio_id: str | None = None
+    try:
+        portfolio_id = _create_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=owner_user.cognito_user_id,
+            visibility="PUBLIC",
+        )
+        trader_client = _client_for_user(
+            test_user=trader_user,
+            baskt_account=_baskt_account(
+                account_lifecycle_service=account_lifecycle_service,
+                test_user=trader_user,
+            ),
+            alpaca_account=_alpaca_account(
+                account_lifecycle_service=account_lifecycle_service,
+                trade_execution_service=trade_execution_service,
+                test_user=trader_user,
+            ),
+            trade_execution_queuing_service=trade_execution_queuing_service,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            allocation_repository=allocation_repository,
+            baskt_account_repository=baskt_account_repository,
+        )
+
+        public_access_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}/accesses/"
+            f"{trader_user.cognito_user_id}/non-allocation"
+        )
+        assert public_access_response.status_code == 200
+        assert public_access_response.json() is True
+
+        _wait_for_route_trade(
+            client=trader_client,
+            method="POST",
+            path=f"/trade-execution/portfolios/{portfolio_id}/deposit",
+            json={"amount": 150.0},
+            expected_mock_action="portfolio_deposit",
+            sqs_client=sqs_client,
+            allocation_repository=allocation_repository,
+            order_repository=order_repository,
+            trade_execution_service=trade_execution_service,
+            cognito_user_id=trader_user.cognito_user_id,
+            alpaca_account_id=trader_user.alpaca_account_id,
+            allocation_id=portfolio_id,
+        )
+        assert model_portfolio_follower_repository.is_model_portfolio_follower(
+            cognito_user_id=trader_user.cognito_user_id,
+            portfolio_id=portfolio_id,
+        )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "ACTIVE"
+
+        _make_private(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+        access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert access_record is not None
+        assert access_record.granted_access_by == "ALLOCATION"
+        assert access_record.status == "TO_BE_DELETED"
+
+        private_access_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}/accesses/"
+            f"{trader_user.cognito_user_id}/non-allocation"
+        )
+        assert private_access_response.status_code == 200
+        assert private_access_response.json() is False
+
+        private_portfolio_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}"
+        )
+        assert private_portfolio_response.status_code == 200
+        assert private_portfolio_response.json()["has_access"] is True
+
+        allocation, _, _ = _wait_for_route_trade(
+            client=trader_client,
+            method="POST",
+            path=f"/trade-execution/portfolios/{portfolio_id}/withdraw-all",
+            json=None,
+            expected_mock_action="portfolio_withdraw_all",
+            sqs_client=sqs_client,
+            allocation_repository=allocation_repository,
+            order_repository=order_repository,
+            trade_execution_service=trade_execution_service,
+            cognito_user_id=trader_user.cognito_user_id,
+            alpaca_account_id=trader_user.alpaca_account_id,
+            allocation_id=portfolio_id,
+        )
+
+        assert allocation.open_positions is False
+        assert not model_portfolio_follower_repository.is_model_portfolio_follower(
+            cognito_user_id=trader_user.cognito_user_id,
+            portfolio_id=portfolio_id,
+        )
+        assert not model_portfolio_access_repository.has_access(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+
+        after_withdraw_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}"
+        )
+        assert after_withdraw_response.status_code == 200
+        after_withdraw_payload = after_withdraw_response.json()
+        assert after_withdraw_payload["has_access"] is False
+        assert after_withdraw_payload["position_history"] == []
+    finally:
+        if portfolio_id is not None:
+            _cleanup_trade_state(
+                trade_execution_service=trade_execution_service,
+                allocation_repository=allocation_repository,
+                order_repository=order_repository,
+                model_portfolio_follower_repository=model_portfolio_follower_repository,
+                user_trade_lock_repository=user_trade_lock_repository,
+                cognito_user_id=trader_user.cognito_user_id,
+                alpaca_account_id=trader_user.alpaca_account_id,
+                allocation_id=portfolio_id,
+            )
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            model_portfolio_follower_repository=model_portfolio_follower_repository,
+            model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
+def test_trade_execution_private_withdraw_all_preserves_owner_granted_access(
+    account_lifecycle_service: AccountLifecycleService,
+    trade_execution_service: TradeExecutionService,
+    trade_execution_queuing_service: TradeExecutionQueuingService,
+    sqs_client: Any,
+    model_portfolio_repository: ModelPortfolioRepository,
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
+    allocation_repository: AllocationRepository,
+    order_repository: OrderRepository,
+    user_trade_lock_repository: UserTradeLockRepository,
+    baskt_account_repository: BasktAccountRepository,
+    test_user_1: Any,
+    test_user_2: Any,
+) -> None:
+    owner_user = test_user_2
+    trader_user = test_user_1
+    portfolio_id: str | None = None
+    try:
+        portfolio_id = _create_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=owner_user.cognito_user_id,
+            visibility="PUBLIC",
+        )
+        trader_client = _client_for_user(
+            test_user=trader_user,
+            baskt_account=_baskt_account(
+                account_lifecycle_service=account_lifecycle_service,
+                test_user=trader_user,
+            ),
+            alpaca_account=_alpaca_account(
+                account_lifecycle_service=account_lifecycle_service,
+                trade_execution_service=trade_execution_service,
+                test_user=trader_user,
+            ),
+            trade_execution_queuing_service=trade_execution_queuing_service,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            allocation_repository=allocation_repository,
+            baskt_account_repository=baskt_account_repository,
+        )
+        owner_client = _client_for_user(
+            test_user=owner_user,
+            baskt_account=_baskt_account(
+                account_lifecycle_service=account_lifecycle_service,
+                test_user=owner_user,
+            ),
+            alpaca_account=_alpaca_account(
+                account_lifecycle_service=account_lifecycle_service,
+                trade_execution_service=trade_execution_service,
+                test_user=owner_user,
+            ),
+            trade_execution_queuing_service=trade_execution_queuing_service,
+            model_portfolio_repository=model_portfolio_repository,
+            model_portfolio_access_repository=model_portfolio_access_repository,
+            allocation_repository=allocation_repository,
+            baskt_account_repository=baskt_account_repository,
+        )
+
+        _wait_for_route_trade(
+            client=trader_client,
+            method="POST",
+            path=f"/trade-execution/portfolios/{portfolio_id}/deposit",
+            json={"amount": 150.0},
+            expected_mock_action="portfolio_deposit",
+            sqs_client=sqs_client,
+            allocation_repository=allocation_repository,
+            order_repository=order_repository,
+            trade_execution_service=trade_execution_service,
+            cognito_user_id=trader_user.cognito_user_id,
+            alpaca_account_id=trader_user.alpaca_account_id,
+            allocation_id=portfolio_id,
+        )
+        assert model_portfolio_follower_repository.is_model_portfolio_follower(
+            cognito_user_id=trader_user.cognito_user_id,
+            portfolio_id=portfolio_id,
+        )
+
+        _make_private(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+        allocation_access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert allocation_access_record is not None
+        assert allocation_access_record.granted_access_by == "ALLOCATION"
+        assert allocation_access_record.status == "TO_BE_DELETED"
+
+        grant_response = owner_client.post(
+            f"/model-portfolios/{portfolio_id}/accesses",
+            json={"email_address": trader_user.email_address},
+        )
+        assert grant_response.status_code == 201
+
+        owner_access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert owner_access_record is not None
+        assert owner_access_record.granted_access_by == "PORTFOLIO_OWNER"
+        assert owner_access_record.status == "ACTIVE"
+
+        non_allocation_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}/accesses/"
+            f"{trader_user.cognito_user_id}/non-allocation"
+        )
+        assert non_allocation_response.status_code == 200
+        assert non_allocation_response.json() is True
+
+        allocation, _, _ = _wait_for_route_trade(
+            client=trader_client,
+            method="POST",
+            path=f"/trade-execution/portfolios/{portfolio_id}/withdraw-all",
+            json=None,
+            expected_mock_action="portfolio_withdraw_all",
+            sqs_client=sqs_client,
+            allocation_repository=allocation_repository,
+            order_repository=order_repository,
+            trade_execution_service=trade_execution_service,
+            cognito_user_id=trader_user.cognito_user_id,
+            alpaca_account_id=trader_user.alpaca_account_id,
+            allocation_id=portfolio_id,
+        )
+
+        assert allocation.open_positions is False
+        assert not model_portfolio_follower_repository.is_model_portfolio_follower(
+            cognito_user_id=trader_user.cognito_user_id,
+            portfolio_id=portfolio_id,
+        )
+        owner_access_record = model_portfolio_access_repository.get_access_record(
+            portfolio_id=portfolio_id,
+            shared_with_cognito_user_id=trader_user.cognito_user_id,
+        )
+        assert owner_access_record is not None
+        assert owner_access_record.granted_access_by == "PORTFOLIO_OWNER"
+        assert owner_access_record.status == "ACTIVE"
+
+        after_withdraw_response = trader_client.get(
+            f"/model-portfolios/{portfolio_id}"
+        )
+        assert after_withdraw_response.status_code == 200
+        after_withdraw_payload = after_withdraw_response.json()
+        assert after_withdraw_payload["has_access"] is True
+        assert after_withdraw_payload["position_history"]
     finally:
         if portfolio_id is not None:
             _cleanup_trade_state(

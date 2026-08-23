@@ -353,15 +353,6 @@ def get_trade_execution_queuing_service(
         model_portfolio_access_repository=model_portfolio_access_repository,
     )
 
-@lru_cache
-def get_allocation_analytics_service(
-    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
-    allocation_repository: AllocationRepository = Depends(get_allocation_repository),
-) -> AllocationAnalyticsService:
-    return AllocationAnalyticsService(
-        alpaca_broker_client=alpaca_broker_client,
-        allocation_repository=allocation_repository,
-    )
 
 @lru_cache
 def get_model_portfolio_analytics_service(
@@ -373,6 +364,16 @@ def get_model_portfolio_analytics_service(
     return ModelPortfolioAnalyticsService(
         model_portfolio_repository=model_portfolio_repository,
         asset_analytics_service=asset_analytics_service,
+    )
+
+@lru_cache
+def get_allocation_analytics_service(
+    alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
+    allocation_repository: AllocationRepository = Depends(get_allocation_repository),
+) -> AllocationAnalyticsService:
+    return AllocationAnalyticsService(
+        alpaca_broker_client=alpaca_broker_client,
+        allocation_repository=allocation_repository,
     )
 
 

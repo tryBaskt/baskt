@@ -18,8 +18,9 @@ Coverage goals:
   analytics payload without loading allocation analytics.
 - GET /allocation_analytics: active stock and portfolio allocations are
   included, inactive allocations are skipped, open-order-only allocations are
-  included with zero equity, names/types are shaped correctly, and allocation
-  equity percentages are calculated from account equity.
+  included with zero equity, stock and portfolio allocations are split into
+  separate response maps, names/types/direction are shaped correctly, and
+  allocation equity percentages are calculated from account equity.
 - GET /allocation_analytics/portfolios/{portfolio_id}/analytics: whitespace
   portfolio ids return 400, missing allocations return an empty response model,
   inactive Alpaca accounts return an empty response model, and persisted
@@ -576,16 +577,20 @@ def test_allocation_analytics_route_get_all_active_allocations_happy_path(
             rel=LIVE_PRICE_REL_TOLERANCE,
         )
         assert set(body["equity_graph"]) == {"1D", "1W", "1M", "3M", "1A", "ALL"}
-        assert set(body["allocations"]) >= {
+        assert set(body["stock_allocations"]) >= {
             stock_allocation.allocation_id,
-            portfolio_allocation.allocation_id,
             open_order_allocation.allocation_id,
         }
-        assert inactive_allocation.allocation_id not in body["allocations"]
+        assert set(body["portfolio_allocations"]) >= {
+            portfolio_allocation.allocation_id,
+        }
+        assert inactive_allocation.allocation_id not in body["stock_allocations"]
+        assert inactive_allocation.allocation_id not in body["portfolio_allocations"]
 
-        stock_row = body["allocations"][stock_allocation.allocation_id]
-        assert stock_row["allocation_name"] == "AAPL"
+        stock_row = body["stock_allocations"][stock_allocation.allocation_id]
+        assert stock_row["stock_symbol"] == "AAPL"
         assert stock_row["allocation_type"] == "STOCK"
+        assert stock_row["direction"] == 1
         assert stock_row["allocation_equity"] == pytest.approx(
             expected_stock_equity,
             rel=LIVE_PRICE_REL_TOLERANCE,
@@ -595,8 +600,8 @@ def test_allocation_analytics_route_get_all_active_allocations_happy_path(
             rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
-        portfolio_row = body["allocations"][portfolio_allocation.allocation_id]
-        assert portfolio_row["allocation_name"] == portfolio_name
+        portfolio_row = body["portfolio_allocations"][portfolio_allocation.allocation_id]
+        assert portfolio_row["portfolio_name"] == portfolio_name
         assert portfolio_row["allocation_type"] == "MODEL_PORTFOLIO"
         assert portfolio_row["allocation_equity"] == pytest.approx(
             expected_portfolio_equity,
@@ -607,8 +612,9 @@ def test_allocation_analytics_route_get_all_active_allocations_happy_path(
             rel=LIVE_PRICE_REL_TOLERANCE,
         )
 
-        open_order_row = body["allocations"][open_order_allocation.allocation_id]
-        assert open_order_row["allocation_name"] == "AAPL"
+        open_order_row = body["stock_allocations"][open_order_allocation.allocation_id]
+        assert open_order_row["stock_symbol"] == "AAPL"
+        assert open_order_row["direction"] is None
         assert open_order_row["allocation_equity"] == pytest.approx(0.0)
         assert open_order_row["allocation_equity_percent"] == pytest.approx(0.0)
     finally:
@@ -650,7 +656,8 @@ def test_allocation_analytics_route_get_all_inactive_account_returns_empty(
         "cash": 0.0,
         "equity": 0.0,
         "equity_graph": {},
-        "allocations": {},
+        "stock_allocations": {},
+        "portfolio_allocations": {},
     }
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import BasktCard from "../components/BasktCard";
 import { EmptyState, ErrorBanner, LoadingState } from "../components/Status";
 import { apiRequest } from "../lib/api";
-import { formatDate } from "../lib/format";
 
 export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
   const [baskts, setBaskts] = useState([]);
@@ -54,25 +54,6 @@ export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
     return <LoadingState title="Loading Baskts" message="Fetching your saved portfolios." />;
   }
 
-  function renderBasktCard(baskt, badge = "Baskt") {
-    return (
-      <button
-        key={baskt.portfolio_id}
-        className="baskt-card"
-        type="button"
-        onClick={() => onOpenBaskt(baskt.portfolio_id)}
-      >
-        <span className="baskt-badge">{badge}</span>
-        <h3>{baskt.portfolio_name}</h3>
-        <p>{baskt.description || "No description yet."}</p>
-        <div className="baskt-meta">
-          <span>Created <strong>{formatDate(baskt.created_at)}</strong></span>
-          <span>Updated <strong>{formatDate(baskt.updated_at)}</strong></span>
-        </div>
-      </button>
-    );
-  }
-
   return (
     <div className="page-stack">
       <ErrorBanner message={error} />
@@ -87,7 +68,13 @@ export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
 
       {baskts.length ? (
         <div className="baskt-grid">
-          {baskts.map((baskt) => renderBasktCard(baskt))}
+          {baskts.map((baskt) => (
+            <BasktCard
+              key={baskt.portfolio_id}
+              baskt={baskt}
+              onOpen={onOpenBaskt}
+            />
+          ))}
         </div>
       ) : (
         <EmptyState
@@ -105,7 +92,14 @@ export default function MyBaskts({ onOpenBaskt, onCreateBaskt }) {
 
       {sharedBaskts.length ? (
         <div className="baskt-grid">
-          {sharedBaskts.map((baskt) => renderBasktCard(baskt, "Shared"))}
+          {sharedBaskts.map((baskt) => (
+            <BasktCard
+              key={baskt.portfolio_id}
+              baskt={baskt}
+              badge="Shared"
+              onOpen={onOpenBaskt}
+            />
+          ))}
         </div>
       ) : (
         <EmptyState
