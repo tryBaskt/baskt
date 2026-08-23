@@ -63,8 +63,8 @@ Coverage goals:
 - no-op update workflow: unchanged description, visibility, and positions return
   successfully without adding a snapshot or queueing a portfolio update.
 - access workflow: owners can add access by email, list accesses, see the shared
-  portfolio from the recipient account, remove access, and then the recipient is
-  denied again.
+  portfolio from the recipient account, remove access, and then the recipient
+  only receives private metadata with protected portfolio fields omitted.
 - shared-with-me workflow: explicit grants appear in the recipient's shared list,
   removed grants disappear, and public-only readable portfolios are not listed.
 - access error workflow: non-owners cannot manage accesses, missing portfolios
@@ -928,9 +928,19 @@ def test_model_portfolio_route_get_authorization_workflow(
         public_response = shared_client.get(f"/model-portfolios/{public_id}")
         assert public_response.status_code == 200
         assert public_response.json()["visibility"] == "PUBLIC"
+        assert public_response.json()["has_access"] is True
 
         denied_response = shared_client.get(f"/model-portfolios/{private_id}")
-        assert denied_response.status_code == 403
+        assert denied_response.status_code == 200
+        denied_body = denied_response.json()
+        assert denied_body["portfolio_id"] == private_id
+        assert denied_body["visibility"] == "PRIVATE"
+        assert denied_body["has_access"] is False
+        assert denied_body["position_history"] == []
+        assert denied_body["positions_current_weight"] == {}
+        assert denied_body["positions_current_percent_price_change"] == {}
+        assert denied_body["portfolio_name"].startswith("workflow-get-private-")
+        assert denied_body["portfolio_owner_display_name"]
 
         model_portfolio_access_repository.add_access_via_email(
             portfolio_id=private_id,
@@ -941,6 +951,8 @@ def test_model_portfolio_route_get_authorization_workflow(
         shared_response = shared_client.get(f"/model-portfolios/{private_id}")
         assert shared_response.status_code == 200
         assert shared_response.json()["visibility"] == "PRIVATE"
+        assert shared_response.json()["has_access"] is True
+        assert shared_response.json()["position_history"]
     finally:
         for portfolio_id in (public_id, private_id):
             _delete_portfolio(
@@ -1643,8 +1655,13 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
             portfolio["portfolio_id"] for portfolio in shared_after_remove.json()
         }
 
-        denied_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
-        assert denied_after_remove.status_code == 403
+        metadata_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
+        assert metadata_after_remove.status_code == 200
+        metadata_after_remove_payload = metadata_after_remove.json()
+        assert metadata_after_remove_payload["has_access"] is False
+        assert metadata_after_remove_payload["portfolio_id"] == portfolio_id
+        assert metadata_after_remove_payload["position_history"] == []
+        assert metadata_after_remove_payload["positions_current_weight"] == {}
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,

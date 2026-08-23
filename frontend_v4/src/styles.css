@@ -912,13 +912,27 @@ textarea:focus {
 }
 
 .baskt-card h3 {
-  margin: 18px 0 10px;
+  margin: 18px 0 6px;
   font-size: 22px;
+}
+
+.baskt-card-owner {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .baskt-card p {
   color: var(--muted);
   min-height: 48px;
+}
+
+.baskt-card-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .baskt-badge,
@@ -931,6 +945,24 @@ textarea:focus {
   color: var(--purple-900);
   font-size: 12px;
   font-weight: 900;
+}
+
+.visibility-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #2d463a;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #0f1914;
+  color: #64d39c;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.visibility-pill.private {
+  border-color: #4a2630;
+  background: #1b0f13;
+  color: #ff9aa5;
 }
 
 .pill.danger {
@@ -2148,6 +2180,8 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible { outline: 2
 .global-search-results strong, .global-search-results small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .global-search-results strong { font-size: 13px; }
 .global-search-results small { margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.search-result-tags { display: flex; align-items: center; gap: 8px; justify-self: end; }
+.search-result-tags .visibility-pill { padding: 4px 7px; font-size: 9px; }
 .search-result-kind { color: #756f7b; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
 .search-empty { padding: 22px 14px; border-top: 1px solid #242129; color: var(--muted); font-size: 13px; }
 
@@ -2716,6 +2750,16 @@ th, td { border-color: #26232a !important; }
 
 .investment-panel {
   border-radius: 0;
+}
+
+.private-portfolio-panel {
+  display: grid;
+  min-height: 220px;
+  align-content: center;
+}
+
+.private-portfolio-panel h2 {
+  margin: 0;
 }
 
 .rail-panel {

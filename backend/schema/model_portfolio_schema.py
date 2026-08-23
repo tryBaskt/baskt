@@ -70,6 +70,7 @@ class ModelPortfolioResponse(BaseModel):
     updated_at: str
     positions_current_weight: Dict[str, float]
     positions_current_percent_price_change: Dict[str, float]
+    has_access: bool = True
 
 
 class ModelPortfolioAnalyticsPeriodResponse(BaseModel):

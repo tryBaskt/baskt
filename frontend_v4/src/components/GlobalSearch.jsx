@@ -115,7 +115,12 @@ export default function GlobalSearch({ onOpenBaskt, onOpenStock, onOpenUser }) {
                       {baskt.description ? ` · ${baskt.description}` : ""}
                     </small>
                   </span>
-                  <span className="search-result-kind">BASKT</span>
+                  <span className="search-result-tags">
+                    <span className={`visibility-pill ${(baskt.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC").toLowerCase()}`}>
+                      {baskt.visibility === "PRIVATE" ? "Private" : "Public"}
+                    </span>
+                    <span className="search-result-kind">BASKT</span>
+                  </span>
                 </button>
               ))}
             </>

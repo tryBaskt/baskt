@@ -40,6 +40,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
 
   const claims = useMemo(() => getCurrentUserClaims(), []);
   const isOwner = claims?.sub && baskt?.portfolio_owner_cognito_user_id === claims.sub;
+  const canViewPortfolioContent = baskt?.has_access !== false;
   const latestSnapshot = baskt?.position_history?.at(-1);
   const modelAnalyticsPeriods = ["1D", "1W", "1M", "3M", "1A", "all"];
   const selectedModelAnalytics =
@@ -144,6 +145,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
       try {
         setIsBasktLoading(true);
         setError("");
+        setAllocationError("");
+        setModelAnalyticsError("");
         setBaskt(null);
         setAllocationAnalytics(null);
         setTransactions([]);
@@ -151,7 +154,16 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
           signal: controller.signal,
         });
         setBaskt(payload);
-        void loadAllocationAnalytics(controller.signal);
+        if (payload?.has_access === false) {
+          setAllocationAnalytics(null);
+          setTransactions([]);
+          setModelAnalytics(null);
+          setIsAllocationLoading(false);
+          setIsModelAnalyticsLoading(false);
+        } else {
+          void loadAllocationAnalytics(controller.signal);
+          void loadModelAnalytics(controller.signal);
+        }
       } catch (basktError) {
         if (basktError?.name !== "AbortError") {
           setError(basktError?.message || "Could not load this Baskt.");
@@ -169,8 +181,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setShareEmail("");
     setShareError("");
     setIsAllocationLoading(true);
+    setIsModelAnalyticsLoading(true);
     void loadBasktDetails();
-    void loadModelAnalytics(controller.signal);
 
     return () => {
       controller.abort();
@@ -264,6 +276,25 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
 
     try {
       setIsSubmitting(true);
+      if (
+        action === "withdraw-all" &&
+        baskt?.visibility === "PRIVATE" &&
+        !isOwner &&
+        claims?.sub
+      ) {
+        const hasNonAllocationAccess = await apiRequest(
+          `/model-portfolios/${portfolioId}/accesses/${encodeURIComponent(claims.sub)}/non-allocation`
+        );
+        if (!hasNonAllocationAccess) {
+          const shouldContinue = window.confirm(
+            "If you withdraw all from this private Baskt, you will lose access to it."
+          );
+          if (!shouldContinue) {
+            return;
+          }
+        }
+      }
+
       const requestOptions = {
         method: "POST",
       };
@@ -325,7 +356,9 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
             <div className="investment-hero-meta">
               <span>Created <strong>{formatDate(baskt.created_at)}</strong></span>
               <span>Updated <strong>{formatDate(baskt.updated_at)}</strong></span>
-              <span>Snapshots <strong>{baskt.position_history?.length || 0}</strong></span>
+              {canViewPortfolioContent ? (
+                <span>Snapshots <strong>{baskt.position_history?.length || 0}</strong></span>
+              ) : null}
               <span>Visibility <strong className={baskt.visibility === "PRIVATE" ? "visibility-value private" : "visibility-value public"}>{baskt.visibility === "PRIVATE" ? "Private" : "Public"}</strong></span>
             </div>
           </section>
@@ -394,6 +427,8 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
             </div>
           ) : null}
 
+          {canViewPortfolioContent ? (
+            <>
           <section className="investment-performance-console">
             <div className="investment-console-heading">
               <div>
@@ -540,8 +575,15 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
               {(baskt.position_history || []).length <= 1 ? <p className="muted">No previous snapshots yet.</p> : null}
             </div>
           </section>
+            </>
+          ) : (
+            <section className="panel private-portfolio-panel">
+              <h2>This is a private portfolio.</h2>
+            </section>
+          )}
         </main>
 
+        {canViewPortfolioContent ? (
         <aside className="investment-rail">
           <section className="rail-panel">
             {isAllocationLoading ? (
@@ -616,6 +658,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
             )}
           </section>
         </aside>
+        ) : null}
       </div>
     </div>
   );

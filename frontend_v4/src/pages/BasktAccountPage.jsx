@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import BasktCard from "../components/BasktCard";
 import { EmptyState, ErrorBanner, LoadingState } from "../components/Status";
 import { apiRequest } from "../lib/api";
-import { formatDate } from "../lib/format";
 
 export default function BasktAccountPage({ cognitoUserId, onBack, onOpenBaskt }) {
   const [account, setAccount] = useState(null);
@@ -52,20 +52,11 @@ export default function BasktAccountPage({ cognitoUserId, onBack, onOpenBaskt })
             {portfolios.length ? (
               <div className="baskt-grid">
                 {portfolios.map((portfolio) => (
-                  <button
+                  <BasktCard
                     key={portfolio.portfolio_id}
-                    className="baskt-card"
-                    type="button"
-                    onClick={() => onOpenBaskt(portfolio.portfolio_id)}
-                  >
-                    <span className="baskt-badge">Baskt</span>
-                    <h3>{portfolio.portfolio_name}</h3>
-                    <p>{portfolio.description || "No description yet."}</p>
-                    <div className="baskt-meta">
-                      <span>Created <strong>{formatDate(portfolio.created_at)}</strong></span>
-                      <span>Updated <strong>{formatDate(portfolio.updated_at)}</strong></span>
-                    </div>
-                  </button>
+                    baskt={portfolio}
+                    onOpen={onOpenBaskt}
+                  />
                 ))}
               </div>
             ) : (
