@@ -51,6 +51,9 @@ Coverage goals:
 - granted_access_by precedence: assert PORTFOLIO_OWNER access upgrades an
   existing ALLOCATION access record, and assert a later ALLOCATION write does
   not downgrade an existing PORTFOLIO_OWNER access record.
+- has_non_allocation_access(): return false for missing access records,
+  ALLOCATION grants, and pending ALLOCATION grants, then return true for
+  PORTFOLIO_OWNER/ACTIVE grants.
 
 Every test deletes access and follower records it creates. The one test that
 creates a temporary Cognito user also deletes that user in its finally block.
@@ -691,6 +694,88 @@ def test_model_portfolio_access_repository_portfolio_owner_access_takes_preceden
         for portfolio_id in (
             allocation_first_portfolio_id,
             owner_first_portfolio_id,
+        ):
+            _delete_access(
+                model_portfolio_access_repository,
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            )
+
+
+@pytest.mark.integration
+def test_model_portfolio_access_repository_has_non_allocation_access_scenarios(
+    model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    test_user_1,
+    test_user_2,
+) -> None:
+    """Only PORTFOLIO_OWNER/ACTIVE records count as non-allocation access."""
+    missing_portfolio_id = f"tests-v2-access-non-allocation-missing-{uuid4()}"
+    allocation_portfolio_id = f"tests-v2-access-non-allocation-allocation-{uuid4()}"
+    pending_allocation_portfolio_id = (
+        f"tests-v2-access-non-allocation-pending-{uuid4()}"
+    )
+    owner_portfolio_id = f"tests-v2-access-non-allocation-owner-{uuid4()}"
+
+    try:
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=missing_portfolio_id,
+                shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            )
+            is False
+        )
+
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
+            portfolio_id=allocation_portfolio_id,
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="ALLOCATION",
+        )
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=allocation_portfolio_id,
+                shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            )
+            is False
+        )
+
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
+            portfolio_id=pending_allocation_portfolio_id,
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="ALLOCATION",
+        )
+        model_portfolio_access_repository.batch_update_access_record(
+            portfolio_id=pending_allocation_portfolio_id,
+            conditional_attributes={"granted_access_by": "ALLOCATION"},
+            value_attributes={"status": "TO_BE_DELETED"},
+        )
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=pending_allocation_portfolio_id,
+                shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            )
+            is False
+        )
+
+        model_portfolio_access_repository.add_access_via_cognito_user_id(
+            portfolio_id=owner_portfolio_id,
+            portfolio_owner_cognito_user_id=test_user_1.cognito_user_id,
+            shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            granted_access_by="PORTFOLIO_OWNER",
+        )
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=owner_portfolio_id,
+                shared_with_cognito_user_id=test_user_2.cognito_user_id,
+            )
+            is True
+        )
+    finally:
+        for portfolio_id in (
+            allocation_portfolio_id,
+            pending_allocation_portfolio_id,
+            owner_portfolio_id,
         ):
             _delete_access(
                 model_portfolio_access_repository,

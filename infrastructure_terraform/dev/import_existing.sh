@@ -83,8 +83,6 @@ import_resource module.dynamodb.aws_dynamodb_table.model_portfolio_update_lock \
   dev-model-portfolio-update-lock-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.order \
   dev-order-dynamodb
-import_resource module.dynamodb.aws_dynamodb_table.portfolio_allocation \
-  dev-portfolio-allocation-dynamodb
 import_resource module.dynamodb.aws_dynamodb_table.user_trade_lock \
   dev-user-trade-lock-dynamodb
 
