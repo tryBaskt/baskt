@@ -352,6 +352,7 @@ class TestEngine:
         allocation_repository: AllocationRepository,
         model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
         model_portfolio_access_repository: ModelPortfolioAccessRepository,
+        model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
     ):
         self.account_lifecycle_service = account_lifecycle_service
         self.trade_execution_service = trade_execution_service
@@ -363,6 +364,7 @@ class TestEngine:
         self.allocation_repository = allocation_repository
         self.model_portfolio_follower_repository = model_portfolio_follower_repository
         self.model_portfolio_access_repository = model_portfolio_access_repository
+        self.model_portfolio_update_lock_repository = model_portfolio_update_lock_repository
         self.accounts = TradeExecutionTestAccountIds()
         self.baskt_account_portfolio_positions = {}
         self.model_portfolio_update_times = defaultdict(list) # also used to calculate model portfolio position history length
@@ -1660,7 +1662,8 @@ class TestEngine:
             try:
                 for access_record in (
                     self.model_portfolio_access_repository.get_accesses_for_portfolio(
-                        portfolio_id=portfolio_id
+                        portfolio_id=portfolio_id,
+                        wait_for_lock=False,
                     )
                 ):
                     self.model_portfolio_access_repository.dynamodb.delete_item(
@@ -1675,8 +1678,28 @@ class TestEngine:
                 pass
 
             try:
+                for follower in (
+                    self.model_portfolio_follower_repository.get_model_portfolio_followers(
+                        portfolio_id=portfolio_id
+                    )
+                ):
+                    self.model_portfolio_follower_repository.delete_model_portfolio_follower(
+                        cognito_user_id=follower["cognito_user_id"],
+                        portfolio_id=portfolio_id,
+                    )
+            except Exception as e:
+                pass
+
+            try:
+                self.model_portfolio_update_lock_repository.lock_table_client.delete_item(
+                    key={"portfolio_id": portfolio_id}
+                )
+            except Exception as e:
+                pass
+
+            try:
                 self.model_portfolio_repository.dynamodb.delete_item(
-                    key={"allocation_id": portfolio_id}
+                    key={"portfolio_id": portfolio_id}
                 )
             except Exception as e:
                 continue
@@ -1717,6 +1740,7 @@ def test_engine(
     allocation_repository: AllocationRepository,
     model_portfolio_follower_repository: ModelPortfolioFollowerRepository,
     model_portfolio_access_repository: ModelPortfolioAccessRepository,
+    model_portfolio_update_lock_repository: ModelPortfolioUpdateLockRepository,
 ) -> TestEngine:
     return TestEngine(
         account_lifecycle_service=account_lifecycle_service,
@@ -1729,4 +1753,5 @@ def test_engine(
         allocation_repository=allocation_repository,
         model_portfolio_follower_repository=model_portfolio_follower_repository,
         model_portfolio_access_repository=model_portfolio_access_repository,
+        model_portfolio_update_lock_repository=model_portfolio_update_lock_repository,
     )
