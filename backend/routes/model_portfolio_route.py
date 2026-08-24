@@ -396,25 +396,16 @@ def has_model_portfolio_non_allocation_access(
                 detail="shared_with_cognito_user_id is required.",
             )
 
-        model_portfolio_metadata = (
-            model_portfolio_repository.get_model_portfolio_metadata_by_portfolio_id(
-                portfolio_id=portfolio_id,
-            )
+        model_portfolio_metadata = model_portfolio_repository.get_model_portfolio_metadata_by_portfolio_id(
+            portfolio_id=portfolio_id,
         )
-        if str(model_portfolio_metadata.get("visibility", "PRIVATE")).upper() == "PUBLIC":
+        if (
+            str(model_portfolio_metadata.get("visibility", "PRIVATE")).upper() == "PUBLIC" or 
+            model_portfolio_metadata["portfolio_owner_cognito_user_id"] == shared_with_cognito_user_id
+            ):
             return True
 
-        access_record = model_portfolio_access_repository.get_access_record(
-            portfolio_id=portfolio_id,
-            shared_with_cognito_user_id=shared_with_cognito_user_id,
-        )
-        if access_record is None:
-            return False
-
-        return (
-            access_record.status == "ACTIVE"
-            and access_record.granted_access_by != "ALLOCATION"
-        )
+        return model_portfolio_access_repository.has_non_allocation_access(portfolio_id=portfolio_id, shared_with_cognito_user_id=shared_with_cognito_user_id)
     except HTTPException:
         raise
     except Exception as e:

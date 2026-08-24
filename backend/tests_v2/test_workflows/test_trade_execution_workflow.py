@@ -1545,6 +1545,13 @@ def test_trade_execution_private_withdraw_all_warns_and_removes_allocation_acces
         )
         assert private_access_response.status_code == 200
         assert private_access_response.json() is False
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=trader_user.cognito_user_id,
+            )
+            is False
+        )
 
         private_portfolio_response = trader_client.get(
             f"/model-portfolios/{portfolio_id}"
@@ -1716,6 +1723,13 @@ def test_trade_execution_private_withdraw_all_preserves_owner_granted_access(
         )
         assert non_allocation_response.status_code == 200
         assert non_allocation_response.json() is True
+        assert (
+            model_portfolio_access_repository.has_non_allocation_access(
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=trader_user.cognito_user_id,
+            )
+            is True
+        )
 
         allocation, _, _ = _wait_for_route_trade(
             client=trader_client,

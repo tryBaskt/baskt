@@ -11,7 +11,6 @@ output "table_arns" {
     aws_dynamodb_table.model_portfolio_follower.arn,
     aws_dynamodb_table.model_portfolio_update_lock.arn,
     aws_dynamodb_table.order.arn,
-    aws_dynamodb_table.portfolio_allocation.arn,
     aws_dynamodb_table.user_trade_lock.arn,
   ]
 }
@@ -24,7 +23,6 @@ output "table_names" {
     model_portfolio_follower    = aws_dynamodb_table.model_portfolio_follower.name
     model_portfolio_update_lock = aws_dynamodb_table.model_portfolio_update_lock.name
     order                       = aws_dynamodb_table.order.name
-    portfolio_allocation        = aws_dynamodb_table.portfolio_allocation.name
     user_trade_lock             = aws_dynamodb_table.user_trade_lock.name
   }
 }
