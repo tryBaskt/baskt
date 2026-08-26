@@ -461,7 +461,7 @@ jobs:
             --region "$AWS_REGION" >/dev/null
 
       - name: Plan backend ECS deployment
-        run: terraform -chdir=infrastructure_terraform/test plan -target=module.opensearch_indices -target=module.backend_ecs -out=tfplan -no-color
+        run: terraform -chdir=infrastructure_terraform/test plan -target=module.opensearch_indices.opensearch_index.model_portfolios -target=module.backend_ecs -out=tfplan -no-color
 
       - name: Apply backend ECS deployment
         run: terraform -chdir=infrastructure_terraform/test apply -auto-approve tfplan

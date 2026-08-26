@@ -26,10 +26,15 @@ resource "opensearch_index" "baskt_accounts" {
   })
 
   lifecycle {
-    # OpenSearch normalizers are immutable after index creation. The existing
-    # Existing index already has this normalizer, but the provider does not preserve
-    # it reliably when importing the index, which otherwise forces replacement.
-    ignore_changes  = [analysis_normalizer]
+    # OpenSearch index mappings and shard settings are immutable for the existing
+    # test index. Keep Terraform from planning a destructive replacement; reindex
+    # into a new index/alias if these settings need to change later.
+    ignore_changes = [
+      analysis_normalizer,
+      mappings,
+      number_of_replicas,
+      number_of_shards,
+    ]
     prevent_destroy = true
   }
 }
