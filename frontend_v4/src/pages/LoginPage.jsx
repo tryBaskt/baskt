@@ -3,6 +3,9 @@ import { completeNewPassword, signIn } from "../lib/cognitoAuth";
 import { saveSession } from "../lib/session";
 import { ErrorBanner, SuccessBanner } from "../components/Status";
 
+const GUEST_EMAIL = "guest_baskt3@example.com";
+const GUEST_PASSWORD = "Guestpass2026!";
+
 export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswordUrl }) {
   const [email, setEmail] = useState(() => localStorage.getItem("baskt.v3.lastEmail") || "");
   const [password, setPassword] = useState("");
@@ -12,16 +15,16 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function submitLogin(event) {
-    event.preventDefault();
+  async function loginWithCredentials(nextEmail, nextPassword) {
     setError("");
     setSuccess("");
 
     try {
       setIsSubmitting(true);
-      const tokens = await signIn(email.trim(), password);
+      const trimmedEmail = nextEmail.trim();
+      const tokens = await signIn(trimmedEmail, nextPassword);
       saveSession(tokens);
-      localStorage.setItem("baskt.v3.lastEmail", email.trim());
+      localStorage.setItem("baskt.v3.lastEmail", trimmedEmail);
       onAuthenticated();
     } catch (loginError) {
       if (loginError?.name === "NewPasswordRequired") {
@@ -33,6 +36,17 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function submitLogin(event) {
+    event.preventDefault();
+    await loginWithCredentials(email, password);
+  }
+
+  async function continueAsGuest() {
+    setEmail(GUEST_EMAIL);
+    setPassword("");
+    await loginWithCredentials(GUEST_EMAIL, GUEST_PASSWORD);
   }
 
   async function submitNewPassword(event) {
@@ -119,6 +133,14 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
             </label>
             <button className="primary-button" type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Signing in..." : "Sign in"}
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={continueAsGuest}
+              disabled={isSubmitting}
+            >
+              Continue as a Guest
             </button>
           </form>
         )}

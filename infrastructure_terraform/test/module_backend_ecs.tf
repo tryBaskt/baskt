@@ -18,4 +18,6 @@ module "backend_ecs" {
   dynamodb_table_arns       = module.dynamodb.table_arns
   opensearch_domain_arn     = module.opensearch_domain.arn
   common_tags               = local.common_tags
+
+  depends_on = [module.opensearch_indices]
 }
