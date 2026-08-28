@@ -175,6 +175,15 @@ jobs:
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
         run: terraform apply -auto-approve tfplan
 
+      - name: Refresh OpenSearch indices from DynamoDB
+        if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          python -m pip install boto3==1.42.34
+          python infrastructure_terraform/refresh_search_indices.py --environment dev --region "$AWS_REGION"
+
       - name: Sync trade execution queue worker market-hours state
         if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
         run: |

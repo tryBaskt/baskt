@@ -28,11 +28,11 @@ resource "opensearch_index" "baskt_accounts" {
   lifecycle {
     # OpenSearch index mappings and shard settings are immutable for the existing
     # test index. Keep Terraform from planning a destructive replacement; reindex
-    # into a new index/alias if these settings need to change later.
+    # into a new index/alias if these settings need to change later. Replica count
+    # stays managed so the single-node test domain can return to green health.
     ignore_changes = [
       analysis_normalizer,
       mappings,
-      number_of_replicas,
       number_of_shards,
     ]
     prevent_destroy = true
