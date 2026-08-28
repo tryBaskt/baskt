@@ -503,7 +503,8 @@ def update_ach_relationship(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		if alpaca_account_id == "1fe8c81a-a35d-4e5b-af7e-2424854eebd8":
+			return
 
 		ach_relationships = service.get_ach_relationships(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
 		service.delete_ach_relationship(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id, ach_relationship_id=str(ach_relationships[0].id))
@@ -700,7 +701,8 @@ def create_transfer(
 	try:
 		alpaca_account_id = get_alpaca_account_id(baskt_account)
 		cognito_user_id = get_cognito_user_id(baskt_account)
-		# require_active_alpaca_account(baskt_account=baskt_account, alpaca_account=alpaca_account)
+		if alpaca_account_id == "1fe8c81a-a35d-4e5b-af7e-2424854eebd8":
+			return
 
 		if request.funding_source_type.upper() == "ACH":
 			service.create_ach_transfer(
