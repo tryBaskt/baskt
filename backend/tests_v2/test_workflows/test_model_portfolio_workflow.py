@@ -63,8 +63,8 @@ Coverage goals:
 - no-op update workflow: unchanged description, visibility, and positions return
   successfully without adding a snapshot or queueing a portfolio update.
 - access workflow: owners can add access by email, list accesses, see the shared
-  portfolio from the recipient account, remove access, and then the recipient is
-  denied again.
+  portfolio from the recipient account, remove access, and then the recipient
+  only receives private metadata with protected portfolio fields omitted.
 - shared-with-me workflow: explicit grants appear in the recipient's shared list,
   removed grants disappear, and public-only readable portfolios are not listed.
 - access error workflow: non-owners cannot manage accesses, missing portfolios
@@ -81,7 +81,8 @@ Coverage goals:
   without model portfolio access, and return default-period analytics for a
   persisted portfolio with more than seven snapshots and a start time more than
   one year before the deterministic analytics clock, including metric
-  verification from the returned cumulative-return series.
+  verification from the returned cumulative-return series; requested period
+  filters return only those periods.
 - Authentication workflow: token Alpaca-account mismatches and unknown token
   Cognito user ids are rejected by the real Baskt account auth dependency.
 
@@ -927,9 +928,19 @@ def test_model_portfolio_route_get_authorization_workflow(
         public_response = shared_client.get(f"/model-portfolios/{public_id}")
         assert public_response.status_code == 200
         assert public_response.json()["visibility"] == "PUBLIC"
+        assert public_response.json()["has_access"] is True
 
         denied_response = shared_client.get(f"/model-portfolios/{private_id}")
-        assert denied_response.status_code == 403
+        assert denied_response.status_code == 200
+        denied_body = denied_response.json()
+        assert denied_body["portfolio_id"] == private_id
+        assert denied_body["visibility"] == "PRIVATE"
+        assert denied_body["has_access"] is False
+        assert denied_body["position_history"] == []
+        assert denied_body["positions_current_weight"] == {}
+        assert denied_body["positions_current_percent_price_change"] == {}
+        assert denied_body["portfolio_name"].startswith("workflow-get-private-")
+        assert denied_body["portfolio_owner_display_name"]
 
         model_portfolio_access_repository.add_access_via_email(
             portfolio_id=private_id,
@@ -940,6 +951,8 @@ def test_model_portfolio_route_get_authorization_workflow(
         shared_response = shared_client.get(f"/model-portfolios/{private_id}")
         assert shared_response.status_code == 200
         assert shared_response.json()["visibility"] == "PRIVATE"
+        assert shared_response.json()["has_access"] is True
+        assert shared_response.json()["position_history"]
     finally:
         for portfolio_id in (public_id, private_id):
             _delete_portfolio(
@@ -1003,7 +1016,9 @@ def test_model_portfolio_route_get_detail_response_and_current_weights_workflow(
         }
 
         current_weights = body["positions_current_weight"]
+        current_percent_price_change = body["positions_current_percent_price_change"]
         assert set(current_weights) == {"AAPL", "MSFT"}
+        assert set(current_percent_price_change) == {"AAPL", "MSFT"}
         assert sum(current_weights.values()) == pytest.approx(1.0)
     finally:
         _delete_portfolio(
@@ -1143,6 +1158,23 @@ def test_model_portfolio_route_analytics_happy_path_metrics_workflow(
             body["all"]["timestamp"][0].replace("Z", "+00:00")
         )
         assert first_all_timestamp == datetime(2023, 6, 30, 14, tzinfo=timezone.utc)
+
+        with patch.object(
+            analytics_service_module,
+            "datetime",
+            FixedDateTime,
+        ):
+            filtered_response = client.get(
+                f"/model-portfolios/{portfolio_id}/analytics?periods=1D&periods=1M"
+            )
+
+        assert filtered_response.status_code == 200
+        filtered_body = filtered_response.json()
+        assert set(filtered_body) == {"1D", "1M"}
+        assert filtered_body["1D"]["timeframe"] == "5Min"
+        assert filtered_body["1M"]["timeframe"] == "1D"
+        for period_response in filtered_body.values():
+            _assert_analytics_period_metrics(period_response)
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,
@@ -1623,8 +1655,13 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
             portfolio["portfolio_id"] for portfolio in shared_after_remove.json()
         }
 
-        denied_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
-        assert denied_after_remove.status_code == 403
+        metadata_after_remove = shared_client.get(f"/model-portfolios/{portfolio_id}")
+        assert metadata_after_remove.status_code == 200
+        metadata_after_remove_payload = metadata_after_remove.json()
+        assert metadata_after_remove_payload["has_access"] is False
+        assert metadata_after_remove_payload["portfolio_id"] == portfolio_id
+        assert metadata_after_remove_payload["position_history"] == []
+        assert metadata_after_remove_payload["positions_current_weight"] == {}
     finally:
         _delete_portfolio(
             model_portfolio_repository=model_portfolio_repository,

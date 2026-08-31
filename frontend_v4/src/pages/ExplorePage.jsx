@@ -172,27 +172,35 @@ export default function ExplorePage({ onOpenBaskt, onOpenStock, onOpenUser }) {
                   <span>{firstResult}-{lastResult} of {total}</span>
                 </div>
                 <div className="explore-results-list">
-                  {modelPortfolios.map((modelPortfolio) => (
-                    <button
-                      key={modelPortfolio.portfolio_id}
-                      className="explore-result"
-                      type="button"
-                      onClick={() => onOpenBaskt(modelPortfolio.portfolio_id)}
-                    >
-                      <div className="explore-result-copy">
-                        <span className="baskt-badge">Baskt</span>
-                        <h3>{modelPortfolio.portfolio_name}</h3>
-                        <p>{modelPortfolio.description || "No description yet."}</p>
-                      </div>
-                      <div className="explore-result-meta">
-                        <span className="portfolio-owner-name">
-                          By {modelPortfolio.portfolio_owner_display_name || "Baskt member"}
-                        </span>
-                        <span>Created <strong>{formatDate(modelPortfolio.created_at)}</strong></span>
-                        <span>Updated <strong>{formatDate(modelPortfolio.updated_at)}</strong></span>
-                      </div>
-                    </button>
-                  ))}
+                  {modelPortfolios.map((modelPortfolio) => {
+                    const visibility = modelPortfolio.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC";
+                    return (
+                      <button
+                        key={modelPortfolio.portfolio_id}
+                        className="explore-result"
+                        type="button"
+                        onClick={() => onOpenBaskt(modelPortfolio.portfolio_id)}
+                      >
+                        <div className="explore-result-copy">
+                          <span className="baskt-card-badges">
+                            <span className="baskt-badge">Baskt</span>
+                            <span className={`visibility-pill ${visibility.toLowerCase()}`}>
+                              {visibility === "PRIVATE" ? "Private" : "Public"}
+                            </span>
+                          </span>
+                          <h3>{modelPortfolio.portfolio_name}</h3>
+                          <p>{modelPortfolio.description || "No description yet."}</p>
+                        </div>
+                        <div className="explore-result-meta">
+                          <span className="portfolio-owner-name">
+                            By {modelPortfolio.portfolio_owner_display_name || "Baskt member"}
+                          </span>
+                          <span>Created <strong>{formatDate(modelPortfolio.created_at)}</strong></span>
+                          <span>Updated <strong>{formatDate(modelPortfolio.updated_at)}</strong></span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

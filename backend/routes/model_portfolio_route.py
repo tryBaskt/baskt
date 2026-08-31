@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Type
+from typing import List, Optional, Type
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 from starlette.status import HTTP_200_OK, HTTP_201_CREATED
 from core.authorization import require_model_portfolio_access, require_model_portfolio_owner
@@ -219,14 +219,21 @@ def get_model_portfolio(
         )
     
         cognito_user_id = get_cognito_user_id(baskt_account)
-        model_portfolio = require_model_portfolio_access(
-            portfolio_id=portfolio_id,
-            cognito_user_id=cognito_user_id,
-            model_portfolio_repository=service,
-            model_portfolio_access_repository=model_portfolio_access_repository,
+        model_portfolio = service.get_model_portfolio(portfolio_id=portfolio_id)
+        has_model_portfolio_access = (
+            model_portfolio.portfolio_owner_cognito_user_id == cognito_user_id
+            or str(getattr(model_portfolio, "visibility", "PRIVATE")).upper() == "PUBLIC"
+            or model_portfolio_access_repository.has_access(
+                portfolio_id=portfolio_id,
+                shared_with_cognito_user_id=cognito_user_id,
+            )
         )
-        model_portfolio_current_snapshot: ModelPortfolioSnapshot = model_portfolio.position_history[-1]
-        positions_current_weight,_,_ = service.calculate_positions_current_weight(model_portfolio_snapshot=model_portfolio_current_snapshot)
+
+        positions_current_weight = {}
+        positions_current_percent_price_change = {}
+        if has_model_portfolio_access:
+            model_portfolio_current_snapshot: ModelPortfolioSnapshot = model_portfolio.position_history[-1]
+            positions_current_weight,positions_current_percent_price_change,_,_ = service.calculate_positions_current_weight_and_percent_price_change(model_portfolio_snapshot=model_portfolio_current_snapshot)
     except HTTPException:
         raise
     except Exception as e:
@@ -257,11 +264,13 @@ def get_model_portfolio(
                 ],
                 timestamp=snap.timestamp.isoformat(),
             )
-            for snap in model_portfolio.position_history
+            for snap in (model_portfolio.position_history if has_model_portfolio_access else [])
         ],
         created_at=model_portfolio.created_at.isoformat(),
         updated_at=model_portfolio.updated_at.isoformat(),
         positions_current_weight=positions_current_weight,
+        positions_current_percent_price_change=positions_current_percent_price_change,
+        has_access=has_model_portfolio_access,
     )
 
 
@@ -349,6 +358,54 @@ def update_model_portfolio(
                 portfolio_snapshot_id=new_snapshot_id,
             )
         return
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_model_portfolio_http_exception(e)
+
+
+@router.get(
+    "/{portfolio_id}/accesses/{shared_with_cognito_user_id}/non-allocation",
+    response_model=bool,
+    status_code=HTTP_200_OK,
+)
+def has_model_portfolio_non_allocation_access(
+    portfolio_id: str,
+    shared_with_cognito_user_id: str,
+    baskt_account: BasktAccount = Depends(get_current_baskt_account),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(
+        get_model_portfolio_repository
+    ),
+    model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
+        get_model_portfolio_access_repository
+    ),
+) -> bool:
+    """Return whether a user has active model portfolio access not created by an allocation."""
+    try:
+        portfolio_id = str(portfolio_id).strip()
+        if not portfolio_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="portfolio_id is required.",
+            )
+
+        shared_with_cognito_user_id = str(shared_with_cognito_user_id).strip()
+        if not shared_with_cognito_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="shared_with_cognito_user_id is required.",
+            )
+
+        model_portfolio_metadata = model_portfolio_repository.get_model_portfolio_metadata_by_portfolio_id(
+            portfolio_id=portfolio_id,
+        )
+        if (
+            str(model_portfolio_metadata.get("visibility", "PRIVATE")).upper() == "PUBLIC" or 
+            model_portfolio_metadata["portfolio_owner_cognito_user_id"] == shared_with_cognito_user_id
+            ):
+            return True
+
+        return model_portfolio_access_repository.has_non_allocation_access(portfolio_id=portfolio_id, shared_with_cognito_user_id=shared_with_cognito_user_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -538,6 +595,7 @@ def get_model_portfolio_analytics(
     model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
         get_model_portfolio_access_repository
     ),
+    periods: Optional[List[str]] = Query(default=None),
 ) -> ModelPortfolioAnalyticsResponse:
     """
     Get model portfolio cumulative return series for standard periods.
@@ -566,7 +624,10 @@ def get_model_portfolio_analytics(
             model_portfolio_access_repository=model_portfolio_access_repository,
         )
         return ModelPortfolioAnalyticsResponse(
-            root=service.get_model_portfolio_bars(portfolio_id=portfolio_id)
+            root=service.get_model_portfolio_analytics_by_periods(
+                portfolio_id=portfolio_id,
+                periods=periods,
+            )
         )
     except HTTPException:
         raise

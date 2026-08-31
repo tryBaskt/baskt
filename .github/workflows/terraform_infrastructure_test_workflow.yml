@@ -247,6 +247,15 @@ jobs:
         if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve tfplan
 
+      - name: Refresh OpenSearch indices from DynamoDB
+        if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          python -m pip install boto3==1.42.34
+          python infrastructure_terraform/refresh_search_indices.py --environment test --region "$AWS_REGION"
+
       - name: Publish test infrastructure outputs for downstream deployments
         id: test-infrastructure-outputs
         if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
@@ -461,7 +470,7 @@ jobs:
             --region "$AWS_REGION" >/dev/null
 
       - name: Plan backend ECS deployment
-        run: terraform -chdir=infrastructure_terraform/test plan -target=module.backend_ecs -out=tfplan -no-color
+        run: terraform -chdir=infrastructure_terraform/test plan -target=module.opensearch_indices.opensearch_index.model_portfolios -target=module.backend_ecs -out=tfplan -no-color
 
       - name: Apply backend ECS deployment
         run: terraform -chdir=infrastructure_terraform/test apply -auto-approve tfplan

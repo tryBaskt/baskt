@@ -133,10 +133,9 @@ def _parse_stock_allocation_position_snapshot(item: Dict) -> StockAllocationPosi
     )
 
 
-def _parse_allocation(item: Dict) -> PortfolioAllocation | StockAllocation:
-    """Convert a stored allocation item into the matching allocation aggregate."""
+def _base_allocation_kwargs(item: Dict) -> Dict:
     allocation_type = str(item["allocation_type"])
-    base_kwargs = {
+    return {
         "allocation_id": str(item["allocation_id"]),
         "cognito_user_id": str(item["cognito_user_id"]),
         "total_cost_basis": float(item["total_cost_basis"]),
@@ -145,22 +144,27 @@ def _parse_allocation(item: Dict) -> PortfolioAllocation | StockAllocation:
         "allocation_type": allocation_type,
     }
 
-    if allocation_type == "STOCK":
-        return StockAllocation(
-            **base_kwargs,
-            position_history=[
-                _parse_stock_allocation_position_snapshot(position_snapshot)
-                for position_snapshot in item["position_history"]
-            ],
-            transaction_history=[
-                _parse_stock_allocation_transaction_snapshot(transaction_snapshot)
-                for transaction_snapshot in item["transaction_history"]
-            ],
-            symbol=str(item["symbol"]),
-        )
 
+def _parse_stock_allocation(item: Dict) -> StockAllocation:
+    """Convert a stored stock allocation item into its aggregate."""
+    return StockAllocation(
+        **_base_allocation_kwargs(item),
+        position_history=[
+            _parse_stock_allocation_position_snapshot(position_snapshot)
+            for position_snapshot in item["position_history"]
+        ],
+        transaction_history=[
+            _parse_stock_allocation_transaction_snapshot(transaction_snapshot)
+            for transaction_snapshot in item["transaction_history"]
+        ],
+        symbol=str(item["symbol"]),
+    )
+
+
+def _parse_portfolio_allocation(item: Dict) -> PortfolioAllocation:
+    """Convert a stored portfolio allocation item into its aggregate."""
     return PortfolioAllocation(
-        **base_kwargs,
+        **_base_allocation_kwargs(item),
         position_history=[
             _parse_portfolio_allocation_position_snapshot(position_snapshot)
             for position_snapshot in item["position_history"]
@@ -171,6 +175,14 @@ def _parse_allocation(item: Dict) -> PortfolioAllocation | StockAllocation:
         ],
         portfolio_name=str(item["portfolio_name"]),
     )
+
+
+def _parse_allocation(item: Dict) -> PortfolioAllocation | StockAllocation:
+    """Convert a stored allocation item into the matching allocation aggregate."""
+    allocation_type = str(item["allocation_type"])
+    if allocation_type == "STOCK":
+        return _parse_stock_allocation(item)
+    return _parse_portfolio_allocation(item)
 
 
 class AllocationRepositoryError(Exception):
@@ -773,3 +785,61 @@ class AllocationRepository:
                 cause=TypeError(f"expected PortfolioAllocation, got {type(allocation).__name__}"),
             )
         return allocation
+
+    def get_portfolio_allocations_by_cognito_user_id(self, cognito_user_id: str) -> List[PortfolioAllocation]:
+        """
+        Load all model-portfolio allocations for a Cognito user.
+        """
+        try:
+            items = self.allocation_table_client.query(
+                key_condition=Key("cognito_user_id").eq(cognito_user_id),
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="querying portfolio allocations",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e
+
+        try:
+            return [
+                _parse_portfolio_allocation(item)
+                for item in items
+                if str(item.get("allocation_type")) == "MODEL_PORTFOLIO"
+            ]
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="parse portfolio allocations for user",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e
+
+    def get_stock_allocations_by_cognito_user_id(self, cognito_user_id: str) -> List[StockAllocation]:
+        """
+        Load all stock allocations for a Cognito user.
+        """
+        try:
+            items = self.allocation_table_client.query(
+                key_condition=Key("cognito_user_id").eq(cognito_user_id),
+            )
+        except DynamoDBClientError as e:
+            raise AllocationBadGatewayError(
+                source="DynamoDB",
+                operation="querying stock allocations",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e
+
+        try:
+            return [
+                _parse_stock_allocation(item)
+                for item in items
+                if str(item.get("allocation_type")) == "STOCK"
+            ]
+        except Exception as e:
+            raise AllocationUnprocessableEntityError(
+                operation="parse stock allocations for user",
+                cognito_user_id=cognito_user_id,
+                cause=e,
+            ) from e

@@ -647,6 +647,17 @@ class ModelPortfolioAccessRepository:
                 owner_token=owner_token,
             )
 
+    def has_non_allocation_access(
+        self,
+        portfolio_id: str,
+        shared_with_cognito_user_id: str
+    ):
+        access_record = self.get_access_record(portfolio_id=portfolio_id, shared_with_cognito_user_id=shared_with_cognito_user_id)
+        if not access_record:
+            return False
+
+        return access_record.status == "ACTIVE" and access_record.granted_access_by == "PORTFOLIO_OWNER"
+    
     def has_access(
         self,
         *,
@@ -674,7 +685,6 @@ class ModelPortfolioAccessRepository:
                 cause=error,
             ) from error
 
-        return bool(access_record is not None)
 
     def get_accesses_for_portfolio(
         self,

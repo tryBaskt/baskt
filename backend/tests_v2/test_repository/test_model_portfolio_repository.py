@@ -78,7 +78,7 @@ Coverage goals:
   multiple portfolios, default visibility, and malformed owner metadata rows.
 - get_model_portfolio_metadata_by_portfolio_id(): cover success, missing
   portfolio, default visibility, and malformed metadata rows.
-- calculate_positions_current_weight(): calculate expected current weights from
+- calculate_positions_current_weight_and_percent_price_change(): calculate expected current weights from
   today's latest prices for manual long-only, short-only, and mixed long/short
   snapshots, then create a model portfolio and calculate expected current
   weights from its stored snapshot.
@@ -146,22 +146,31 @@ def _expected_current_weights(
     *,
     snapshot: ModelPortfolioSnapshot,
     quotes: dict[str, float],
-) -> tuple[dict[str, float], float]:
+) -> tuple[dict[str, float], dict[str, float], float]:
     position_values = {}
+    percent_price_changes = {}
     for position in snapshot.positions:
         current_price = quotes[position.symbol]
         position_values[position.symbol] = position.model_filled_quantity * (
             position.model_filled_avg_price
             + position.direction * (current_price - position.model_filled_avg_price)
         )
+        percent_price_changes[position.symbol] = (
+            (current_price - position.model_filled_avg_price)
+            / position.model_filled_avg_price
+        )
 
     total_value = sum(position_values.values())
     if total_value == 0:
-        return {symbol: 0.0 for symbol in position_values}, 0.0
+        return (
+            {symbol: 0.0 for symbol in position_values},
+            percent_price_changes,
+            0.0,
+        )
     return {
         symbol: value / total_value
         for symbol, value in position_values.items()
-    }, total_value
+    }, percent_price_changes, total_value
 
 
 def _delete_model_portfolio(
@@ -1403,10 +1412,10 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_long_sho
         snapshot_id=str(uuid4()),
     )
 
-    actual_weights, actual_total_value, quotes = (
-        model_portfolio_repository.calculate_positions_current_weight(snapshot)
+    actual_weights, actual_percent_price_change, actual_total_value, quotes = (
+        model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(snapshot)
     )
-    expected_weights, expected_total_value = _expected_current_weights(
+    expected_weights, expected_percent_price_change, expected_total_value = _expected_current_weights(
         snapshot=snapshot,
         quotes=quotes,
     )
@@ -1414,6 +1423,7 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_long_sho
     assert set(quotes) == {"AAPL", "MSFT"}
     assert actual_total_value == pytest.approx(expected_total_value)
     assert actual_weights == pytest.approx(expected_weights)
+    assert actual_percent_price_change == pytest.approx(expected_percent_price_change)
 
 
 @pytest.mark.integration
@@ -1444,10 +1454,10 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_long_onl
         snapshot_id=str(uuid4()),
     )
 
-    actual_weights, actual_total_value, quotes = (
-        model_portfolio_repository.calculate_positions_current_weight(snapshot)
+    actual_weights, actual_percent_price_change, actual_total_value, quotes = (
+        model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(snapshot)
     )
-    expected_weights, expected_total_value = _expected_current_weights(
+    expected_weights, expected_percent_price_change, expected_total_value = _expected_current_weights(
         snapshot=snapshot,
         quotes=quotes,
     )
@@ -1455,6 +1465,7 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_long_onl
     assert set(quotes) == {"AAPL", "MSFT"}
     assert actual_total_value == pytest.approx(expected_total_value)
     assert actual_weights == pytest.approx(expected_weights)
+    assert actual_percent_price_change == pytest.approx(expected_percent_price_change)
 
 
 @pytest.mark.integration
@@ -1485,10 +1496,10 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_short_on
         snapshot_id=str(uuid4()),
     )
 
-    actual_weights, actual_total_value, quotes = (
-        model_portfolio_repository.calculate_positions_current_weight(snapshot)
+    actual_weights, actual_percent_price_change, actual_total_value, quotes = (
+        model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(snapshot)
     )
-    expected_weights, expected_total_value = _expected_current_weights(
+    expected_weights, expected_percent_price_change, expected_total_value = _expected_current_weights(
         snapshot=snapshot,
         quotes=quotes,
     )
@@ -1496,6 +1507,7 @@ def test_model_portfolio_repository_calculate_current_weight_for_manual_short_on
     assert set(quotes) == {"AAPL", "MSFT"}
     assert actual_total_value == pytest.approx(expected_total_value)
     assert actual_weights == pytest.approx(expected_weights)
+    assert actual_percent_price_change == pytest.approx(expected_percent_price_change)
 
 
 @pytest.mark.integration
@@ -1522,10 +1534,10 @@ def test_model_portfolio_repository_calculate_current_weight_for_created_portfol
         )
         snapshot = portfolio.position_history[0]
 
-        actual_weights, actual_total_value, quotes = (
-            model_portfolio_repository.calculate_positions_current_weight(snapshot)
+        actual_weights, actual_percent_price_change, actual_total_value, quotes = (
+            model_portfolio_repository.calculate_positions_current_weight_and_percent_price_change(snapshot)
         )
-        expected_weights, expected_total_value = _expected_current_weights(
+        expected_weights, expected_percent_price_change, expected_total_value = _expected_current_weights(
             snapshot=snapshot,
             quotes=quotes,
         )
@@ -1533,6 +1545,7 @@ def test_model_portfolio_repository_calculate_current_weight_for_created_portfol
         assert set(quotes) == {"AAPL", "MSFT"}
         assert actual_total_value == pytest.approx(expected_total_value)
         assert actual_weights == pytest.approx(expected_weights)
+        assert actual_percent_price_change == pytest.approx(expected_percent_price_change)
     finally:
         _delete_model_portfolio(
             model_portfolio_repository,

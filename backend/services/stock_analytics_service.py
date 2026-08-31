@@ -351,10 +351,11 @@ class StockAnalyticsService:
         return earliest_datetime.astimezone(timezone.utc)
 
 
-    def get_stock_bars(
+    def get_stock_analytics_by_periods(
         self,
         symbol: str,
-        current_datetime: Optional[datetime] = None
+        current_datetime: Optional[datetime] = None,
+        periods: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
         Get stock cumulative return series for standard periods.
@@ -372,7 +373,26 @@ class StockAnalyticsService:
             StockAnalyticsInternalServerError: Alpaca price bars cannot be fetched, or any unexpected error
             occurs while calculating returns.
         """
+        PERIOD_TIMEDELTA_TIMEFRAME_DICT = {
+            "1D": ("1D", timedelta(days=1),"5Min"),
+            "1W": ("1W", timedelta(weeks=1), "1H"),
+            "1M": ("1M", timedelta(days=30), "1D"),
+            "3M": ("3M", timedelta(days=90), "1D"),
+            "1A": ("1A", timedelta(days=365), "1D"),
+            "all": ("all", timedelta(days=1), "1D")
+        }
         try:
+            requested_periods = periods or ["1D", "1W", "1M", "3M", "1A", "all"]
+            invalid_periods = [
+                period
+                for period in requested_periods
+                if period not in PERIOD_TIMEDELTA_TIMEFRAME_DICT
+            ]
+            if invalid_periods:
+                raise StockAnalyticsInternalServerError(
+                    message=f"Unsupported stock analytics periods: {invalid_periods}",
+                    code="STOCK_ANALYTICS_UNSUPPORTED_PERIOD",
+                )
             if not current_datetime:
                 current_datetime = datetime.now(timezone.utc)
             if (
@@ -389,15 +409,6 @@ class StockAnalyticsService:
                 current_datetime=current_datetime,
             )
 
-            period_timdelta_timeframe = [
-                ("all", timedelta(days=1), "1D"),
-                ("1D", timedelta(days=1),"5Min"),
-                ("1W", timedelta(weeks=1), "1H"),
-                ("1M", timedelta(days=30), "1D"),
-                ("3M", timedelta(days=90), "1D"),
-                ("1A", timedelta(days=365), "1D"),
-            ]
-
             response: Dict[str, Dict[str, Any]] = {}
 
             def calculate_period(
@@ -413,13 +424,18 @@ class StockAnalyticsService:
                     timeframe=timeframe,
                 )
 
+            period_timedelta_timeframe_list = [
+                PERIOD_TIMEDELTA_TIMEFRAME_DICT[period]
+                for period in requested_periods
+            ]
+
             with ThreadPoolExecutor(
-                max_workers=len(period_timdelta_timeframe),
+                max_workers=len(period_timedelta_timeframe_list),
                 thread_name_prefix="stock-period",
             ) as executor:
                 period_results = executor.map(
                     calculate_period,
-                    period_timdelta_timeframe,
+                    period_timedelta_timeframe_list,
                 )
                 for period, period_response in period_results:
                     if period_response is not None:

@@ -46,14 +46,14 @@ Coverage goals:
 - get_stock_prices_at_snapshot_changes(): verify no-op empty snapshots, first
   snapshot prices, changed-symbol transitions, multiple transitions, existing
   price preservation, sorted/named index, and provider-returned timestamps.
-- get_model_portfolio_bars(): persist model portfolios, read them through the
+- get_model_portfolio_analytics_by_periods(): persist model portfolios, read them through the
   real repository path, verify the default periods/timeframes, aligned UTC
   chart data, session/lookback/all-time windows, rebalance stitching,
   long/short exposure metrics, final-return and max-drawdown consistency,
   benchmark-aligned metric fields, unusable-period omission, snapshot sorting,
   young-portfolio period sharing for <= one trading day and < one trading week,
-  branch boundaries for trading-minute thresholds, non-UTC current_datetime
-  rejection, and natural invalid-symbol failure.
+  custom period filtering, branch boundaries for trading-minute thresholds,
+  non-UTC current_datetime rejection, and natural invalid-symbol failure.
 """
 
 
@@ -1342,7 +1342,7 @@ def test_get_positions_updated_weights_short_only_positions(
     )
 
 
-def test_get_model_portfolio_bars_returns_empty_when_portfolio_has_no_snapshots(
+def test_get_model_portfolio_analytics_by_periods_returns_empty_when_portfolio_has_no_snapshots(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1355,7 +1355,7 @@ def test_get_model_portfolio_bars_returns_empty_when_portfolio_has_no_snapshots(
             snapshots=[],
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 10, 15, 30),
         )
@@ -1369,7 +1369,7 @@ def test_get_model_portfolio_bars_returns_empty_when_portfolio_has_no_snapshots(
 
 
 @pytest.mark.parametrize("trading_minutes", [5, 120, 390])
-def test_get_model_portfolio_bars_reuses_one_day_response_for_one_trading_day_or_less(
+def test_get_model_portfolio_analytics_by_periods_reuses_one_day_response_for_one_trading_day_or_less(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1421,7 +1421,7 @@ def test_get_model_portfolio_bars_reuses_one_day_response_for_one_trading_day_or
             calculate_period,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 10, 16),
         )
@@ -1439,7 +1439,7 @@ def test_get_model_portfolio_bars_reuses_one_day_response_for_one_trading_day_or
 
 
 @pytest.mark.parametrize("trading_minutes", [391, 4 * 390, (7 * 390) - 1])
-def test_get_model_portfolio_bars_reuses_week_response_before_one_trading_week(
+def test_get_model_portfolio_analytics_by_periods_reuses_week_response_before_one_trading_week(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1491,7 +1491,7 @@ def test_get_model_portfolio_bars_reuses_week_response_before_one_trading_week(
             calculate_period,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 12, 16),
         )
@@ -1513,8 +1513,79 @@ def test_get_model_portfolio_bars_reuses_week_response_before_one_trading_week(
         )
 
 
+def test_get_model_portfolio_analytics_by_periods_filters_requested_periods_before_one_trading_week(
+    model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
+    model_portfolio_repository: ModelPortfolioRepository,
+    test_user_1,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portfolio_id: str | None = None
+    period_calls: list[tuple[str, timedelta, str]] = []
+    try:
+        portfolio_id = _persist_bars_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            owner_cognito_user_id=test_user_1.cognito_user_id,
+            snapshots=[
+                _raw_snapshot(
+                    timestamp=_utc_datetime(2024, 7, 8, 14),
+                    positions=[
+                        _raw_position(
+                            symbol="AAPL",
+                            target_weight=1.0,
+                            direction=1,
+                            leverage=1.0,
+                            model_filled_quantity=10.0,
+                            model_filled_avg_price=225.0,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "calculate_trading_minutes",
+            lambda **_: 4 * 390,
+        )
+
+        def calculate_period(**kwargs):
+            period_calls.append(
+                (kwargs["period"], kwargs["delta"], kwargs["timeframe"])
+            )
+            return kwargs["period"], {
+                "period": kwargs["period"],
+                "timeframe": kwargs["timeframe"],
+                "marker": str(uuid4()),
+            }
+
+        monkeypatch.setattr(
+            model_portfolio_analytics_service,
+            "_calculate_model_portfolio_period",
+            calculate_period,
+        )
+
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
+            portfolio_id=portfolio_id,
+            current_datetime=_utc_datetime(2024, 7, 12, 16),
+            periods=["1D", "1M"],
+        )
+
+        assert period_calls == [
+            ("1D", timedelta(days=1), "5Min"),
+            ("1W", timedelta(weeks=1), "1H"),
+        ]
+        assert set(response) == {"1D", "1M"}
+        assert response["1D"]["period"] == "1D"
+        assert response["1M"]["period"] == "1W"
+    finally:
+        _delete_model_portfolio(
+            model_portfolio_repository=model_portfolio_repository,
+            portfolio_id=portfolio_id,
+        )
+
+
 @pytest.mark.parametrize("trading_minutes", [0, 4])
-def test_get_model_portfolio_bars_returns_empty_before_five_trading_minutes(
+def test_get_model_portfolio_analytics_by_periods_returns_empty_before_five_trading_minutes(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1558,7 +1629,7 @@ def test_get_model_portfolio_bars_returns_empty_before_five_trading_minutes(
             calculate_period,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 10, 14, 4),
         )
@@ -1571,7 +1642,7 @@ def test_get_model_portfolio_bars_returns_empty_before_five_trading_minutes(
         )
 
 
-def test_get_model_portfolio_bars_uses_default_periods_at_one_trading_week_boundary(
+def test_get_model_portfolio_analytics_by_periods_uses_default_periods_at_one_trading_week_boundary(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1622,7 +1693,7 @@ def test_get_model_portfolio_bars_uses_default_periods_at_one_trading_week_bound
             calculate_period,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 8, 20),
         )
@@ -1649,7 +1720,7 @@ def test_get_model_portfolio_bars_uses_default_periods_at_one_trading_week_bound
         )
 
 
-def test_get_model_portfolio_bars_returns_default_periods_with_valid_metrics(
+def test_get_model_portfolio_analytics_by_periods_returns_default_periods_with_valid_metrics(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1670,7 +1741,7 @@ def test_get_model_portfolio_bars_returns_default_periods_with_valid_metrics(
             owner_cognito_user_id=test_user_1.cognito_user_id,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=current_datetime,
         )
@@ -1704,7 +1775,7 @@ def test_get_model_portfolio_bars_returns_default_periods_with_valid_metrics(
         )
 
 
-def test_get_model_portfolio_bars_one_day_after_hours_uses_completed_session(
+def test_get_model_portfolio_analytics_by_periods_one_day_after_hours_uses_completed_session(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1717,7 +1788,7 @@ def test_get_model_portfolio_bars_one_day_after_hours_uses_completed_session(
             owner_cognito_user_id=test_user_1.cognito_user_id,
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=current_datetime,
         )
@@ -1736,7 +1807,7 @@ def test_get_model_portfolio_bars_one_day_after_hours_uses_completed_session(
         )
 
 
-def test_get_model_portfolio_bars_sorts_history_and_stitches_rebalance_changes(
+def test_get_model_portfolio_analytics_by_periods_sorts_history_and_stitches_rebalance_changes(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1813,7 +1884,7 @@ def test_get_model_portfolio_bars_sorts_history_and_stitches_rebalance_changes(
             snapshots=[latest_snapshot, first_snapshot, middle_snapshot],
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=current_datetime,
         )
@@ -1837,7 +1908,7 @@ def test_get_model_portfolio_bars_sorts_history_and_stitches_rebalance_changes(
         )
 
 
-def test_get_model_portfolio_bars_omits_periods_with_no_usable_snapshots(
+def test_get_model_portfolio_analytics_by_periods_omits_periods_with_no_usable_snapshots(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1864,7 +1935,7 @@ def test_get_model_portfolio_bars_omits_periods_with_no_usable_snapshots(
             ],
         )
 
-        response = model_portfolio_analytics_service.get_model_portfolio_bars(
+        response = model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
             portfolio_id=portfolio_id,
             current_datetime=_utc_datetime(2024, 7, 10, 15, 30),
         )
@@ -1984,7 +2055,7 @@ def test_calculate_model_portfolio_period_raises_when_expected_bar_elapsed_witho
         pytest.param(_market_datetime(2024, 7, 10, 11, 30), id="eastern"),
     ],
 )
-def test_get_model_portfolio_bars_rejects_non_utc_current_datetime(
+def test_get_model_portfolio_analytics_by_periods_rejects_non_utc_current_datetime(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -1998,7 +2069,7 @@ def test_get_model_portfolio_bars_rejects_non_utc_current_datetime(
         )
 
         with pytest.raises(ModelPortfolioAnalyticsInternalServerError) as exc_info:
-            model_portfolio_analytics_service.get_model_portfolio_bars(
+            model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
                 portfolio_id=portfolio_id,
                 current_datetime=current_datetime,
             )
@@ -2014,7 +2085,7 @@ def test_get_model_portfolio_bars_rejects_non_utc_current_datetime(
         )
 
 
-def test_get_model_portfolio_bars_raises_for_natural_invalid_symbol_failure(
+def test_get_model_portfolio_analytics_by_periods_raises_for_natural_invalid_symbol_failure(
     model_portfolio_analytics_service: ModelPortfolioAnalyticsService,
     model_portfolio_repository: ModelPortfolioRepository,
     test_user_1,
@@ -2042,7 +2113,7 @@ def test_get_model_portfolio_bars_raises_for_natural_invalid_symbol_failure(
         )
 
         with pytest.raises(ModelPortfolioAnalyticsInternalServerError):
-            model_portfolio_analytics_service.get_model_portfolio_bars(
+            model_portfolio_analytics_service.get_model_portfolio_analytics_by_periods(
                 portfolio_id=portfolio_id,
                 current_datetime=_utc_datetime(2024, 7, 10, 15, 30),
             )

@@ -18,7 +18,8 @@ class AllAllocationAnalyticsResponse(BaseModel):
     cash: float
     equity: float
     equity_graph: Dict[str, AllEquityGraphResponse]
-    allocations: Dict[str, Dict[str, float | str]]
+    portfolio_allocations: Dict[str, Dict[str, float | int | str | None]]
+    stock_allocations: Dict[str, Dict[str, float | int | str | None]]
 
 ##################################
 ######## STOCK ALLOCATIONS #######
@@ -73,4 +74,3 @@ class PortfolioAllocationResponse(BaseModel):
     equity: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_loss_percent: Optional[float] = None
-

@@ -60,7 +60,13 @@ export async function apiRequest(path, options = {}) {
 export function toQuery(params) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== undefined && item !== null && item !== "") {
+          query.append(key, item);
+        }
+      });
+    } else if (value !== undefined && value !== null && value !== "") {
       query.set(key, value);
     }
   });
