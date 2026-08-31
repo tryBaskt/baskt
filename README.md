@@ -1,2 +1,2 @@
 # Baskt
-sanbox env: test.trybaskt.com
+sandbox env: test.trybaskt.com
