@@ -34,8 +34,4 @@ resource "aws_dynamodb_table" "order" {
   point_in_time_recovery {
     enabled = true
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

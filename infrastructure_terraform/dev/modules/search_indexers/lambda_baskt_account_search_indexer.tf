@@ -5,14 +5,15 @@ data "archive_file" "baskt_account_search_indexer" {
 }
 
 resource "aws_lambda_function" "baskt_account_search_indexer" {
-  function_name    = "${var.environment}-baskt-account-search-indexer"
-  role             = aws_iam_role.baskt_account_search.arn
-  runtime          = "python3.12"
-  handler          = "handler.lambda_handler"
-  filename         = data.archive_file.baskt_account_search_indexer.output_path
-  source_code_hash = data.archive_file.baskt_account_search_indexer.output_base64sha256
-  timeout          = 60
-  memory_size      = 256
+  function_name                  = "${var.environment}-baskt-account-search-indexer"
+  role                           = aws_iam_role.baskt_account_search.arn
+  runtime                        = "python3.12"
+  handler                        = "handler.lambda_handler"
+  filename                       = data.archive_file.baskt_account_search_indexer.output_path
+  source_code_hash               = data.archive_file.baskt_account_search_indexer.output_base64sha256
+  timeout                        = 60
+  memory_size                    = 256
+  reserved_concurrent_executions = var.runtime_enabled ? -1 : 0
 
   environment {
     variables = {

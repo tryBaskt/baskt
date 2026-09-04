@@ -1,5 +1,5 @@
 resource "opensearch_index" "baskt_accounts" {
-  name               = "${var.environment}-baskt-accounts"
+  name               = "${var.environment}-baskt-accounts-v1"
   number_of_shards   = "1"
   number_of_replicas = "0"
   analysis_normalizer = jsonencode({

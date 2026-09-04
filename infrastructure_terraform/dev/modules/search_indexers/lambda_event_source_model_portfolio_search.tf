@@ -4,6 +4,7 @@ resource "aws_lambda_event_source_mapping" "model_portfolio_search" {
   starting_position              = "LATEST"
   batch_size                     = 100
   bisect_batch_on_function_error = true
+  enabled                        = var.runtime_enabled
   function_response_types        = ["ReportBatchItemFailures"]
   maximum_retry_attempts         = 3
 }

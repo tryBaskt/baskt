@@ -1,5 +1,5 @@
 resource "opensearch_index" "model_portfolios" {
-  name               = "${var.environment}-model-portfolios"
+  name               = "${var.environment}-model-portfolios-v1"
   number_of_shards   = "1"
   number_of_replicas = "0"
   mappings = jsonencode({

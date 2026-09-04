@@ -2,6 +2,7 @@ resource "aws_scheduler_schedule" "market_prepare" {
   name                         = "${var.environment}-trade-execution-prepare"
   schedule_expression          = "cron(20-29 9 ? * MON-FRI *)"
   schedule_expression_timezone = "America/New_York"
+  state                        = var.runtime_enabled ? "ENABLED" : "DISABLED"
 
   flexible_time_window {
     mode = "OFF"

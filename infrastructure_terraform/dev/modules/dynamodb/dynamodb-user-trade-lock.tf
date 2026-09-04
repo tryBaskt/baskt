@@ -12,8 +12,4 @@ resource "aws_dynamodb_table" "user_trade_lock" {
     attribute_name = "expires_at"
     enabled        = true
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

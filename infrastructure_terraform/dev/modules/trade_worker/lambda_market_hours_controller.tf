@@ -5,14 +5,15 @@ data "archive_file" "market_hours_controller" {
 }
 
 resource "aws_lambda_function" "market_hours_controller" {
-  function_name    = "${var.environment}-trade-execution-market-hours-controller"
-  role             = aws_iam_role.market_controller.arn
-  runtime          = "python3.12"
-  handler          = "market_hours_controller.lambda_handler"
-  filename         = data.archive_file.market_hours_controller.output_path
-  source_code_hash = data.archive_file.market_hours_controller.output_base64sha256
-  timeout          = 60
-  memory_size      = 128
+  function_name                  = "${var.environment}-trade-execution-market-hours-controller"
+  role                           = aws_iam_role.market_controller.arn
+  runtime                        = "python3.12"
+  handler                        = "market_hours_controller.lambda_handler"
+  filename                       = data.archive_file.market_hours_controller.output_path
+  source_code_hash               = data.archive_file.market_hours_controller.output_base64sha256
+  timeout                        = 60
+  memory_size                    = 128
+  reserved_concurrent_executions = var.runtime_enabled ? -1 : 0
 
   environment {
     variables = {

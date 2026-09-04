@@ -38,6 +38,12 @@ variable "trade_worker_environment" {
   sensitive   = true
 }
 
+variable "runtime_enabled" {
+  description = "Whether dev runtime triggers and Lambda execution should be enabled. Keep false while dev is powered down."
+  type        = bool
+  default     = false
+}
+
 variable "cloudwatch_log_retention_days" {
   description = "Number of days to retain CloudWatch logs for dev runtime resources."
   type        = number
