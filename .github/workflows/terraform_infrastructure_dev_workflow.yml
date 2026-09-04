@@ -103,6 +103,10 @@ jobs:
           echo "Refusing to destroy dev infrastructure without confirm_destroy_dev=DELETE_DEV." >&2
           exit 1
 
+      - name: Disable Cognito deletion protection before destroy
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
+        run: terraform apply -target=module.cognito.aws_cognito_user_pool.baskt -auto-approve -no-color
+
       - name: Prepare trade execution queue worker image
         if: github.event.inputs.action == 'apply' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
         working-directory: ${{ github.workspace }}

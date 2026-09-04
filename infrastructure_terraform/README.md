@@ -101,9 +101,23 @@ GitHub Actions, run **Deploy Dev Infrastructure with Terraform** manually with:
 - `confirm_destroy_dev`: `DELETE_DEV`
 
 The workflow creates a `terraform plan -destroy` plan and applies that exact
-plan. Cognito deletion protection is disabled in the dev root, OpenSearch and
-DynamoDB `prevent_destroy` guards are removed, and the dev ECR repository is set
-to `force_delete` so stored images do not block teardown.
+plan. Before creating the destroy plan, it applies the current dev Cognito user
+pool configuration so Cognito deletion protection is inactivated first. Cognito
+deletion protection is disabled in the dev root, OpenSearch and DynamoDB
+`prevent_destroy` guards are removed, and the dev ECR repository is set to
+`force_delete` so stored images do not block teardown.
+
+The GitHub role referenced by `AWS_TERRAFORM_ROLE_ARN` must also be allowed to
+clean up IAM roles created by the dev root. At minimum, the role needs these IAM
+actions scoped to the `dev-*` roles:
+
+- `iam:DetachRolePolicy`
+- `iam:ListInstanceProfilesForRole`
+- `iam:DeleteRole`
+- `iam:DeleteRolePolicy`
+- `iam:GetRole`
+- `iam:ListAttachedRolePolicies`
+- `iam:ListRolePolicies`
 
 Do not commit real `.tfvars` files if they contain secrets. Sensitive Terraform
 input is still stored in Terraform state, so the state bucket must use
