@@ -2,6 +2,7 @@ resource "opensearch_index" "baskt_accounts" {
   name               = "${var.environment}-baskt-accounts"
   number_of_shards   = "1"
   number_of_replicas = "0"
+  force_destroy      = true
   analysis_normalizer = jsonencode({
     lowercase_normalizer = {
       type   = "custom"

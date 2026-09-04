@@ -108,6 +108,35 @@ jobs:
         run: |
           set -euo pipefail
 
+          function explain_missing_iam_permissions() {
+            cat >&2 <<'EOF'
+          The dev destroy cannot continue because AWS_TERRAFORM_ROLE_ARN is missing
+          IAM permissions needed to delete dev roles.
+
+          Attach an inline policy like this to dev-baskt-terraform-github, then
+          rerun the destroy workflow:
+
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "iam:DeleteRole",
+                  "iam:DeleteRolePolicy",
+                  "iam:DetachRolePolicy",
+                  "iam:GetRole",
+                  "iam:ListAttachedRolePolicies",
+                  "iam:ListInstanceProfilesForRole",
+                  "iam:ListRolePolicies"
+                ],
+                "Resource": "arn:aws:iam::499133675835:role/dev-*"
+              }
+            ]
+          }
+          EOF
+          }
+
           roles=(
             dev-baskt-account-search-indexer-role
             dev-model-portfolio-search-indexer-role
@@ -118,9 +147,18 @@ jobs:
 
           for role in "${roles[@]}"; do
             if aws iam get-role --role-name "$role" >/dev/null 2>&1; then
-              aws iam list-instance-profiles-for-role --role-name "$role" >/dev/null
-              aws iam list-attached-role-policies --role-name "$role" >/dev/null
-              aws iam list-role-policies --role-name "$role" >/dev/null
+              aws iam list-instance-profiles-for-role --role-name "$role" >/dev/null || {
+                explain_missing_iam_permissions
+                exit 1
+              }
+              aws iam list-attached-role-policies --role-name "$role" >/dev/null || {
+                explain_missing_iam_permissions
+                exit 1
+              }
+              aws iam list-role-policies --role-name "$role" >/dev/null || {
+                explain_missing_iam_permissions
+                exit 1
+              }
             fi
           done
 
