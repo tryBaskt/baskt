@@ -19,6 +19,7 @@ jobs:
     env:
       TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
       TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
+      TF_VAR_runtime_enabled: ${{ vars.TF_VAR_runtime_enabled || 'false' }}
       TF_VAR_trade_worker_environment: ${{ secrets.TF_VAR_trade_worker_environment }}
     defaults:
       run:
@@ -176,7 +177,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Refresh OpenSearch indices from DynamoDB
-        if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
+        if: env.TF_VAR_runtime_enabled == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
         working-directory: ${{ github.workspace }}
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
@@ -185,7 +186,7 @@ jobs:
           python infrastructure_terraform/refresh_search_indices.py --environment dev --region "$AWS_REGION"
 
       - name: Sync trade execution queue worker market-hours state
-        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
+        if: env.TF_VAR_runtime_enabled == 'true' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
         run: |
           aws lambda invoke \
             --function-name dev-trade-execution-market-hours-controller \
