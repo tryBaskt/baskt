@@ -40,7 +40,4 @@ resource "aws_opensearch_domain" "model_portfolio_search" {
     }]
   })
 
-  lifecycle {
-    prevent_destroy = true
-  }
 }

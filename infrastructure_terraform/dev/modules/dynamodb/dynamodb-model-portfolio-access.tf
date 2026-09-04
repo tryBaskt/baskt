@@ -34,8 +34,4 @@ resource "aws_dynamodb_table" "model_portfolio_access" {
   point_in_time_recovery {
     enabled = true
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

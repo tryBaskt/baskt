@@ -2,6 +2,19 @@ name: Deploy Dev Infrastructure with Terraform
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: Terraform action to run for the dev environment
+        required: true
+        default: apply
+        type: choice
+        options:
+          - apply
+          - destroy
+      confirm_destroy_dev:
+        description: Type DELETE_DEV to confirm permanent dev infrastructure deletion
+        required: false
+        type: string
 
 concurrency:
   group: dev-aws-environment
@@ -13,11 +26,11 @@ permissions:
 
 jobs:
   deploy-dev-infrastructure:
-    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
+    if: github.event.inputs.action == 'destroy' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     environment: dev
     env:
-      TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
+      TF_VAR_trade_worker_image_uri: ${{ github.event.inputs.action == 'destroy' && 'unused-for-dev-destroy' || vars.TF_VAR_trade_worker_image_uri }}
       TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
       TF_VAR_runtime_enabled: ${{ vars.TF_VAR_runtime_enabled || 'false' }}
       TF_VAR_trade_worker_environment: ${{ secrets.TF_VAR_trade_worker_environment }}
@@ -42,6 +55,7 @@ jobs:
 
       - name: Detect trade execution queue worker image changes
         id: trade-execution-queue-worker-changes
+        if: github.event.inputs.action == 'apply'
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
@@ -83,8 +97,14 @@ jobs:
       - name: Validate Terraform
         run: terraform validate -no-color
 
+      - name: Confirm dev infrastructure destroy
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev != 'DELETE_DEV'
+        run: |
+          echo "Refusing to destroy dev infrastructure without confirm_destroy_dev=DELETE_DEV." >&2
+          exit 1
+
       - name: Prepare trade execution queue worker image
-        if: steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
+        if: github.event.inputs.action == 'apply' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true'
         working-directory: ${{ github.workspace }}
         shell: bash
         env:
@@ -121,6 +141,7 @@ jobs:
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
       - name: Resolve trade execution queue worker image URI
+        if: github.event.inputs.action == 'apply'
         working-directory: ${{ github.workspace }}
         shell: bash
         env:
@@ -170,14 +191,23 @@ jobs:
           echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
 
       - name: Plan dev infrastructure changes
+        if: github.event.inputs.action == 'apply'
         run: terraform plan -out=tfplan -no-color
 
+      - name: Plan dev infrastructure destroy
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
+        run: terraform plan -destroy -out=tfplan -no-color
+
       - name: Apply dev infrastructure changes
-        if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
+        if: github.event.inputs.action == 'apply' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
+        run: terraform apply -auto-approve tfplan
+
+      - name: Destroy dev infrastructure
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
         run: terraform apply -auto-approve tfplan
 
       - name: Refresh OpenSearch indices from DynamoDB
-        if: env.TF_VAR_runtime_enabled == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
+        if: github.event.inputs.action == 'apply' && env.TF_VAR_runtime_enabled == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
         working-directory: ${{ github.workspace }}
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
@@ -186,7 +216,7 @@ jobs:
           python infrastructure_terraform/refresh_search_indices.py --environment dev --region "$AWS_REGION"
 
       - name: Sync trade execution queue worker market-hours state
-        if: env.TF_VAR_runtime_enabled == 'true' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
+        if: github.event.inputs.action == 'apply' && env.TF_VAR_runtime_enabled == 'true' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
         run: |
           aws lambda invoke \
             --function-name dev-trade-execution-market-hours-controller \

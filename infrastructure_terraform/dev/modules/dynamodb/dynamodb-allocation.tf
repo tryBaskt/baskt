@@ -17,8 +17,4 @@ resource "aws_dynamodb_table" "allocation" {
   point_in_time_recovery {
     enabled = true
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

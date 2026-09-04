@@ -16,8 +16,4 @@ resource "opensearch_index" "model_portfolios" {
       visibility                      = { type = "keyword" }
     }
   })
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
