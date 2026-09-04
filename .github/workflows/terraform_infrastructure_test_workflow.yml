@@ -219,7 +219,7 @@ jobs:
               --services test-backend \
               --region "$AWS_REGION" \
               --query 'services[0].taskDefinition' \
-              --output text 2>/dev/null || true
+              --output text
           )"
 
           if [[ -n "$task_definition" && "$task_definition" != "None" ]]; then
@@ -238,7 +238,27 @@ jobs:
             fi
           fi
 
-          echo "No current backend ECS service image found; backend service will remain absent until backend deployment runs."
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          repository_name="test-backend"
+          repository_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${repository_name}"
+          latest_tag="$(
+            aws ecr describe-images \
+              --repository-name "$repository_name" \
+              --region "$AWS_REGION" \
+              --filter tagStatus=TAGGED \
+              --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+              --output text
+          )"
+
+          if [[ -n "$latest_tag" && "$latest_tag" != "None" ]]; then
+            image_uri="${repository_uri}:${latest_tag}"
+            echo "Reusing latest backend ECR image: $image_uri"
+            echo "TF_VAR_backend_image_uri=$image_uri" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "Unable to resolve a backend image URI from ECS or ECR. Set TF_VAR_backend_image_uri or run the backend deployment job before infrastructure changes." >&2
+          exit 1
 
       - name: Plan test infrastructure changes
         run: terraform plan -out=tfplan -no-color
