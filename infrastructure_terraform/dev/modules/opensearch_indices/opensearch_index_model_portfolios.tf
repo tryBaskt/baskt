@@ -2,6 +2,7 @@ resource "opensearch_index" "model_portfolios" {
   name               = "${var.environment}-model-portfolios"
   number_of_shards   = "1"
   number_of_replicas = "0"
+  force_destroy      = true
   mappings = jsonencode({
     properties = {
       portfolio_id = { type = "keyword" }
@@ -16,8 +17,4 @@ resource "opensearch_index" "model_portfolios" {
       visibility                      = { type = "keyword" }
     }
   })
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

@@ -1,6 +1,6 @@
 resource "aws_cognito_user_pool" "baskt" {
   name                = var.user_pool_name
-  deletion_protection = "ACTIVE"
+  deletion_protection = "INACTIVE"
 
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
@@ -94,8 +94,4 @@ resource "aws_cognito_user_pool" "baskt" {
   }
 
   tags = var.common_tags
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

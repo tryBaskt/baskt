@@ -6,8 +6,4 @@ resource "aws_sqs_queue" "trade_execution" {
     deadLetterTargetArn = aws_sqs_queue.trade_execution_dlq.arn
     maxReceiveCount     = 3
   })
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

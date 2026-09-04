@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from typing import Any, Iterable
 
@@ -95,6 +96,37 @@ def _invoke_indexer(
         raise RuntimeError(f"{function_name} reported batch failures: {failures}")
 
 
+def _session(profile: str | None, region: str) -> Any:
+    import boto3
+
+    if not profile:
+        return boto3.Session(region_name=region)
+
+    credentials_output = subprocess.check_output(
+        [
+            "aws",
+            "configure",
+            "export-credentials",
+            "--profile",
+            profile,
+            "--format",
+            "env-no-export",
+        ],
+        text=True,
+    )
+    credentials = dict(
+        line.split("=", 1)
+        for line in credentials_output.splitlines()
+        if "=" in line
+    )
+    return boto3.Session(
+        aws_access_key_id=credentials["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=credentials["AWS_SECRET_ACCESS_KEY"],
+        aws_session_token=credentials.get("AWS_SESSION_TOKEN"),
+        region_name=region,
+    )
+
+
 def refresh_target(
     *,
     dynamodb: Any,
@@ -142,15 +174,17 @@ def main() -> None:
     )
     parser.add_argument("--environment", required=True, choices=("dev", "test", "stage", "prod"))
     parser.add_argument("--region", default="us-east-1")
+    parser.add_argument(
+        "--profile",
+        help="Optional AWS profile for local runs. Omit in GitHub Actions.",
+    )
     parser.add_argument("--batch-size", type=int, default=100)
     args = parser.parse_args()
 
     if args.batch_size < 1:
         raise ValueError("--batch-size must be positive")
 
-    import boto3
-
-    session = boto3.Session(region_name=args.region)
+    session = _session(args.profile, args.region)
     dynamodb = session.client("dynamodb", region_name=args.region)
     lambda_client = session.client("lambda", region_name=args.region)
 

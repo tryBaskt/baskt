@@ -1,11 +1,12 @@
 resource "aws_lambda_function" "trade_execution_worker" {
-  function_name = "${var.environment}-trade-execution-queue-worker"
-  role          = aws_iam_role.trade_worker.arn
-  package_type  = "Image"
-  image_uri     = var.trade_worker_image_uri
-  architectures = ["x86_64"]
-  timeout       = 120
-  memory_size   = 2048
+  function_name                  = "${var.environment}-trade-execution-queue-worker"
+  role                           = aws_iam_role.trade_worker.arn
+  package_type                   = "Image"
+  image_uri                      = var.trade_worker_image_uri
+  architectures                  = ["x86_64"]
+  timeout                        = 120
+  memory_size                    = 2048
+  reserved_concurrent_executions = var.runtime_enabled ? -1 : 0
 
   environment {
     variables = merge(

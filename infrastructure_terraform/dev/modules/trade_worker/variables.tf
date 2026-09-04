@@ -9,6 +9,7 @@ variable "trade_worker_environment" {
   type      = map(string)
   sensitive = true
 }
+variable "runtime_enabled" { type = bool }
 variable "log_retention_days" { type = number }
 variable "tags" {
   type    = map(string)

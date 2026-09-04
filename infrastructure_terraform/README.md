@@ -87,8 +87,60 @@ terraform apply -auto-approve tfplan
 Build and push the trade-worker image first, tag it with the Git commit SHA,
 then pass that immutable URI as `trade_worker_image_uri`.
 
-Stateful resources use `prevent_destroy`. An intentional replacement requires a
-reviewed code change removing that protection, followed by a separate apply.
+Non-dev stateful resources use `prevent_destroy`. An intentional replacement
+requires a reviewed code change removing that protection, followed by a separate
+apply.
+
+## Dev teardown
+
+The dev root is intentionally destroyable so the entire `dev-*` environment can
+be removed when test becomes the active lower environment. To tear it down from
+GitHub Actions, run **Deploy Dev Infrastructure with Terraform** manually with:
+
+- `action`: `destroy`
+- `confirm_destroy_dev`: `DELETE_DEV`
+
+The workflow creates a `terraform plan -destroy` plan and applies that exact
+plan. Before creating the destroy plan, it applies the current dev Cognito user
+pool configuration so Cognito deletion protection is inactivated first. Cognito
+deletion protection is disabled in the dev root, OpenSearch and DynamoDB
+`prevent_destroy` guards are removed, and the dev ECR repository is set to
+`force_delete` so stored images do not block teardown.
+
+The GitHub role referenced by `AWS_TERRAFORM_ROLE_ARN` must also be allowed to
+clean up IAM roles created by the dev root. At minimum, the role needs these IAM
+actions scoped to the `dev-*` roles:
+
+- `iam:DetachRolePolicy`
+- `iam:ListInstanceProfilesForRole`
+- `iam:DeleteRole`
+- `iam:DeleteRolePolicy`
+- `iam:GetRole`
+- `iam:ListAttachedRolePolicies`
+- `iam:ListRolePolicies`
+
+Example inline policy for the Terraform GitHub role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::499133675835:role/dev-*"
+    }
+  ]
+}
+```
 
 Do not commit real `.tfvars` files if they contain secrets. Sensitive Terraform
 input is still stored in Terraform state, so the state bucket must use
