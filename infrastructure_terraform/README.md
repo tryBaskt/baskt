@@ -119,6 +119,29 @@ actions scoped to the `dev-*` roles:
 - `iam:ListAttachedRolePolicies`
 - `iam:ListRolePolicies`
 
+Example inline policy for the Terraform GitHub role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::499133675835:role/dev-*"
+    }
+  ]
+}
+```
+
 Do not commit real `.tfvars` files if they contain secrets. Sensitive Terraform
 input is still stored in Terraform state, so the state bucket must use
 encryption, versioning, strict IAM access, and locking. Migrating runtime

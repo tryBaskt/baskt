@@ -103,6 +103,27 @@ jobs:
           echo "Refusing to destroy dev infrastructure without confirm_destroy_dev=DELETE_DEV." >&2
           exit 1
 
+      - name: Preflight dev IAM destroy permissions
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
+        run: |
+          set -euo pipefail
+
+          roles=(
+            dev-baskt-account-search-indexer-role
+            dev-model-portfolio-search-indexer-role
+            dev-trade-execution-market-hours-controller-role
+            dev-trade-execution-market-hours-scheduler-role
+            dev-trade-execution-queue-worker-role
+          )
+
+          for role in "${roles[@]}"; do
+            if aws iam get-role --role-name "$role" >/dev/null 2>&1; then
+              aws iam list-instance-profiles-for-role --role-name "$role" >/dev/null
+              aws iam list-attached-role-policies --role-name "$role" >/dev/null
+              aws iam list-role-policies --role-name "$role" >/dev/null
+            fi
+          done
+
       - name: Disable Cognito deletion protection before destroy
         if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
         run: terraform apply -target=module.cognito.aws_cognito_user_pool.baskt -auto-approve -no-color
