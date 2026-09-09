@@ -45,8 +45,8 @@ resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.environment}-backend"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 2048
-  memory                   = 4096
+  cpu                      = 1024
+  memory                   = 3072
   execution_role_arn       = aws_iam_role.backend_execution.arn
   task_role_arn            = aws_iam_role.backend_task.arn
 
@@ -84,7 +84,7 @@ resource "aws_ecs_service" "backend" {
   name            = "${var.environment}-backend"
   cluster         = aws_ecs_cluster.backend.id
   task_definition = aws_ecs_task_definition.backend[0].arn
-  desired_count   = 2
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
