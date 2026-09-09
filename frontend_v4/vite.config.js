@@ -25,6 +25,7 @@ export default defineConfig(({ mode }) => {
   return {
     base: "./",
     plugins: [react()],
+    envPrefix: ["VITE_", "GUEST_"],
     server: {
       allowedHosts: [".ngrok-free.dev"],
     },

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { completeNewPassword, signIn } from "../lib/cognitoAuth";
+import { optionalEnv } from "../config/env";
 import { saveSession } from "../lib/session";
 import { ErrorBanner, SuccessBanner } from "../components/Status";
 
-const GUEST_EMAIL = "guest_baskt3@example.com";
-const GUEST_PASSWORD = "Guestpass2026!";
+const GUEST_EMAIL = optionalEnv("GUEST_EMAIL", "");
+const GUEST_PASSWORD = optionalEnv("GUEST_PASSWORD", "");
+const HAS_GUEST_LOGIN = GUEST_EMAIL !== "" && GUEST_PASSWORD !== "";
 
 export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswordUrl }) {
   const [email, setEmail] = useState(() => localStorage.getItem("baskt.v3.lastEmail") || "");
@@ -44,6 +46,11 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
   }
 
   async function continueAsGuest() {
+    if (!HAS_GUEST_LOGIN) {
+      setError("Guest login is not configured.");
+      return;
+    }
+
     setEmail(GUEST_EMAIL);
     setPassword("");
     await loginWithCredentials(GUEST_EMAIL, GUEST_PASSWORD);
@@ -138,7 +145,7 @@ export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswor
               className="ghost-button"
               type="button"
               onClick={continueAsGuest}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !HAS_GUEST_LOGIN}
             >
               Continue as a Guest
             </button>
