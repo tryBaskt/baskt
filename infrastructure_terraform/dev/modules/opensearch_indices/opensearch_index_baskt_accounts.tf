@@ -2,6 +2,7 @@ resource "opensearch_index" "baskt_accounts" {
   name               = "${var.environment}-baskt-accounts"
   number_of_shards   = "1"
   number_of_replicas = "0"
+  force_destroy      = true
   analysis_normalizer = jsonencode({
     lowercase_normalizer = {
       type   = "custom"
@@ -29,7 +30,6 @@ resource "opensearch_index" "baskt_accounts" {
     # OpenSearch normalizers are immutable after index creation. The existing
     # dev index already has this normalizer, but the provider does not preserve
     # it reliably when importing the index, which otherwise forces replacement.
-    ignore_changes  = [analysis_normalizer]
-    prevent_destroy = true
+    ignore_changes = [analysis_normalizer]
   }
 }

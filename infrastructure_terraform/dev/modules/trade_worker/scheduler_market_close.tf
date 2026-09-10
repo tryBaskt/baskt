@@ -2,6 +2,7 @@ resource "aws_scheduler_schedule" "market_close" {
   name                         = "${var.environment}-trade-execution-close"
   schedule_expression          = "cron(58 15 ? * MON-FRI *)"
   schedule_expression_timezone = "America/New_York"
+  state                        = var.runtime_enabled ? "ENABLED" : "DISABLED"
 
   flexible_time_window {
     mode = "OFF"
