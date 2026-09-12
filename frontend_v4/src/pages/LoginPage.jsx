@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { completeNewPassword, signIn } from "../lib/cognitoAuth";
-import { optionalEnv } from "../config/env";
 import { saveSession } from "../lib/session";
 import { ErrorBanner, SuccessBanner } from "../components/Status";
 
-const GUEST_EMAIL = optionalEnv("GUEST_EMAIL", "");
-const GUEST_PASSWORD = optionalEnv("GUEST_PASSWORD", "");
+const GUEST_EMAIL = import.meta.env.GUEST_EMAIL?.trim() || "";
+const GUEST_PASSWORD = import.meta.env.GUEST_PASSWORD?.trim() || "";
 const HAS_GUEST_LOGIN = GUEST_EMAIL !== "" && GUEST_PASSWORD !== "";
 
 export default function LoginPage({ onAuthenticated, onShowSignup, forgotPasswordUrl }) {

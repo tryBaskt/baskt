@@ -561,7 +561,19 @@ jobs:
 
       - name: Build test frontend
         working-directory: frontend_v4
-        run: npm run build:test
+        env:
+          GUEST_EMAIL: ${{ secrets.GUEST_EMAIL }}
+          GUEST_PASSWORD: ${{ secrets.GUEST_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GUEST_EMAIL" || -z "$GUEST_PASSWORD" ]]; then
+            echo "GUEST_EMAIL and GUEST_PASSWORD must be configured for the test environment." >&2
+            exit 1
+          fi
+
+          npm run build:test
 
       - name: Upload versioned frontend assets
         run: |
