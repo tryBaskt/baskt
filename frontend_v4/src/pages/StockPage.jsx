@@ -4,6 +4,7 @@ import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDateTime, formatMetricNumber, percent } from "../lib/format";
+import { showTradeValidationError, validateTradeAmount } from "../lib/tradeValidation";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
 
 const PERIODS = ["1D", "1W", "1M", "3M", "1A", "all"];
@@ -203,14 +204,23 @@ export default function StockPage({ stockId, onBack }) {
     setSuccess("");
 
     const needsAmount = action !== "close";
-    const numericAmount = Number(amount);
-    if (needsAmount && (!Number.isFinite(numericAmount) || numericAmount <= 0)) {
-      setTradeError("Enter an amount greater than zero.");
-      return;
-    }
-    if (action === "sell" && !stock.shortable && numericAmount > sellLimit) {
-      setTradeError(`Sell amount cannot exceed ${currency(sellLimit)}.`);
-      return;
+    let validatedAmount = null;
+    if (needsAmount) {
+      try {
+        validatedAmount = await validateTradeAmount({
+          amount,
+          validateCash: action === "buy",
+        });
+        if (action === "sell" && !stock.shortable && validatedAmount > sellLimit) {
+          throw new Error(`Sell amount cannot exceed ${currency(sellLimit)}.`);
+        }
+      } catch (validationError) {
+        showTradeValidationError(
+          setTradeError,
+          validationError?.message || "Check the trade amount and try again."
+        );
+        return;
+      }
     }
 
     try {
@@ -219,7 +229,7 @@ export default function StockPage({ stockId, onBack }) {
         method: "POST",
       };
       if (needsAmount) {
-        requestOptions.body = JSON.stringify({ amount: numericAmount });
+        requestOptions.body = JSON.stringify({ amount: validatedAmount });
       }
       await apiRequest(`/trade-execution/stocks/${requestStockId}/${action}`, requestOptions);
       if (tradeRequestIdRef.current !== requestId || currentStockIdRef.current !== requestStockId) {

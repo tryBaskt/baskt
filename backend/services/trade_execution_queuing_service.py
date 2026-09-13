@@ -6,6 +6,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from inspect import signature
 from typing import Any, Dict, Optional
@@ -22,10 +23,12 @@ from repository.allocation_repository import AllocationRepository
 from repository.user_trade_lock_repository import UserTradeLockRepository
 from repository.model_portfolio_follower_repository import ModelPortfolioFollowerRepository
 from repository.model_portfolio_access_repository import ModelPortfolioAccessRepository
+from services.allocation_analytics_service import AllocationAnalyticsService
 from math import floor
 MINIMUM_PORTFOLIO_BALANCE = 1.0
 MINIMUM_STOCK_BALANCE = 1.0
 TRADE_AMOUNT_MIN = 10.0
+TRADE_AMOUNT_INCREMENT = Decimal("0.01")
 QUEUE_LOCK_LEASE_SECONDS = 30
 MARGIN = 0.000
 
@@ -318,18 +321,76 @@ class TradeExecutionQueuingService:
             alpaca_account_id=alpaca_account_id,
         )
 
-    @staticmethod
-    def _validate_amount(amount: float) -> None:
+    def _get_available_cash(self, *, cognito_user_id: str, alpaca_account_id: str) -> float:
+        allocation_analytics_service = AllocationAnalyticsService(
+            alpaca_broker_client=self.alpaca_broker_client,
+            allocation_repository=self.allocation_repository,
+        )
+        return allocation_analytics_service.get_cash(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+        )
+
+    def _validate_amount(
+        self,
+        amount: float,
+        *,
+        cognito_user_id: Optional[str] = None,
+        alpaca_account_id: Optional[str] = None,
+        validate_cash: bool = False,
+    ) -> float:
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
             raise TradeExecutionQueuingInternalServerError(
                 message="Trade amount must be numeric.",
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
+        try:
+            amount_decimal = Decimal(str(amount))
+        except InvalidOperation as error:
+            raise TradeExecutionQueuingInternalServerError(
+                message="Trade amount must be numeric.",
+                code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
+            ) from error
+
+        rounded_amount = amount_decimal.quantize(
+            TRADE_AMOUNT_INCREMENT,
+            rounding=ROUND_HALF_UP,
+        )
+        if amount_decimal != rounded_amount:
+            raise TradeExecutionQueuingInternalServerError(
+                message="Trade amount must have at most two decimal places.",
+                code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
+            )
+
+        amount = float(rounded_amount)
         if amount < TRADE_AMOUNT_MIN:
             raise TradeExecutionQueuingInternalServerError(
                 message=f"Trade amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_QUEUE_AMOUNT_INVALID",
             )
+
+        if validate_cash:
+            if not cognito_user_id or not alpaca_account_id:
+                raise TradeExecutionQueuingInternalServerError(
+                    message="Cognito user id and Alpaca account id are required to validate cash.",
+                    code="TRADE_EXECUTION_QUEUE_AMOUNT_CASH_VALIDATION_FAILED",
+                )
+
+            available_cash = self._get_available_cash(
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+            )
+            if float(amount) > available_cash:
+                raise TradeExecutionQueuingInternalServerError(
+                    message=(
+                        f"Trade amount ${float(amount):.2f} exceeds available cash "
+                        f"${available_cash:.2f}."
+                    ),
+                    code="TRADE_EXECUTION_QUEUE_AMOUNT_EXCEEDS_CASH",
+                )
+
+        return amount
+        
         
     def _validate_user_short_enabled(self, alpaca_account_id: str,  cognito_user_id: str) -> None:
         trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
@@ -443,7 +504,12 @@ class TradeExecutionQueuingService:
                 cognito_user_id=cognito_user_id,
                 alpaca_account_id=alpaca_account_id,
             )
-            self._validate_amount(amount)
+            amount = self._validate_amount(
+                amount,
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+                validate_cash=True,
+            )
             self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
 
             model_portfolio = self.model_portfolio_repository.get_model_portfolio(
@@ -556,7 +622,7 @@ class TradeExecutionQueuingService:
                     portfolio_id=portfolio_id
                 )
             )
-            self._validate_amount(amount)
+            amount = self._validate_amount(amount)
             allocation = self.allocation_repository.get_portfolio_allocation(
                 cognito_user_id=cognito_user_id,
                 allocation_id=portfolio_id,
@@ -705,7 +771,12 @@ class TradeExecutionQueuingService:
             cognito_user_id=cognito_user_id,
             alpaca_account_id=alpaca_account_id,
         )
-        self._validate_amount(amount)
+        amount = self._validate_amount(
+            amount,
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+            validate_cash=trade_direction == 1,
+        )
         stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
         symbol = stock.symbol.upper()
         if not stock.tradable or not stock.fractionable:
@@ -801,6 +872,7 @@ class TradeExecutionQueuingService:
     ) -> str:
         """Validate and queue a stock sell, including opening a short position."""
         try:
+            amount = self._validate_amount(amount)
             stock = self.alpaca_broker_client.get_stock_by_asset_id(asset_id=asset_id)
             symbol = stock.symbol.upper()
             impending_sell_amount = float(amount)

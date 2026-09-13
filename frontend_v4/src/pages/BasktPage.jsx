@@ -7,6 +7,7 @@ import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDate, formatDateTime, formatMetricNumber, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
+import { showTradeValidationError, validateTradeAmount } from "../lib/tradeValidation";
 
 function getReturnTone(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) {
@@ -262,10 +263,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
     setSuccess("");
 
     const needsAmount = action !== "withdraw-all";
-    if (needsAmount && Number(amount) <= 0) {
-      setError("Enter an amount greater than zero.");
-      return;
-    }
+    let validatedAmount = null;
 
     const endpoint =
       action === "deposit"
@@ -273,6 +271,21 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
         : action === "withdraw-all"
           ? "withdraw-all"
           : "withdrawal";
+
+    if (needsAmount) {
+      try {
+        validatedAmount = await validateTradeAmount({
+          amount,
+          validateCash: action === "deposit",
+        });
+      } catch (validationError) {
+        showTradeValidationError(
+          setError,
+          validationError?.message || "Check the trade amount and try again."
+        );
+        return;
+      }
+    }
 
     try {
       setIsSubmitting(true);
@@ -299,7 +312,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
         method: "POST",
       };
       if (needsAmount) {
-        requestOptions.body = JSON.stringify({ amount: Number(amount) });
+        requestOptions.body = JSON.stringify({ amount: validatedAmount });
       }
       await apiRequest(`/trade-execution/portfolios/${portfolioId}/${endpoint}`, requestOptions);
       setSuccess(`${action === "withdraw-all" ? "Withdraw all" : action} request submitted.`);
