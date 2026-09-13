@@ -30,6 +30,8 @@ Coverage goals:
   allocation and return persisted stock transaction snapshots in order.
 - get_all_active_allocation_analytics(): return cash, equity, equity graph, and
   active allocation rows.
+- get_all_active_allocation_analytics() and get_cash(): subtract remaining
+  pending request amounts from account cash.
 - get_all_active_allocation_analytics(): include active stock/portfolio
   allocations, skip inactive allocations, include open-order-only allocations at
   zero equity, calculate allocation equity percentages, include stock position
@@ -714,6 +716,109 @@ def test_stock_allocation_transaction_history_missing_and_persisted_order(
         _cleanup_allocations(
             allocation_dynamodb_client=allocation_dynamodb_client,
             allocations=[allocation],
+        )
+
+
+def test_cash_subtracts_remaining_pending_requests(
+    allocation_dynamodb_client: DynamoDBClient,
+    allocation_analytics_service: AllocationAnalyticsService,
+    test_user_1,
+) -> None:
+    cognito_user_id = _unique_user_id()
+    pending_portfolio_transactions = [
+        PortfolioAllocationTransactionSnapshot(
+            transaction_id=_unique_id("pending-portfolio-transaction"),
+            created_at=TIMESTAMP,
+            updated_at=TIMESTAMP,
+            requested_amount=125.0,
+            transaction_type="DEPOSIT",
+            status="QUEUED",
+        ),
+        PortfolioAllocationTransactionSnapshot(
+            transaction_id=_unique_id("partial-portfolio-transaction"),
+            created_at=TIMESTAMP,
+            updated_at=TIMESTAMP,
+            requested_amount=80.0,
+            transaction_type="DEPOSIT",
+            status="PARTIALLY_FILLED",
+            cost_basis=30.0,
+            order_fill_percent=50.0,
+        ),
+        PortfolioAllocationTransactionSnapshot(
+            transaction_id=_unique_id("filled-portfolio-transaction"),
+            created_at=TIMESTAMP,
+            updated_at=TIMESTAMP,
+            requested_amount=90.0,
+            transaction_type="DEPOSIT",
+            status="FULLY_FILLED",
+            cost_basis=90.0,
+        ),
+    ]
+    pending_stock_transactions = [
+        StockAllocationTransactionSnapshot(
+            transaction_id=_unique_id("pending-stock-transaction"),
+            created_at=TIMESTAMP,
+            updated_at=TIMESTAMP,
+            requested_amount=200.0,
+            transaction_type="BUY",
+            status="ORDERED",
+        ),
+        StockAllocationTransactionSnapshot(
+            transaction_id=_unique_id("partial-stock-transaction"),
+            created_at=TIMESTAMP,
+            updated_at=TIMESTAMP,
+            requested_amount=100.0,
+            transaction_type="BUY",
+            status="PARTIALLY_FILLED",
+            cost_basis=25.0,
+            order_fill_percent=25.0,
+        ),
+    ]
+    portfolio_allocation = _portfolio_allocation(
+        cognito_user_id=cognito_user_id,
+        total_cost_basis=0.0,
+        open_positions=False,
+        open_orders=True,
+        position_history=[],
+        transaction_history=pending_portfolio_transactions,
+    )
+    stock_allocation = _stock_allocation(
+        cognito_user_id=cognito_user_id,
+        total_cost_basis=0.0,
+        open_positions=False,
+        open_orders=True,
+        position_history=[],
+        transaction_history=pending_stock_transactions,
+    )
+    allocations = [portfolio_allocation, stock_allocation]
+
+    try:
+        for allocation in allocations:
+            _put_allocation(
+                allocation_dynamodb_client=allocation_dynamodb_client,
+                allocation=allocation,
+            )
+
+        trade_account = allocation_analytics_service.alpaca_broker_client.get_trade_account(
+            account_id=test_user_1.alpaca_account_id,
+            cognito_user_id=cognito_user_id,
+        )
+        expected_cash = float(trade_account.cash) - 450.0
+
+        assert allocation_analytics_service.get_cash(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=test_user_1.alpaca_account_id,
+        ) == pytest.approx(expected_cash)
+
+        analytics = allocation_analytics_service.get_all_active_allocation_analytics(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=test_user_1.alpaca_account_id,
+        )
+        assert analytics["cash"] == pytest.approx(expected_cash)
+    finally:
+        _cleanup_allocations(
+            allocation_dynamodb_client=allocation_dynamodb_client,
+            allocations=allocations,
         )
 
 
