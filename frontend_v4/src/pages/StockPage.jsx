@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
-import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
+import { EmptyState, ErrorBanner, LoadingState, SuccessBanner, ValidationModal } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDateTime, formatMetricNumber, percent } from "../lib/format";
-import { showTradeValidationError, validateTradeAmount } from "../lib/tradeValidation";
+import {
+  MINIMUM_STOCK_BALANCE,
+  showTradeValidationError,
+  validateTradeAmount,
+} from "../lib/tradeValidation";
 import { sortTransactionsNewestFirst } from "../lib/transactions";
 
 const PERIODS = ["1D", "1W", "1M", "3M", "1A", "all"];
@@ -26,6 +30,7 @@ export default function StockPage({ stockId, onBack }) {
   const [analyticsError, setAnalyticsError] = useState("");
   const [allocationError, setAllocationError] = useState("");
   const [tradeError, setTradeError] = useState("");
+  const [validationMessage, setValidationMessage] = useState("");
   const [success, setSuccess] = useState("");
   const [activeTradeTab, setActiveTradeTab] = useState("buy");
   const [isStockLoading, setIsStockLoading] = useState(true);
@@ -139,6 +144,7 @@ export default function StockPage({ stockId, onBack }) {
     setAnalyticsError("");
     setAllocationError("");
     setTradeError("");
+    setValidationMessage("");
     setSuccess("");
     setAmount("");
     setIsStockLoading(true);
@@ -201,6 +207,7 @@ export default function StockPage({ stockId, onBack }) {
     const requestId = tradeRequestIdRef.current + 1;
     tradeRequestIdRef.current = requestId;
     setTradeError("");
+    setValidationMessage("");
     setSuccess("");
 
     const needsAmount = action !== "close";
@@ -214,9 +221,21 @@ export default function StockPage({ stockId, onBack }) {
         if (action === "sell" && !stock.shortable && validatedAmount > sellLimit) {
           throw new Error(`Sell amount cannot exceed ${currency(sellLimit)}.`);
         }
+        if (
+          ((action === "sell" && isLongPosition) || (action === "buy" && isShortPosition)) &&
+          validatedAmount > sellLimit
+        ) {
+          const projectedEquity = validatedAmount - sellLimit;
+          if (projectedEquity < MINIMUM_STOCK_BALANCE) {
+            throw new Error(
+              `${action === "sell" ? "Sell" : "Buy"} would leave ${currency(projectedEquity)}; close the position or retain at least ${currency(MINIMUM_STOCK_BALANCE)}.`
+            );
+          }
+        }
       } catch (validationError) {
         showTradeValidationError(
           setTradeError,
+          setValidationMessage,
           validationError?.message || "Check the trade amount and try again."
         );
         return;
@@ -279,6 +298,10 @@ export default function StockPage({ stockId, onBack }) {
       <ErrorBanner message={allocationError} />
       <ErrorBanner message={tradeError} />
       <SuccessBanner message={success} />
+      <ValidationModal
+        message={validationMessage}
+        onClose={() => setValidationMessage("")}
+      />
 
       <div className="investment-console-grid">
         <main className="investment-main">
