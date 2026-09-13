@@ -95,6 +95,7 @@ class ModelPortfolioAnalyticsResponse(RootModel[Dict[str, ModelPortfolioAnalytic
 class ModelPortfolioMetadataResponse(BaseModel):
     portfolio_id: str
     portfolio_owner_cognito_user_id: str
+    portfolio_owner_display_name: Optional[str] = None
     portfolio_name: str
     created_at: str
     updated_at: str
