@@ -2,15 +2,16 @@ import { apiRequest } from "./api";
 import { currency } from "./format";
 
 export const TRADE_AMOUNT_MIN = 10;
+export const MINIMUM_STOCK_BALANCE = 1;
 
 function getDecimalPlaces(value) {
   const [, fraction = ""] = String(value).trim().split(".");
   return fraction.length;
 }
 
-export function showTradeValidationError(setError, message) {
+export function showTradeValidationError(setError, setValidationMessage, message) {
   setError(message);
-  window.alert(message);
+  setValidationMessage(message);
 }
 
 export async function validateTradeAmount({ amount, validateCash = false }) {

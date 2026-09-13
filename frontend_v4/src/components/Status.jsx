@@ -28,6 +28,34 @@ export function SuccessBanner({ message }) {
   return <Toast message={message} tone="success" />;
 }
 
+export function ValidationModal({ message, onClose }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="validation-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div
+        className="validation-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="validation-modal-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="validation-modal-header">
+          <h2 id="validation-modal-title">Trade needs a quick fix</h2>
+          <p>{message}</p>
+        </div>
+        <div className="validation-modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>
+            Go back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Toast({ message, tone }) {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -51,7 +79,7 @@ function Toast({ message, tone }) {
 
   return (
     <div className={`toast toast-${tone}`} role={tone === "error" ? "alert" : "status"} aria-live="polite">
-      {tone === "error" ? "Error" : message}
+      {message}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import EquityChart from "../components/EquityChart";
 import MetricCell, { METRIC_EXPLANATIONS } from "../components/MetricCell";
 import PositionsTable from "../components/PositionsTable";
-import { EmptyState, ErrorBanner, LoadingState, SuccessBanner } from "../components/Status";
+import { EmptyState, ErrorBanner, LoadingState, SuccessBanner, ValidationModal } from "../components/Status";
 import { apiRequest, toQuery } from "../lib/api";
 import { currency, formatDate, formatDateTime, formatMetricNumber, percent } from "../lib/format";
 import { getCurrentUserClaims } from "../lib/session";
@@ -26,6 +26,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
   const [error, setError] = useState("");
   const [allocationError, setAllocationError] = useState("");
   const [modelAnalyticsError, setModelAnalyticsError] = useState("");
+  const [validationMessage, setValidationMessage] = useState("");
   const [success, setSuccess] = useState("");
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [accesses, setAccesses] = useState([]);
@@ -260,6 +261,7 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
 
   async function executeTrade(action) {
     setError("");
+    setValidationMessage("");
     setSuccess("");
 
     const needsAmount = action !== "withdraw-all";
@@ -278,9 +280,16 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
           amount,
           validateCash: action === "deposit",
         });
+        if (action === "withdraw") {
+          const allocationEquity = Number(allocationAnalytics?.equity);
+          if (Number.isFinite(allocationEquity) && validatedAmount > allocationEquity) {
+            throw new Error(`Withdraw amount cannot exceed ${currency(allocationEquity)}.`);
+          }
+        }
       } catch (validationError) {
         showTradeValidationError(
           setError,
+          setValidationMessage,
           validationError?.message || "Check the trade amount and try again."
         );
         return;
@@ -347,6 +356,10 @@ export default function BasktPage({ portfolioId, onBack, onUpdate, onOpenUser })
       <ErrorBanner message={error} />
       <SuccessBanner message={success} />
       <ErrorBanner message={allocationError} />
+      <ValidationModal
+        message={validationMessage}
+        onClose={() => setValidationMessage("")}
+      />
 
       <div className="investment-console-grid">
         <main className="investment-main">
