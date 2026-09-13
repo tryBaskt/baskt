@@ -266,3 +266,18 @@ def get_stock_allocation_analytics(
 
 	except Exception as e:
 		_raise_allocation_analytics_http_exception(err=e)
+
+@router.get("/cash", response_model=float, status_code=HTTP_200_OK)
+def get_cash(
+	baskt_account: BasktAccount = Depends(get_current_baskt_account),
+	allocation_analytics_service: AllocationAnalyticsService = Depends(get_allocation_analytics_service)
+) -> float:
+
+	try:
+		cognito_user_id = get_cognito_user_id(baskt_account)
+		alpaca_account_id = get_alpaca_account_id(baskt_account)
+		return allocation_analytics_service.get_cash(cognito_user_id=cognito_user_id, alpaca_account_id=alpaca_account_id)
+
+	except Exception as e:
+		_raise_allocation_analytics_http_exception(err=e)
+

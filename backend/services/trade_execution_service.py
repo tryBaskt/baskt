@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 from domain.allocation_domain import (
@@ -25,6 +26,7 @@ from alpaca.trading.models import Order
 import uuid
 from math import floor, ceil
 from clients.alpaca_broker_client import AlpacaBrokerClient
+from services.allocation_analytics_service import AllocationAnalyticsService
 from copy import deepcopy
 MARGIN = 0.000
 EPS = 1e-6
@@ -34,6 +36,7 @@ MINIMUM_PORTFOLIO_BALANCE = 1.0
 MINIMUM_STOCK_BALANCE = 1.0
 
 TRADE_AMOUNT_MIN = 10.0
+TRADE_AMOUNT_INCREMENT = Decimal("0.01")
 
 class TradeExecutionInternalServerError(Exception):
 	def __init__(self, message: str, code: str = "TRADE_EXECUTION_SERVICE_ERROR") -> None:
@@ -72,18 +75,97 @@ class TradeExecutionService:
 
     # Shared execution and reconciliation helpers
 
-    def _validate_amount(self, amount: float) -> None:
+    def _get_available_cash_for_execution(
+        self,
+        *,
+        cognito_user_id: str,
+        alpaca_account_id: str,
+        allocation_id: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> float:
+        allocation_analytics_service = AllocationAnalyticsService(
+            alpaca_broker_client=self.alpaca_broker_client,
+            allocation_repository=self.allocation_repository,
+        )
+        available_cash = allocation_analytics_service.get_cash(
+            cognito_user_id=cognito_user_id,
+            alpaca_account_id=alpaca_account_id,
+        )
+
+        if not allocation_id or not transaction_id:
+            return available_cash
+
+        allocation = self.allocation_repository.get_allocation(
+            cognito_user_id=cognito_user_id,
+            allocation_id=allocation_id,
+        )
+        transaction = self._find_transaction(allocation, transaction_id)
+        return available_cash + allocation_analytics_service._pending_request_amount(transaction)
+
+    def _validate_amount(
+        self,
+        amount: float,
+        *,
+        cognito_user_id: Optional[str] = None,
+        alpaca_account_id: Optional[str] = None,
+        allocation_id: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+        validate_cash: bool = False,
+    ) -> float:
         """Validate the minimum numeric amount accepted for trade execution."""
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
             raise TradeExecutionInternalServerError(
                 message="Trade execution amount must be numeric.",
                 code="TRADE_EXECUTION_AMOUNT_INVALID",
             )
+        try:
+            amount_decimal = Decimal(str(amount))
+        except InvalidOperation as error:
+            raise TradeExecutionInternalServerError(
+                message="Trade execution amount must be numeric.",
+                code="TRADE_EXECUTION_AMOUNT_INVALID",
+            ) from error
+
+        rounded_amount = amount_decimal.quantize(
+            TRADE_AMOUNT_INCREMENT,
+            rounding=ROUND_HALF_UP,
+        )
+        if amount_decimal != rounded_amount:
+            raise TradeExecutionInternalServerError(
+                message="Trade execution amount must have at most two decimal places.",
+                code="TRADE_EXECUTION_AMOUNT_INVALID",
+            )
+
+        amount = float(rounded_amount)
         if amount < TRADE_AMOUNT_MIN:
             raise TradeExecutionInternalServerError(
                 message=f"Trade execution amount must be at least ${TRADE_AMOUNT_MIN:.2f}.",
                 code="TRADE_EXECUTION_AMOUNT_INVALID",
             )
+
+        if validate_cash:
+            if not cognito_user_id or not alpaca_account_id:
+                raise TradeExecutionInternalServerError(
+                    message="Cognito user id and Alpaca account id are required to validate cash.",
+                    code="TRADE_EXECUTION_AMOUNT_CASH_VALIDATION_FAILED",
+                )
+
+            available_cash = self._get_available_cash_for_execution(
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+                allocation_id=allocation_id,
+                transaction_id=transaction_id,
+            )
+            if float(amount) > available_cash:
+                raise TradeExecutionInternalServerError(
+                    message=(
+                        f"Trade execution amount ${float(amount):.2f} exceeds available cash "
+                        f"${available_cash:.2f}."
+                    ),
+                    code="TRADE_EXECUTION_AMOUNT_EXCEEDS_CASH",
+                )
+
+        return amount
         
     def _validate_user_short_enabled(self, alpaca_account_id: str,  cognito_user_id: str) -> None:
         trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
@@ -853,7 +935,7 @@ class TradeExecutionService:
 
         owner_token = str(uuid.uuid4())
         try:
-            self._validate_amount(withdraw_amount)
+            withdraw_amount = self._validate_amount(withdraw_amount)
             acquired = self.user_trade_lock_repository.acquire_lock(
                 cognito_user_id=cognito_user_id,
                 owner_token=owner_token,
@@ -1177,7 +1259,14 @@ class TradeExecutionService:
 
         owner_token = str(uuid.uuid4())
         try:
-            self._validate_amount(deposit_amount)
+            deposit_amount = self._validate_amount(
+                deposit_amount,
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+                allocation_id=portfolio_id,
+                transaction_id=transaction_id,
+                validate_cash=True,
+            )
             self._validate_user_short_enabled(alpaca_account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
             acquired = self.user_trade_lock_repository.acquire_lock(
                 cognito_user_id=cognito_user_id,
@@ -1424,7 +1513,7 @@ class TradeExecutionService:
 
         owner_token = str(uuid.uuid4())
         try:
-            self._validate_amount(withdraw_amount)
+            withdraw_amount = self._validate_amount(withdraw_amount)
             acquired = self.user_trade_lock_repository.acquire_lock(
                 cognito_user_id=cognito_user_id,
                 owner_token=owner_token,
@@ -1543,7 +1632,14 @@ class TradeExecutionService:
 
         owner_token = str(uuid.uuid4())
         try:
-            self._validate_amount(deposit_amount)
+            deposit_amount = self._validate_amount(
+                deposit_amount,
+                cognito_user_id=cognito_user_id,
+                alpaca_account_id=alpaca_account_id,
+                allocation_id=stock_id,
+                transaction_id=transaction_id,
+                validate_cash=True,
+            )
             acquired = self.user_trade_lock_repository.acquire_lock(
                 cognito_user_id=cognito_user_id,
                 owner_token=owner_token,
