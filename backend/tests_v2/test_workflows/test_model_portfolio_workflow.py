@@ -1628,9 +1628,16 @@ def test_model_portfolio_route_access_add_list_shared_remove_workflow(
 
         shared_response = shared_client.get("/model-portfolios/shared-with-me")
         assert shared_response.status_code == 200
-        assert portfolio_id in {
-            portfolio["portfolio_id"] for portfolio in shared_response.json()
-        }
+        shared_portfolio = next(
+            portfolio
+            for portfolio in shared_response.json()
+            if portfolio["portfolio_id"] == portfolio_id
+        )
+        assert shared_portfolio["portfolio_owner_display_name"] == (
+            baskt_account_repository.get_display_name(
+                cognito_user_id=test_user_1.cognito_user_id
+            )
+        )
 
         shared_get_response = shared_client.get(f"/model-portfolios/{portfolio_id}")
         assert shared_get_response.status_code == 200
