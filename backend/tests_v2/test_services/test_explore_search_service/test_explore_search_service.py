@@ -41,7 +41,7 @@ Coverage / scenarios:
   account-only queries each return their matching result type without breaking
   the others.
 - search_model_portfolios_and_stocks(): limit/offset pagination applies to
-  model portfolio and Baskt account OpenSearch result sets independently.
+  model portfolio and Baskt account DynamoDB search result sets independently.
 - search_model_portfolios_and_stocks(): invalid pagination raises model
   portfolio validation errors before downstream searches run.
 - search_model_portfolios_and_stocks(): whitespace-padded lowercase AAPL query
@@ -263,14 +263,14 @@ def test_explore_search_model_portfolios_and_stocks_blank_query_returns_empty_sh
     )
 
     assert set(response) == {
-        "model_portfolios_opensearch_result",
+        "model_portfolios_search_result",
         "stocks_search_result",
-        "baskt_accounts_opensearch_result",
+        "baskt_accounts_search_result",
     }
 
-    model_portfolios_response = response["model_portfolios_opensearch_result"]
+    model_portfolios_response = response["model_portfolios_search_result"]
     stocks_response = response["stocks_search_result"]
-    accounts_response = response["baskt_accounts_opensearch_result"]
+    accounts_response = response["baskt_accounts_search_result"]
 
     assert model_portfolios_response.model_portfolios == []
     assert model_portfolios_response.total == 0
@@ -317,17 +317,17 @@ def test_explore_search_model_portfolios_and_stocks_returns_stock_only_result(
     )
 
     assert set(response) == {
-        "model_portfolios_opensearch_result",
+        "model_portfolios_search_result",
         "stocks_search_result",
-        "baskt_accounts_opensearch_result",
+        "baskt_accounts_search_result",
     }
     stocks_response = response["stocks_search_result"]
     assert len(stocks_response) == 1
     assert stocks_response[0].symbol == "SPY"
-    assert response["model_portfolios_opensearch_result"].limit == 10
-    assert response["model_portfolios_opensearch_result"].offset == 0
-    assert response["baskt_accounts_opensearch_result"].limit == 10
-    assert response["baskt_accounts_opensearch_result"].offset == 0
+    assert response["model_portfolios_search_result"].limit == 10
+    assert response["model_portfolios_search_result"].offset == 0
+    assert response["baskt_accounts_search_result"].limit == 10
+    assert response["baskt_accounts_search_result"].offset == 0
 
 
 @pytest.mark.integration
@@ -555,10 +555,10 @@ def test_explore_search_model_portfolios_and_stocks_returns_all_result_types_for
                 )
             )
             portfolio_results = combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
             account_results = combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
             stock_results = combined_response["stocks_search_result"]
 
@@ -581,9 +581,9 @@ def test_explore_search_model_portfolios_and_stocks_returns_all_result_types_for
 
         stock_results = combined_response["stocks_search_result"]
         portfolio_response = combined_response[
-            "model_portfolios_opensearch_result"
+            "model_portfolios_search_result"
         ]
-        account_response = combined_response["baskt_accounts_opensearch_result"]
+        account_response = combined_response["baskt_accounts_search_result"]
 
         stock_result = next(stock for stock in stock_results if stock.symbol == "AAPL")
         portfolio_result = next(
@@ -674,10 +674,10 @@ def test_explore_search_model_portfolios_and_stocks_returns_portfolio_and_accoun
                 )
             )
             portfolio_results = combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
             account_results = combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
             return (
                 any(
@@ -699,13 +699,13 @@ def test_explore_search_model_portfolios_and_stocks_returns_portfolio_and_accoun
         assert any(
             portfolio.portfolio_id == portfolio_id
             for portfolio in combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
         )
         assert any(
             result.cognito_user_id == account.cognito_user_id
             for result in combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
         )
     finally:
@@ -754,7 +754,7 @@ def test_explore_search_model_portfolios_and_stocks_returns_portfolio_only_resul
             return any(
                 portfolio.portfolio_id == portfolio_id
                 for portfolio in combined_response[
-                    "model_portfolios_opensearch_result"
+                    "model_portfolios_search_result"
                 ].model_portfolios
             )
 
@@ -767,13 +767,13 @@ def test_explore_search_model_portfolios_and_stocks_returns_portfolio_only_resul
         assert any(
             portfolio.portfolio_id == portfolio_id
             for portfolio in combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
         )
         assert not any(
             account.display_name == query
             for account in combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
         )
     finally:
@@ -821,7 +821,7 @@ def test_explore_search_model_portfolios_and_stocks_returns_account_only_result(
             return any(
                 result.cognito_user_id == account.cognito_user_id
                 for result in combined_response[
-                    "baskt_accounts_opensearch_result"
+                    "baskt_accounts_search_result"
                 ].baskt_accounts
             )
 
@@ -834,13 +834,13 @@ def test_explore_search_model_portfolios_and_stocks_returns_account_only_result(
         assert not any(
             portfolio.portfolio_name == query
             for portfolio in combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
         )
         assert any(
             result.cognito_user_id == account.cognito_user_id
             for result in combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
         )
     finally:
@@ -899,14 +899,14 @@ def test_explore_search_model_portfolios_and_stocks_paginates_portfolios_and_acc
             found_portfolio_ids = {
                 portfolio.portfolio_id
                 for portfolio in response[
-                    "model_portfolios_opensearch_result"
+                    "model_portfolios_search_result"
                 ].model_portfolios
                 if portfolio.portfolio_id in portfolio_id_set
             }
             found_account_ids = {
                 account.cognito_user_id
                 for account in response[
-                    "baskt_accounts_opensearch_result"
+                    "baskt_accounts_search_result"
                 ].baskt_accounts
                 if account.cognito_user_id in account_ids
             }
@@ -934,17 +934,17 @@ def test_explore_search_model_portfolios_and_stocks_paginates_portfolios_and_acc
         first_five_portfolio_ids = {
             portfolio.portfolio_id
             for portfolio in first_five[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
         }
         first_five_account_ids = {
             account.cognito_user_id
             for account in first_five[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
         }
-        middle_portfolios = middle_page["model_portfolios_opensearch_result"]
-        middle_accounts = middle_page["baskt_accounts_opensearch_result"]
+        middle_portfolios = middle_page["model_portfolios_search_result"]
+        middle_accounts = middle_page["baskt_accounts_search_result"]
 
         middle_portfolio_ids = {
             portfolio.portfolio_id for portfolio in middle_portfolios.model_portfolios
@@ -1029,13 +1029,13 @@ def test_explore_search_model_portfolios_and_stocks_normalizes_whitespace_and_ca
                 and any(
                     portfolio.portfolio_id == portfolio_id
                     for portfolio in combined_response[
-                        "model_portfolios_opensearch_result"
+                        "model_portfolios_search_result"
                     ].model_portfolios
                 )
                 and any(
                     result.cognito_user_id == account.cognito_user_id
                     for result in combined_response[
-                        "baskt_accounts_opensearch_result"
+                        "baskt_accounts_search_result"
                     ].baskt_accounts
                 )
             )
@@ -1052,13 +1052,13 @@ def test_explore_search_model_portfolios_and_stocks_normalizes_whitespace_and_ca
         assert any(
             portfolio.portfolio_id == portfolio_id
             for portfolio in combined_response[
-                "model_portfolios_opensearch_result"
+                "model_portfolios_search_result"
             ].model_portfolios
         )
         assert any(
             result.cognito_user_id == account.cognito_user_id
             for result in combined_response[
-                "baskt_accounts_opensearch_result"
+                "baskt_accounts_search_result"
             ].baskt_accounts
         )
     finally:

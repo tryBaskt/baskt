@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from dataclasses import is_dataclass
 
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from clients.dynamodb_client import (
@@ -96,6 +96,26 @@ class BasktAccountRepository:
 
     def __init__(self, dynamodb_client: DynamoDBClient) -> None:
         self.dynamodb = dynamodb_client
+
+    def get_search_metadata(self) -> list[dict[str, Any]]:
+        """Read only public profile fields; never return identity/contact data."""
+        try:
+            return self.dynamodb.scan_all(
+                filter_expression=Attr("display_name").exists(),
+                ProjectionExpression="#id, #name, #description, #image",
+                ExpressionAttributeNames={
+                    "#id": "cognito_user_id",
+                    "#name": "display_name",
+                    "#description": "description",
+                    "#image": "profile_image",
+                },
+            )
+        except DynamoDBClientError as error:
+            raise BasktAccountBadGatewayError(
+                operation="reading search metadata",
+                cognito_user_id="search",
+                cause=error,
+            ) from error
 
     def write_baskt_account(self, baskt_account: BasktAccount) -> None:
         """Write the complete Baskt account as one DynamoDB item.

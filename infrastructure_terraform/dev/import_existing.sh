@@ -11,14 +11,6 @@ if [[ "$account_id" != "499133675835" ]]; then
   exit 1
 fi
 
-opensearch_endpoint="$(
-  aws opensearch describe-domain \
-    --domain-name dev-model-portfolio-search \
-    --query DomainStatus.Endpoint \
-    --output text
-)"
-export TF_VAR_opensearch_endpoint_override="$opensearch_endpoint"
-
 worker_image_uri="$(
   aws lambda get-function \
     --function-name dev-trade-execution-queue-worker \
@@ -54,13 +46,6 @@ queue_url() {
   aws sqs get-queue-url --queue-name "$1" --query QueueUrl --output text
 }
 
-stream_arn() {
-  aws dynamodb describe-table \
-    --table-name "$1" \
-    --query Table.LatestStreamArn \
-    --output text
-}
-
 mapping_uuid() {
   aws lambda list-event-source-mappings \
     --function-name "$1" \
@@ -68,10 +53,6 @@ mapping_uuid() {
     --query 'EventSourceMappings[0].UUID' \
     --output text
 }
-
-import_resource \
-  module.opensearch_domain.aws_opensearch_domain.model_portfolio_search \
-  dev-model-portfolio-search
 
 import_resource module.dynamodb.aws_dynamodb_table.baskt_account \
   dev-baskt-account-dynamodb
@@ -93,33 +74,6 @@ import_resource module.queues.aws_sqs_queue.trade_execution_dlq \
   "$(queue_url dev-trade-execution-dlq)"
 import_resource module.queues.aws_sqs_queue.trade_execution \
   "$(queue_url dev-trade-execution-queue)"
-
-import_resource module.opensearch_indices.opensearch_index.baskt_accounts \
-  dev-baskt-accounts
-import_resource module.opensearch_indices.opensearch_index.model_portfolios \
-  dev-model-portfolios
-
-import_resource module.search_indexers.aws_iam_role.baskt_account_search \
-  dev-baskt-account-search-indexer-role
-import_resource module.search_indexers.aws_iam_role_policy.baskt_account_search \
-  dev-baskt-account-search-indexer-role:dev-baskt-account-search-indexer-opensearch
-import_resource module.search_indexers.aws_lambda_function.baskt_account_search_indexer \
-  dev-baskt-account-search-indexer
-import_resource module.search_indexers.aws_lambda_event_source_mapping.baskt_account_search \
-  "$(mapping_uuid \
-    dev-baskt-account-search-indexer \
-    "$(stream_arn dev-baskt-account-dynamodb)")"
-
-import_resource module.search_indexers.aws_iam_role.model_portfolio_search \
-  dev-model-portfolio-search-indexer-role
-import_resource module.search_indexers.aws_iam_role_policy.model_portfolio_search \
-  dev-model-portfolio-search-indexer-role:dev-model-portfolio-search-indexer-opensearch
-import_resource module.search_indexers.aws_lambda_function.model_portfolio_search_indexer \
-  dev-model-portfolio-search-indexer
-import_resource module.search_indexers.aws_lambda_event_source_mapping.model_portfolio_search \
-  "$(mapping_uuid \
-    dev-model-portfolio-search-indexer \
-    "$(stream_arn dev-model-portfolio-dynamodb)")"
 
 import_resource module.trade_worker.aws_iam_role.trade_worker \
   dev-trade-execution-queue-worker-role
