@@ -14,7 +14,6 @@ from services.backtest_analytics_service import BacktestService
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from clients.cognito_client import CognitoClient
 from clients.dynamodb_client import DynamoDBClient
-from clients.opensearch_client import OpenSearchClient
 from clients.vectorbt_client import VectorBTClient
 from repository.model_portfolio_repository import ModelPortfolioRepository
 from services.trade_execution_service import TradeExecutionService
@@ -164,16 +163,6 @@ def get_cognito_client() -> CognitoClient:
         cognito_client=cognito_idp_client,
     )
 
-@lru_cache
-def get_opensearch_client() -> OpenSearchClient:
-    s = get_settings()
-    return OpenSearchClient(
-        session=get_boto3_session(),
-        region=s.aws_region,
-        domain_name=s.opensearch_domain_name,
-        index_name=s.model_portfolio_search_index,
-    )
-
 # -----------------------------
 # Repository
 # -----------------------------
@@ -302,7 +291,9 @@ def get_account_lifecycle_service(
     )
 
 def get_trade_execution_service(
-    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(
+        get_model_portfolio_repository
+    ),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     allocation_repository: AllocationRepository = Depends(get_allocation_repository),
     order_repository: OrderRepository = Depends(get_order_repository),
@@ -390,16 +381,14 @@ def get_stock_analytics_service(
 
 @lru_cache
 def get_explore_search_service(
-    opensearch_client: OpenSearchClient = Depends(get_opensearch_client),
+    model_portfolio_repository: ModelPortfolioRepository = Depends(get_model_portfolio_repository),
     alpaca_broker_client: AlpacaBrokerClient = Depends(get_alpaca_broker_client),
     baskt_account_repository: BasktAccountRepository = Depends(
         get_baskt_account_repository
     ),
 ) -> ExploreSearchService:
-    s = get_settings()
     return ExploreSearchService(
-        opensearch_client=opensearch_client,
+        model_portfolio_repository=model_portfolio_repository,
         alpaca_broker_client=alpaca_broker_client,
         baskt_account_repository=baskt_account_repository,
-        baskt_account_search_index=s.baskt_account_search_index,
     )
