@@ -25,12 +25,6 @@ variable "trade_worker_image_uri" {
   }
 }
 
-variable "opensearch_endpoint_override" {
-  description = "Existing dev domain endpoint used during initial import. Leave empty after the domain is in Terraform state."
-  type        = string
-  default     = ""
-}
-
 variable "trade_worker_environment" {
   description = "Additional worker environment variables. Sensitive values are stored in encrypted Terraform state."
   type        = map(string)

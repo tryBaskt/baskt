@@ -28,7 +28,7 @@ pytestmark = pytest.mark.integration
 
 """
 These workflow tests exercise explore_search_route.py through FastAPI's
-TestClient while keeping auth, repository, OpenSearch, Alpaca, and search
+TestClient while keeping auth, repository, DynamoDB, Alpaca, and search
 service dependencies wired to the real tests_v2 integration stack.
 
 Coverage goals:

@@ -13,19 +13,13 @@ infrastructure_terraform/
 │   └── modules/
 │       ├── dynamodb/
 │       ├── ecr/
-│       ├── opensearch_domain/
-│       ├── opensearch_indices/
 │       ├── queues/
-│       ├── search_indexers/
 │       └── trade_worker/
 └── test/                   # New test environment, test-* resources
     └── modules/
         ├── dynamodb/
         ├── ecr/
-        ├── opensearch_domain/
-        ├── opensearch_indices/
         ├── queues/
-        ├── search_indexers/
         └── trade_worker/
 ```
 
@@ -46,12 +40,7 @@ terraform init \
 
 terraform import module.dynamodb.aws_dynamodb_table.baskt_account dev-baskt-account-dynamodb
 terraform import module.dynamodb.aws_dynamodb_table.model_portfolio dev-model-portfolio-dynamodb
-terraform import module.opensearch_domain.aws_opensearch_domain.model_portfolio_search dev-model-portfolio-search
 ```
-
-Set `opensearch_endpoint_override` to the existing hostname during this initial
-import so the OpenSearch provider can connect before the domain is represented
-in Terraform state. It can be removed afterward.
 
 Continue importing the queues, Lambdas, IAM roles, schedules, event-source
 mappings, ECR repository, and remaining tables. Then run `terraform plan` and
@@ -103,7 +92,7 @@ GitHub Actions, run **Deploy Dev Infrastructure with Terraform** manually with:
 The workflow creates a `terraform plan -destroy` plan and applies that exact
 plan. Before creating the destroy plan, it applies the current dev Cognito user
 pool configuration so Cognito deletion protection is inactivated first. Cognito
-deletion protection is disabled in the dev root, OpenSearch and DynamoDB
+deletion protection is disabled in the dev root, DynamoDB
 `prevent_destroy` guards are removed, and the dev ECR repository is set to
 `force_delete` so stored images do not block teardown.
 
@@ -146,3 +135,54 @@ Do not commit real `.tfvars` files if they contain secrets. Sensitive Terraform
 input is still stored in Terraform state, so the state bucket must use
 encryption, versioning, strict IAM access, and locking. Migrating runtime
 secrets to AWS Secrets Manager is recommended before production.
+
+## DynamoDB search and OpenSearch retirement
+
+Explore reads all pages of model portfolio and account metadata directly from
+DynamoDB. Matching is case-insensitive across names and descriptions, with exact
+names and name prefixes ranked first. Offset/limit pagination and the HTTP
+response fields are unchanged. Stock symbol lookup still uses Alpaca.
+
+Search reads existing records immediately without a backfill, refresh job,
+DynamoDB stream consumer, or search index. The account projection excludes
+identity, contact, agreement, disclosure, and brokerage account fields.
+Portfolio search keeps the existing visibility behavior; detail routes still
+enforce access permissions.
+
+Each search scans the table, so read cost and latency grow with the data.
+Projection limits the fields transferred, but does not reduce DynamoDB read
+capacity charges. This implementation has no fuzzy/typo matching.
+For a substantially larger catalog, design normalized prefix/token keys and
+GSIs around the required access patterns before increasing search traffic.
+
+The test GitHub workflow stages the transition:
+1. If legacy search resources remain in state, apply active infrastructure
+   targets while preserving the old search domain and indexers.
+2. Build and deploy the DynamoDB-backed backend, then wait for ECS stability
+   and a successful health check.
+3. Run a full Terraform plan/apply to delete the old OpenSearch domain and
+   search indexer Lambdas, event source mappings, IAM roles/policies, and any
+   managed indexer log groups.
+
+After Terraform initialization, `prepare_search_state.sh` detaches obsolete
+index entries and indexer archive data sources from Terraform state. It does
+not contact the search endpoint or delete AWS data. The domain, Lambda, and IAM
+resources stay tracked so a full plan can delete them. Deleting the domain
+also deletes its backing indices and aliases.
+
+There are no search-engine provider declarations, lock entries, modules, or
+runtime dependencies remaining. For a manual deployment, run the state cleanup
+after initializing the correct environment/backend and before planning:
+
+```bash
+bash infrastructure_terraform/prepare_search_state.sh infrastructure_terraform/test
+```
+
+This step is idempotent and only matches the obsolete index resources and
+indexer archive data sources. Existing DynamoDB records need no migration.
+
+For dev, deploy/restart the backend with the new code before a full
+infrastructure apply. Review the plan: only the retired search infrastructure
+should be deleted as part of this migration; DynamoDB tables and their records
+must remain. No Terraform apply or live deletion is performed by editing this
+repository.
