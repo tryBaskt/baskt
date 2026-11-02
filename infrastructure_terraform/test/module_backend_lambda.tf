@@ -1,5 +1,5 @@
-module "backend_ecs" {
-  source = "./modules/backend_ecs"
+module "backend_lambda" {
+  source = "./modules/backend_lambda"
 
   environment               = var.environment
   aws_region                = var.aws_region
