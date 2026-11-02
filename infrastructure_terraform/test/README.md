@@ -75,3 +75,30 @@ python -m pytest --noconftest -o addopts= backend/tests_v2/test_lambda_startup.p
 terraform -chdir=infrastructure_terraform/test fmt -check -recursive
 terraform -chdir=infrastructure_terraform/test validate
 ```
+
+## Recovering an interrupted ECS-to-Lambda migration
+
+If API Gateway creation fails with `AccessDeniedException`, add the supplemental
+policy in `github_api_gateway_policy.json` to `test-baskt-terraform-github` using
+an identity authorized to manage that role. From the repository root:
+
+```bash
+aws iam put-role-policy \
+  --role-name test-baskt-terraform-github \
+  --policy-name TestBackendApiGateway \
+  --policy-document file://infrastructure_terraform/test/github_api_gateway_policy.json
+```
+
+This policy adds regional API management, the test custom domain, and tagging
+permissions; it supplements the role's existing permissions. API IDs are assigned
+at creation, so API management covers APIs in `us-east-1`. API Gateway control-plane
+ARNs have an empty account component. Provider default tags require access to the
+`/tags/*` resource path as well as `/apis/*` and `/domainnames`.
+
+Rerun **Deploy Test Environment** after updating the role. Start a new workflow run
+so Terraform creates a fresh plan and refreshes resources after the partial apply;
+do not reuse the failed run's saved `tfplan`. A `ListenerNotFound` deletion error
+means the listener was already absent when deletion was attempted. The next plan
+should reconcile the missing listener. If it still fails, inspect current AWS
+listeners and Terraform state before making any manual state changes. Do not
+remove the whole backend module from state: it also owns preserved resources.

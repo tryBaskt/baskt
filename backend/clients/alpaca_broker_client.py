@@ -11,7 +11,6 @@ from dataclasses import asdict, is_dataclass
 import pandas as pd
 
 # Alpaca imports
-from alpaca.broker.client import BrokerClient
 from alpaca.broker.requests import (
     CreateAccountRequest,
     CreateACHRelationshipRequest,
@@ -41,6 +40,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.common.exceptions import APIError
 
 # Baskt imports
+from clients.alpaca_asset_compat import AssetCompatibleBrokerClient
 from domain.baskt_domain import BasktPosition
 from domain.stock_domain import Stock
 from domain.baskt_account_domain import ContactData, IdentityData, DisclosuresData
@@ -109,7 +109,7 @@ class AlpacaBrokerClient:
             initialized.
         """
         is_sandbox = alpaca_env.lower() == "sandbox"
-        self.client = BrokerClient(
+        self.client = AssetCompatibleBrokerClient(
             api_key=alpaca_broker_api_key,
             secret_key=alpaca_broker_api_secret,
             sandbox=is_sandbox,

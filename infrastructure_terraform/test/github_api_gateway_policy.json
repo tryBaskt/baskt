@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageTestBackendApiGateway",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE",
+        "apigateway:TagResource",
+        "apigateway:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:apigateway:us-east-1::/apis",
+        "arn:aws:apigateway:us-east-1::/apis/*",
+        "arn:aws:apigateway:us-east-1::/domainnames",
+        "arn:aws:apigateway:us-east-1::/domainnames/api-test.trybaskt.com",
+        "arn:aws:apigateway:us-east-1::/domainnames/api-test.trybaskt.com/*",
+        "arn:aws:apigateway:us-east-1::/tags/*"
+      ]
+    },
+    {
+      "Sid": "ManageTestBackendDomainCertificate",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:AddCertificateToDomain",
+        "apigateway:RemoveCertificateFromDomain"
+      ],
+      "Resource": "arn:aws:apigateway:us-east-1::/domainnames/api-test.trybaskt.com"
+    },
+    {
+      "Sid": "CreateApiGatewayServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::499133675835:role/aws-service-role/ops.apigateway.amazonaws.com/AWSServiceRoleForAPIGateway",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "ops.apigateway.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

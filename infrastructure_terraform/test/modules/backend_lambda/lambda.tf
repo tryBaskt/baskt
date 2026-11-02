@@ -31,7 +31,7 @@ resource "aws_lambda_function" "backend" {
   image_uri     = var.backend_image_uri
   architectures = ["x86_64"]
   role          = aws_iam_role.backend_task.arn
-  memory_size   = 3072
+  memory_size   = 6144
   # HTTP API integrations have a hard 30-second request deadline.
   timeout = 30
   publish = true
