@@ -9,11 +9,11 @@ from core.authentication import get_current_baskt_account
 from core.deps import get_explore_search_service
 from domain.baskt_account_domain import BasktAccount
 from schema.explore_search_schema import (
-    BasktAccountOpenSearchResultResponse,
-    BasktAccountsOpenSearchResultResponse,
-    ModelPortfolioOpenSearchResultResponse,
-    ModelPortfoliosOpenSearchResultResponse,
-    ExploreSearchOpenSearchResponse,
+    BasktAccountSearchResultResponse,
+    BasktAccountsSearchResultResponse,
+    ModelPortfolioSearchResultResponse,
+    ModelPortfoliosSearchResultResponse,
+    ExploreSearchResponse,
     StockSearchResultResponse,
     StocksSearchResultResponse,
 )
@@ -71,7 +71,7 @@ def _raise_search_http_exception(error: Exception) -> None:
 
 @router.get(
     "",
-    response_model=ExploreSearchOpenSearchResponse,
+    response_model=ExploreSearchResponse,
     status_code=status.HTTP_200_OK,
 )
 def search_model_portfolios_and_stocks(
@@ -82,7 +82,7 @@ def search_model_portfolios_and_stocks(
     service: ExploreSearchService = Depends(
         get_explore_search_service
     ),
-) -> ExploreSearchOpenSearchResponse:
+) -> ExploreSearchResponse:
     """Search model portfolios and stocks for an authenticated user.
 
     Args:
@@ -94,7 +94,7 @@ def search_model_portfolios_and_stocks(
         service: Model portfolio and stock search service dependency.
 
     Returns:
-        ExploreSearchOpenSearchResponse: Paginated model portfolio results
+        ExploreSearchResponse: Paginated model portfolio results
         and any exact stock-symbol match.
 
     Raises:
@@ -108,16 +108,16 @@ def search_model_portfolios_and_stocks(
             offset=offset,
         )
         model_portfolios_response = search_response[
-            "model_portfolios_opensearch_result"
+            "model_portfolios_search_result"
         ]
         stocks_response = search_response["stocks_search_result"]
         baskt_accounts_response = search_response[
-            "baskt_accounts_opensearch_result"
+            "baskt_accounts_search_result"
         ]
-        return ExploreSearchOpenSearchResponse(
-            model_portfolios=ModelPortfoliosOpenSearchResultResponse(
+        return ExploreSearchResponse(
+            model_portfolios=ModelPortfoliosSearchResultResponse(
                 model_portfolios=[
-                    ModelPortfolioOpenSearchResultResponse(
+                    ModelPortfolioSearchResultResponse(
                         portfolio_id=model_portfolio.portfolio_id,
                         portfolio_name=model_portfolio.portfolio_name,
                         description=model_portfolio.description,
@@ -152,9 +152,9 @@ def search_model_portfolios_and_stocks(
                     for stock in stocks_response
                 ]
             ),
-            baskt_accounts=BasktAccountsOpenSearchResultResponse(
+            baskt_accounts=BasktAccountsSearchResultResponse(
                 baskt_accounts=[
-                    BasktAccountOpenSearchResultResponse(
+                    BasktAccountSearchResultResponse(
                         cognito_user_id=account.cognito_user_id,
                         display_name=account.display_name,
                         description=account.description,

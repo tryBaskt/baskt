@@ -110,19 +110,6 @@ resource "aws_iam_role_policy" "backend_runtime" {
         Resource = var.cognito_user_pool_arn
       },
       {
-        Sid    = "OpenSearchAccess"
-        Effect = "Allow"
-        Action = [
-          "es:DescribeDomain",
-          "es:ESHttpGet",
-          "es:ESHttpPost"
-        ]
-        Resource = [
-          var.opensearch_domain_arn,
-          "${var.opensearch_domain_arn}/*"
-        ]
-      },
-      {
         Sid    = "ReadBackendSecrets"
         Effect = "Allow"
         Action = [

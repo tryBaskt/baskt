@@ -34,7 +34,6 @@ jobs:
     env:
       TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
       TF_VAR_backend_image_uri: ${{ vars.TF_VAR_backend_image_uri }}
-      TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
     defaults:
       run:
         working-directory: infrastructure_terraform/test
@@ -110,6 +109,9 @@ jobs:
             -backend-config="region=us-east-1" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
+
+      - name: Detach obsolete search index state
+        run: bash ../prepare_search_state.sh .
 
       - name: Validate Terraform
         run: terraform validate -no-color
@@ -261,20 +263,20 @@ jobs:
           exit 1
 
       - name: Plan test infrastructure changes
-        run: terraform plan -out=tfplan -no-color
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_addresses="$(terraform state list)"
+          if grep -Eq '^module\.(opensearch_domain|opensearch_indices|search_indexers)\.' <<< "$state_addresses"; then
+            # Keep legacy search running until the new backend is healthy.
+            terraform plan -target=module.cognito -target=module.dynamodb -target=module.ecr -target=module.queues -target=module.trade_worker -target=module.frontend_hosting -out=tfplan -no-color
+          else
+            terraform plan -out=tfplan -no-color
+          fi
 
       - name: Apply test infrastructure changes
         if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve tfplan
-
-      - name: Refresh OpenSearch indices from DynamoDB
-        if: github.ref == 'refs/heads/test' || github.event_name == 'workflow_dispatch'
-        working-directory: ${{ github.workspace }}
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        run: |
-          python -m pip install boto3==1.42.34
-          python infrastructure_terraform/refresh_search_indices.py --environment test --region "$AWS_REGION"
 
       - name: Publish test infrastructure outputs for downstream deployments
         id: test-infrastructure-outputs
@@ -351,7 +353,6 @@ jobs:
     environment: test
     env:
       TF_VAR_trade_worker_image_uri: ${{ vars.TF_VAR_trade_worker_image_uri }}
-      TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
 
     steps:
       - name: Checkout repository
@@ -403,6 +404,9 @@ jobs:
             -backend-config="region=us-east-1" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
+
+      - name: Detach obsolete search index state
+        run: bash infrastructure_terraform/prepare_search_state.sh infrastructure_terraform/test
 
       - name: Validate Terraform
         run: terraform -chdir=infrastructure_terraform/test validate -no-color
@@ -490,7 +494,7 @@ jobs:
             --region "$AWS_REGION" >/dev/null
 
       - name: Plan backend ECS deployment
-        run: terraform -chdir=infrastructure_terraform/test plan -target=module.opensearch_indices.opensearch_index.model_portfolios -target=module.backend_ecs -out=tfplan -no-color
+        run: terraform -chdir=infrastructure_terraform/test plan -target=module.backend_ecs -out=tfplan -no-color
 
       - name: Apply backend ECS deployment
         run: terraform -chdir=infrastructure_terraform/test apply -auto-approve tfplan
@@ -506,6 +510,24 @@ jobs:
 
       - name: Check backend health
         run: curl --fail --show-error --silent https://api-test.trybaskt.com/health
+
+      - name: Resolve worker image for final infrastructure plan
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          image_uri="$(aws lambda get-function --function-name test-trade-execution-queue-worker --region "$AWS_REGION" --query Code.ImageUri --output text)"
+          if [[ -z "$image_uri" || "$image_uri" == "None" ]]; then
+            echo "Unable to resolve deployed worker image." >&2
+            exit 1
+          fi
+          echo "TF_VAR_trade_worker_image_uri=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Plan remaining infrastructure and retire OpenSearch
+        run: terraform -chdir=infrastructure_terraform/test plan -out=retirement.tfplan -no-color
+
+      - name: Apply remaining infrastructure and retire OpenSearch
+        run: terraform -chdir=infrastructure_terraform/test apply -auto-approve retirement.tfplan
 
   deploy-test-frontend:
     needs: deploy-test-backend

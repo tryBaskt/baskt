@@ -1,17 +1,20 @@
-"""Search services for model portfolios and, eventually, stocks."""
+"""Search DynamoDB portfolio/profile metadata and Alpaca stock symbols."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List
 
 from clients.alpaca_broker_client import AlpacaBrokerClient, AlpacaBrokerClientError
-from clients.opensearch_client import OpenSearchClient, OpenSearchClientError
-from domain.model_portfolio_domain import ModelPortfolioOpenSearchResult, ModelPortfoliosOpenSearchResult
+from domain.model_portfolio_domain import ModelPortfolioSearchResult, ModelPortfoliosSearchResult
 from domain.stock_domain import Stock, StockSearchResult, StocksSearchResult
-from domain.baskt_account_domain import BasktAccountOpenSearch, BasktAccountsOpenSearch
+from domain.baskt_account_domain import BasktAccountSearchResult, BasktAccountsSearchResult
 from repository.baskt_account_repository import (
     BasktAccountRepository,
     BasktAccountRepositoryError,
+)
+from repository.model_portfolio_repository import (
+    ModelPortfolioRepository,
+    ModelPortfolioInternalServerError,
 )
 
 
@@ -32,30 +35,45 @@ class ExploreSearchInternalServerError(Exception):
         self.code = code
 
 
+def _match_score(query: str, name: str, description: str | None) -> float:
+    """Rank exact names, prefixes, substrings, then description matches."""
+    name = name.casefold()
+    description = (description or "").casefold()
+    if name == query:
+        return 4.0
+    if name.startswith(query):
+        return 3.0
+    if query in name:
+        return 2.0
+    if query in description:
+        return 1.0
+    if all(term in name or term in description for term in query.split()):
+        return 1.0
+    return 0.0
+
+
 class ExploreSearchService:
     """Coordinate searches across model portfolios and stocks."""
 
     def __init__(
         self,
         *,
-        opensearch_client: OpenSearchClient,
+        model_portfolio_repository: ModelPortfolioRepository,
         alpaca_broker_client: AlpacaBrokerClient,
         baskt_account_repository: BasktAccountRepository,
-        baskt_account_search_index: str,
     ) -> None:
         """Initialize the search service.
 
         Args:
-            opensearch_client: Client used to search indexed model portfolio metadata.
+            model_portfolio_repository: Repository for DynamoDB portfolio metadata.
             alpaca_broker_client: Client used to look up stocks by symbol.
 
         Returns:
             None.
         """
-        self.opensearch_client = opensearch_client
+        self.model_portfolio_repository = model_portfolio_repository
         self.alpaca_broker_client = alpaca_broker_client
         self.baskt_account_repository = baskt_account_repository
-        self.baskt_account_search_index = baskt_account_search_index
 
 
     def search_model_portfolios_and_stocks(
@@ -81,13 +99,13 @@ class ExploreSearchService:
                 search operation fails.
         """
         return {
-            "model_portfolios_opensearch_result": self.search_model_portfolios(
+            "model_portfolios_search_result": self.search_model_portfolios(
                 query=query,
                 limit=limit,
                 offset=offset,
             ),
             "stocks_search_result": self.search_stocks(query=query),
-            "baskt_accounts_opensearch_result": self.search_baskt_accounts(
+            "baskt_accounts_search_result": self.search_baskt_accounts(
                 query=query,
                 limit=limit,
                 offset=offset,
@@ -102,8 +120,6 @@ class ExploreSearchService:
         offset: int = 0,
     ) -> Any:
         """Search public Baskt accounts by display name or description."""
-        from domain.baskt_account_domain import BasktAccountOpenSearch
-
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
             raise ExploreSearchInternalServerError(
@@ -116,7 +132,7 @@ class ExploreSearchService:
                 code="BASKT_ACCOUNT_SEARCH_INVALID_OFFSET",
             )
         if not normalized_query:
-            return BasktAccountsOpenSearch(
+            return BasktAccountsSearchResult(
                 baskt_accounts=[],
                 total=0,
                 limit=limit,
@@ -124,79 +140,34 @@ class ExploreSearchService:
             )
 
         try:
-            search_body = {
-                "from": offset,
-                "size": limit,
-                "track_total_hits": True,
-                "_source": [
-                    "cognito_user_id",
-                    "display_name",
-                    "description",
-                    "profile_image",
-                ],
-                "query": {
-                    "bool": {
-                        "should": [
-                            {
-                                "match_phrase_prefix": {
-                                    "display_name": {
-                                        "query": normalized_query,
-                                        "boost": 5,
-                                    }
-                                }
-                            },
-                            {
-                                "multi_match": {
-                                    "query": normalized_query,
-                                    "fields": [
-                                        "display_name^4",
-                                        "description",
-                                    ],
-                                    "fuzziness": "AUTO",
-                                }
-                            },
-                        ],
-                        "minimum_should_match": 1,
-                    }
-                },
-                "sort": [
-                    "_score",
-                    {"display_name.keyword": {"order": "asc"}},
-                ],
-            }
-            response = self.opensearch_client._request(
-                method="POST",
-                path=f"{self.baskt_account_search_index}/_search",
-                body=search_body,
-            )
-            hits_data = response["hits"]
-            total_data = hits_data["total"]
-            total = int(
-                total_data["value"] if isinstance(total_data, dict) else total_data
-            )
-            baskt_accounts: List[BasktAccountOpenSearch] = []
-            for hit in hits_data["hits"]:
-                source: Dict[str, Any] = hit["_source"]
-                baskt_accounts.append(
-                    BasktAccountOpenSearch(
-                        cognito_user_id=str(source["cognito_user_id"]),
-                        display_name=str(source["display_name"]),
-                        description=source.get("description"),
-                        profile_image=source.get("profile_image"),
-                    )
+            matches = []
+            for item in self.baskt_account_repository.get_search_metadata():
+                score = _match_score(
+                    normalized_query.casefold(), item["display_name"], item.get("description")
                 )
-            return BasktAccountsOpenSearch(
-                baskt_accounts=baskt_accounts,
-                total=total,
-                limit=limit,
-                offset=offset
+                if score:
+                    matches.append((score, item))
+            matches.sort(key=lambda match: (
+                -match[0], match[1]["display_name"].casefold(), match[1]["cognito_user_id"],
+            ))
+            return BasktAccountsSearchResult(
+                baskt_accounts=[
+                    BasktAccountSearchResult(
+                        cognito_user_id=item["cognito_user_id"],
+                        display_name=item["display_name"],
+                        description=item.get("description"),
+                        profile_image=item.get("profile_image"),
+                    )
+                    for _, item in matches[offset:offset + limit]
+                ],
+                total=len(matches), limit=limit, offset=offset,
             )
-        except OpenSearchClientError as error:
+        except BasktAccountRepositoryError as error:
             raise ExploreSearchInternalServerError(
-                message=f"Failed to search Baskt accounts for query '{normalized_query}': {error}",
-                code="BASKT_ACCOUNT_SEARCH_OPENSEARCH_FAILED",
+                message=f"Failed to search Baskt accounts: {error}",
+                code="BASKT_ACCOUNT_SEARCH_DYNAMODB_FAILED",
             ) from error
-        except (KeyError, TypeError, ValueError) as error:
+        except (KeyError, AttributeError, TypeError, ValueError) as error:
             raise ExploreSearchInternalServerError(
                 message=f"Failed to parse Baskt account search results: {error}",
                 code="BASKT_ACCOUNT_SEARCH_RESPONSE_INVALID",
@@ -260,12 +231,11 @@ class ExploreSearchService:
         query: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> ModelPortfoliosOpenSearchResult:
+    ) -> ModelPortfoliosSearchResult:
         """Search model portfolios by portfolio name or description.
 
-        Name-prefix and name matches receive more relevance weight than
-        description matches. Minor spelling errors are supported by
-        OpenSearch fuzzy matching.
+        Matches are case-insensitive. Exact names and name prefixes rank above
+        description matches. All DynamoDB scan pages are read before pagination.
 
         Args:
             query: Search text entered by the user.
@@ -278,7 +248,7 @@ class ExploreSearchService:
 
         Raises:
             ExploreSearchInternalServerError: If pagination arguments are invalid,
-                OpenSearch fails, or its response cannot be parsed.
+                DynamoDB fails, or its response cannot be parsed.
         """
         normalized_query = query.strip()
         if not 1 <= limit <= 50:
@@ -292,7 +262,7 @@ class ExploreSearchService:
                 code="MODEL_PORTFOLIOS_SEARCH_INVALID_OFFSET",
             )
         if not normalized_query:
-            return ModelPortfoliosOpenSearchResult(
+            return ModelPortfoliosSearchResult(
                 model_portfolios=[],
                 total=0,
                 limit=limit,
@@ -300,69 +270,21 @@ class ExploreSearchService:
             )
 
         try:
-            search_body = {
-                "from": offset,
-                "size": limit,
-                "track_total_hits": True,
-                "_source": [
-                    "portfolio_id",
-                    "portfolio_name",
-                    "description",
-                    "portfolio_owner_cognito_user_id",
-                    "created_at",
-                    "updated_at",
-                    "visibility",
-                ],
-                "query": {
-                    "bool": {
-                        "should": [
-                            {
-                                "match_phrase_prefix": {
-                                    "portfolio_name": {
-                                        "query": normalized_query,
-                                        "boost": 4,
-                                    }
-                                }
-                            },
-                            {
-                                "multi_match": {
-                                    "query": normalized_query,
-                                    "fields": [
-                                        "portfolio_name^3",
-                                        "description",
-                                    ],
-                                    "fuzziness": "AUTO",
-                                }
-                            },
-                        ],
-                        "minimum_should_match": 1,
-                    }
-                },
-                "sort": [
-                    "_score",
-                    {
-                        "updated_at": {
-                            "order": "desc",
-                            "unmapped_type": "date",
-                        }
-                    },
-                ],
-            }
-            response = self.opensearch_client.search(
-                body=search_body,
-            )
-            hits_data = response["hits"]
-            total_data = hits_data["total"]
-            total = int(
-                total_data["value"] if isinstance(total_data, dict) else total_data
-            )
-            model_portfolios: List[ModelPortfolioOpenSearchResult] = []
-            owner_display_names: Dict[str, str | None] = {}
-            for hit in hits_data["hits"]:
-                source: Dict[str, Any] = hit["_source"]
-                owner_cognito_user_id = str(
-                    source["portfolio_owner_cognito_user_id"]
+            matches = []
+            for item in self.model_portfolio_repository.get_search_metadata():
+                score = _match_score(
+                    normalized_query.casefold(), item["portfolio_name"], item.get("description")
                 )
+                if score:
+                    matches.append((score, item))
+            # Stable tie breakers keep offset pages deterministic.
+            matches.sort(key=lambda match: match[1]["portfolio_id"])
+            matches.sort(key=lambda match: match[1]["updated_at"], reverse=True)
+            matches.sort(key=lambda match: match[0], reverse=True)
+            model_portfolios = []
+            owner_display_names: Dict[str, str | None] = {}
+            for score, source in matches[offset:offset + limit]:
+                owner_cognito_user_id = source["portfolio_owner_cognito_user_id"]
                 if owner_cognito_user_id not in owner_display_names:
                     try:
                         owner_display_names[owner_cognito_user_id] = (
@@ -372,37 +294,27 @@ class ExploreSearchService:
                         )
                     except BasktAccountRepositoryError:
                         owner_display_names[owner_cognito_user_id] = None
-                model_portfolios.append(
-                    ModelPortfolioOpenSearchResult(
-                        portfolio_id=str(source["portfolio_id"]),
-                        portfolio_name=str(source["portfolio_name"]),
-                        description=source.get("description"),
-                        portfolio_owner_cognito_user_id=owner_cognito_user_id,
-                        portfolio_owner_display_name=owner_display_names[
-                            owner_cognito_user_id
-                        ],
-                        created_at=str(source["created_at"]),
-                        updated_at=str(source["updated_at"]),
-                        visibility=source.get("visibility"),
-                        score=(
-                            float(hit["_score"])
-                            if hit.get("_score") is not None
-                            else None
-                        ),
-                    )
-                )
-            return ModelPortfoliosOpenSearchResult(
+                model_portfolios.append(ModelPortfolioSearchResult(
+                    portfolio_id=source["portfolio_id"],
+                    portfolio_name=source["portfolio_name"],
+                    description=source.get("description"),
+                    portfolio_owner_cognito_user_id=owner_cognito_user_id,
+                    portfolio_owner_display_name=owner_display_names[owner_cognito_user_id],
+                    created_at=str(source["created_at"]),
+                    updated_at=str(source["updated_at"]),
+                    visibility=source.get("visibility"),
+                    score=score,
+                ))
+            return ModelPortfoliosSearchResult(
                 model_portfolios=model_portfolios,
-                total=total,
-                limit=limit,
-                offset=offset
+                total=len(matches), limit=limit, offset=offset,
             )
-        except OpenSearchClientError as error:
+        except ModelPortfolioInternalServerError as error:
             raise ExploreSearchInternalServerError(
-                message=f"Failed to search model portfolios for query '{normalized_query}': {error}",
-                code="MODEL_PORTFOLIOS_SEARCH_OPENSEARCH_FAILED",
+                message=f"Failed to search model portfolios: {error}",
+                code="MODEL_PORTFOLIOS_SEARCH_DYNAMODB_FAILED",
             ) from error
-        except (KeyError, TypeError, ValueError) as error:
+        except (KeyError, AttributeError, TypeError, ValueError) as error:
             raise ExploreSearchInternalServerError(
                 message=f"Failed to parse model portfolio search results: {error}",
                 code="MODEL_PORTFOLIOS_SEARCH_RESPONSE_INVALID",

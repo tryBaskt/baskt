@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel, RootModel
 
 
-class ModelPortfolioOpenSearchResultResponse(BaseModel):
+class ModelPortfolioSearchResultResponse(BaseModel):
     """Metadata for one model portfolio returned by search."""
     portfolio_id: str
     portfolio_name: str
@@ -20,9 +20,9 @@ class ModelPortfolioOpenSearchResultResponse(BaseModel):
     score: Optional[float] = None
 
 
-class ModelPortfoliosOpenSearchResultResponse(BaseModel):
+class ModelPortfoliosSearchResultResponse(BaseModel):
     """Paginated collection of model portfolio search results."""
-    model_portfolios: List[ModelPortfolioOpenSearchResultResponse]
+    model_portfolios: List[ModelPortfolioSearchResultResponse]
     total: int
     limit: int
     offset: int
@@ -43,7 +43,7 @@ class StocksSearchResultResponse(RootModel[List[StockSearchResultResponse]]):
     pass
 
 
-class BasktAccountOpenSearchResultResponse(BaseModel):
+class BasktAccountSearchResultResponse(BaseModel):
     cognito_user_id: str
     display_name: str
     description: Optional[str] = None
@@ -51,8 +51,8 @@ class BasktAccountOpenSearchResultResponse(BaseModel):
     visibility: Optional[str] = None
     score: Optional[float] = None
 
-class BasktAccountsOpenSearchResultResponse(BaseModel):
-    baskt_accounts: List[BasktAccountOpenSearchResultResponse]
+class BasktAccountsSearchResultResponse(BaseModel):
+    baskt_accounts: List[BasktAccountSearchResultResponse]
     total: int
     limit: int
     offset: int
@@ -60,8 +60,8 @@ class BasktAccountsOpenSearchResultResponse(BaseModel):
 
 
 
-class ExploreSearchOpenSearchResponse(BaseModel):
+class ExploreSearchResponse(BaseModel):
     """Combined model portfolio and stock search response."""
-    model_portfolios: ModelPortfoliosOpenSearchResultResponse
+    model_portfolios: ModelPortfoliosSearchResultResponse
     stocks: StocksSearchResultResponse
-    baskt_accounts: BasktAccountsOpenSearchResultResponse
+    baskt_accounts: BasktAccountsSearchResultResponse

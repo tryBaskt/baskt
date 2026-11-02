@@ -31,7 +31,6 @@ jobs:
     environment: dev
     env:
       TF_VAR_trade_worker_image_uri: ${{ github.event.inputs.action == 'destroy' && 'unused-for-dev-destroy' || vars.TF_VAR_trade_worker_image_uri }}
-      TF_VAR_opensearch_endpoint_override: ${{ vars.TF_VAR_opensearch_endpoint_override }}
       TF_VAR_runtime_enabled: ${{ vars.TF_VAR_runtime_enabled || 'false' }}
       TF_VAR_trade_worker_environment: ${{ secrets.TF_VAR_trade_worker_environment }}
     defaults:
@@ -93,6 +92,9 @@ jobs:
             -backend-config="region=us-east-1" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
+
+      - name: Detach obsolete search index state
+        run: bash ../prepare_search_state.sh .
 
       - name: Validate Terraform
         run: terraform validate -no-color
@@ -268,15 +270,6 @@ jobs:
       - name: Destroy dev infrastructure
         if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm_destroy_dev == 'DELETE_DEV'
         run: terraform apply -auto-approve tfplan
-
-      - name: Refresh OpenSearch indices from DynamoDB
-        if: github.event.inputs.action == 'apply' && env.TF_VAR_runtime_enabled == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))
-        working-directory: ${{ github.workspace }}
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        run: |
-          python -m pip install boto3==1.42.34
-          python infrastructure_terraform/refresh_search_indices.py --environment dev --region "$AWS_REGION"
 
       - name: Sync trade execution queue worker market-hours state
         if: github.event.inputs.action == 'apply' && env.TF_VAR_runtime_enabled == 'true' && steps.trade-execution-queue-worker-changes.outputs.changed == 'true' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/'))

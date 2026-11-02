@@ -13,5 +13,4 @@ variable "cognito_user_pool_arn" { type = string }
 variable "trade_execution_queue_url" { type = string }
 variable "trade_execution_queue_arn" { type = string }
 variable "dynamodb_table_arns" { type = list(string) }
-variable "opensearch_domain_arn" { type = string }
 variable "common_tags" { type = map(string) }

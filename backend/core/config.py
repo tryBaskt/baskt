@@ -84,18 +84,6 @@ class Settings(BaseSettings):
         default="-baskt-account-dynamodb",
         alias="BASKT_ACCOUNT_DYNAMODB",
     )
-    opensearch_domain_suffix: str = Field(
-        default="-model-portfolio-search",
-        alias="OPENSEARCH_DOMAIN_SUFFIX",
-    )
-    model_portfolio_search_index_suffix: str = Field(
-        default="-model-portfolios",
-        alias="MODEL_PORTFOLIO_SEARCH_INDEX_SUFFIX",
-    )
-    baskt_account_search_index_suffix: str = Field(
-        default="-baskt-accounts",
-        alias="BASKT_ACCOUNT_SEARCH_INDEX_SUFFIX",
-    )
     trade_execution_queue_suffix: str = Field(
         default="-trade-execution-queue",
         alias="TRADE_EXECUTION_QUEUE_SUFFIX",
@@ -233,21 +221,6 @@ class Settings(BaseSettings):
     def baskt_account_dynamodb(self) -> str:
         """Full Baskt account table name with environment prefix."""
         return f"{self.env}{self.baskt_account_dynamodb_suffix}"
-
-    @property
-    def opensearch_domain_name(self) -> str:
-        """Return the environment-specific OpenSearch domain name."""
-        return f"{self.env}{self.opensearch_domain_suffix}"
-
-    @property
-    def model_portfolio_search_index(self) -> str:
-        """Return the environment-specific Baskt search index name."""
-        return f"{self.env}{self.model_portfolio_search_index_suffix}"
-
-    @property
-    def baskt_account_search_index(self) -> str:
-        """Return the environment-specific Baskt account search index name."""
-        return f"{self.env}{self.baskt_account_search_index_suffix}"
 
     @property
     def trade_execution_queue_name(self) -> str:

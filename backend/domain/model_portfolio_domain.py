@@ -65,7 +65,7 @@ class ModelPortfolioAnalyticsSnapshot:
 
 
 @dataclass(frozen=True)
-class ModelPortfolioOpenSearchResult:
+class ModelPortfolioSearchResult:
     """Searchable model portfolio metadata returned to callers."""
 
     portfolio_id: str
@@ -80,9 +80,9 @@ class ModelPortfolioOpenSearchResult:
 
 
 @dataclass(frozen=True)
-class ModelPortfoliosOpenSearchResult:
+class ModelPortfoliosSearchResult:
     """Paginated model portfolio search response."""
-    model_portfolios: List[ModelPortfolioOpenSearchResult]
+    model_portfolios: List[ModelPortfolioSearchResult]
     total: int
     limit: int
     offset: int

@@ -221,6 +221,23 @@ class DynamoDBClient:
             )
         return response.get("Items", [])
 
+    def scan_all(self, filter_expression=None, **kwargs) -> List[Dict[str, Any]]:
+        """Read all scan pages, including pages with no filtered matches."""
+        if filter_expression is not None:
+            kwargs["FilterExpression"] = filter_expression
+        try:
+            paginator = self.table.meta.client.get_paginator("scan")
+            return [
+                item
+                for page in paginator.paginate(TableName=self.table.name, **kwargs)
+                for item in page.get("Items", [])
+            ]
+        except Exception as error:
+            raise DynamoDBClientError(
+                message=f"Failed to scan DynamoDB: {error}",
+                code="DYNAMODB_SCAN_FAILED",
+            ) from error
+
     def update_item(
         self,
         *,

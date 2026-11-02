@@ -2,16 +2,20 @@
 
 # Python imports
 from __future__ import annotations
-from typing import Dict, Any, List
+from typing import Dict, Any, Iterable, List
 # Baskt imports
 from clients.alpaca_broker_client import AlpacaBrokerClient
 from repository.allocation_repository import AllocationRepository
 from domain.allocation_domain import (
+    PortfolioAllocation,
     PortfolioAllocationTransactionSnapshot,
+    StockAllocation,
     StockAllocationPositionSnapshot,
     StockAllocationTransactionSnapshot,
 )
 from domain.stock_domain import Stock
+
+PENDING_TRANSACTION_STATUSES = {"QUEUED", "ORDERED", "PROCESSING", "PARTIALLY_FILLED"}
 
 
 class AllocationAnalyticsInternalServerError(Exception):
@@ -38,6 +42,40 @@ class AllocationAnalyticsService:
     ):
         self.alpaca_broker_client = alpaca_broker_client
         self.allocation_repository = allocation_repository
+
+    @staticmethod
+    def _pending_request_amount(
+        transaction: PortfolioAllocationTransactionSnapshot | StockAllocationTransactionSnapshot,
+    ) -> float:
+        if transaction.status.upper() not in PENDING_TRANSACTION_STATUSES:
+            return 0.0
+        if transaction.requested_amount is None:
+            return 0.0
+
+        requested_amount = float(transaction.requested_amount)
+        filled_amount = float(transaction.cost_basis or 0.0)
+        return max(requested_amount - filled_amount, 0.0)
+
+    @classmethod
+    def _pending_request_amount_for_allocations(
+        cls,
+        allocations: Iterable[PortfolioAllocation | StockAllocation],
+    ) -> float:
+        pending_request_amount = 0.0
+
+        for allocation in allocations:
+            for transaction in allocation.transaction_history:
+                pending_request_amount += cls._pending_request_amount(transaction)
+
+        return pending_request_amount
+
+    def _pending_request_amount_for_user(self, cognito_user_id: str) -> float:
+        portfolio_allocations = self.allocation_repository.get_portfolio_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+        stock_allocations = self.allocation_repository.get_stock_allocations_by_cognito_user_id(cognito_user_id=cognito_user_id)
+
+        return self._pending_request_amount_for_allocations(
+            [*portfolio_allocations, *stock_allocations]
+        )
 
     def get_portfolio_allocation_analytics(self, cognito_user_id: str, portfolio_id: str) -> Dict[str, Any]:
 
@@ -196,6 +234,10 @@ class AllocationAnalyticsService:
                     "allocation_equity_percent": allocation_equity / float(trade_account.equity) if float(trade_account.equity) > 0.0 else 0.0
                 }
 
+            all_allocation_analytics["cash"] -= self._pending_request_amount_for_allocations(
+                [*portfolio_allocations, *stock_allocations]
+            )
+
             return all_allocation_analytics
         
         except Exception as err:
@@ -203,4 +245,9 @@ class AllocationAnalyticsService:
                 message=f"Failed to get all allocation analytics for alpaca account id '{alpaca_account_id}' and cognito user id '{cognito_user_id}': {err}"
             ) from err
 
+    def get_cash(self, cognito_user_id: str, alpaca_account_id: str) -> float:
+        trade_account = self.alpaca_broker_client.get_trade_account(account_id=alpaca_account_id, cognito_user_id=cognito_user_id)
+        pending_request_amount = self._pending_request_amount_for_user(cognito_user_id=cognito_user_id)
+
+        return float(trade_account.cash) - pending_request_amount
         

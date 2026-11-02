@@ -148,6 +148,9 @@ def _metadata_response(portfolio_metadata: dict) -> ModelPortfolioMetadataRespon
         portfolio_owner_cognito_user_id=portfolio_metadata[
             "portfolio_owner_cognito_user_id"
         ],
+        portfolio_owner_display_name=portfolio_metadata.get(
+            "portfolio_owner_display_name"
+        ),
         portfolio_name=portfolio_metadata["portfolio_name"],
         created_at=portfolio_metadata["created_at"],
         updated_at=portfolio_metadata["updated_at"],
@@ -163,6 +166,9 @@ def get_model_portfolios_shared_with_user(
     model_portfolio_access_repository: ModelPortfolioAccessRepository = Depends(
         get_model_portfolio_access_repository
     ),
+    baskt_account_repository: BasktAccountRepository = Depends(
+        get_baskt_account_repository
+    ),
 ) -> ModelPortfoliosMetadataResponse:
     """List model portfolio metadata explicitly shared with the authenticated user."""
     try:
@@ -170,12 +176,19 @@ def get_model_portfolios_shared_with_user(
         accesses = model_portfolio_access_repository.get_accesses_for_shared_with_user(
             shared_with_cognito_user_id=cognito_user_id,
         )
-        portfolios_meta_data = [
-            service.get_model_portfolio_metadata_by_portfolio_id(
+        portfolios_meta_data = []
+        owner_display_names = {}
+        for access in accesses:
+            portfolio_metadata = service.get_model_portfolio_metadata_by_portfolio_id(
                 portfolio_id=access.portfolio_id
             )
-            for access in accesses
-        ]
+            owner_id = portfolio_metadata["portfolio_owner_cognito_user_id"]
+            if owner_id not in owner_display_names:
+                owner_display_names[owner_id] = baskt_account_repository.get_display_name(
+                    cognito_user_id=owner_id
+                )
+            portfolio_metadata["portfolio_owner_display_name"] = owner_display_names[owner_id]
+            portfolios_meta_data.append(portfolio_metadata)
         return ModelPortfoliosMetadataResponse(
             root=[
                 _metadata_response(portfolio_metadata)

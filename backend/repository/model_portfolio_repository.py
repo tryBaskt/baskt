@@ -9,7 +9,7 @@ from uuid import uuid4
 import time
 
 # AWS imports
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 
 # Baskt imports 
 from domain.model_portfolio_domain import ModelPortfolio, ModelPortfolioSnapshot, ModelPortfolioPosition
@@ -244,6 +244,31 @@ class ModelPortfolioRepository:
     """
     Repository for managing model portfolios in DynamoDB.
     """
+
+    def get_search_metadata(self) -> List[Dict]:
+        """Read portfolio metadata without loading snapshots and positions."""
+        try:
+            return self.dynamodb.scan_all(
+                filter_expression=Attr("portfolio_name").exists(),
+                ProjectionExpression=(
+                    "#id, #name, #description, #owner, #created, #updated, #visibility"
+                ),
+                ExpressionAttributeNames={
+                    "#id": "portfolio_id",
+                    "#name": "portfolio_name",
+                    "#description": "description",
+                    "#owner": "portfolio_owner_cognito_user_id",
+                    "#created": "created_at",
+                    "#updated": "updated_at",
+                    "#visibility": "visibility",
+                },
+            )
+        except DynamoDBClientError as error:
+            raise ModelPortfolioBadGatewayError(
+                source="DynamoDB",
+                operation="reading search metadata",
+                cause=error,
+            ) from error
 
     def __init__(
         self,

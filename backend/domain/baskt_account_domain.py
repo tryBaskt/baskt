@@ -85,7 +85,7 @@ class UpdateBasktAccount:
 
 
 @dataclass(frozen=True)
-class BasktAccountOpenSearch:
+class BasktAccountSearchResult:
     cognito_user_id: str
     display_name: str
     description: Optional[str] = None
@@ -93,8 +93,8 @@ class BasktAccountOpenSearch:
 
 
 @dataclass(frozen=True)
-class BasktAccountsOpenSearch:
-    baskt_accounts: List[BasktAccountOpenSearch]
+class BasktAccountsSearchResult:
+    baskt_accounts: List[BasktAccountSearchResult]
     total: int
     limit: int
     offset: int
