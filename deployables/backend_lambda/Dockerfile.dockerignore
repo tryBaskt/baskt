@@ -1,0 +1,15 @@
+**
+!backend/
+!backend/**
+backend/.venv/
+backend/**/__pycache__/
+backend/tests_v2/
+backend/.env*
+backend/**/.env*
+backend/.DS_Store
+backend/.pytest_cache/
+backend/.coverage*
+backend/tests/
+!deployables/
+!deployables/backend_lambda/
+!deployables/backend_lambda/lambda_startup.py

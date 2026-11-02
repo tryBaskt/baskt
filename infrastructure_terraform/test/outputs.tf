@@ -27,31 +27,27 @@ output "cognito_user_pool_domain" {
 }
 
 output "backend_ecr_repository_url" {
-  value = module.backend_ecs.backend_ecr_repository_url
+  value = module.backend_lambda.backend_ecr_repository_url
 }
 
-output "backend_ecs_cluster_name" {
-  value = module.backend_ecs.backend_ecs_cluster_name
+output "backend_lambda_function_name" {
+  value = module.backend_lambda.backend_lambda_function_name
 }
 
-output "backend_ecs_service_name" {
-  value = module.backend_ecs.backend_ecs_service_name
-}
-
-output "backend_alb_dns_name" {
-  value = module.backend_ecs.backend_alb_dns_name
+output "backend_api_gateway_id" {
+  value = module.backend_lambda.backend_api_gateway_id
 }
 
 output "backend_custom_domain" {
-  value = module.backend_ecs.backend_custom_domain
+  value = module.backend_lambda.backend_custom_domain
 }
 
 output "backend_sandbox_alpaca_broker_api_key_secret_arn" {
-  value = module.backend_ecs.sandbox_alpaca_broker_api_key_secret_arn
+  value = module.backend_lambda.sandbox_alpaca_broker_api_key_secret_arn
 }
 
 output "backend_sandbox_alpaca_broker_api_secret_secret_arn" {
-  value = module.backend_ecs.sandbox_alpaca_broker_api_secret_secret_arn
+  value = module.backend_lambda.sandbox_alpaca_broker_api_secret_secret_arn
 }
 
 output "frontend_bucket_name" {

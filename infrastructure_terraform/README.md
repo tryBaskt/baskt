@@ -158,8 +158,9 @@ GSIs around the required access patterns before increasing search traffic.
 The test GitHub workflow stages the transition:
 1. If legacy search resources remain in state, apply active infrastructure
    targets while preserving the old search domain and indexers.
-2. Build and deploy the DynamoDB-backed backend, then wait for ECS stability
-   and a successful health check.
+2. Build and deploy the DynamoDB-backed Lambda API, then wait for the Lambda
+   update and a successful health check. See [the test deployment guide](test/README.md)
+   for the ECS-to-Lambda cutover and request timeout limits.
 3. Run a full Terraform plan/apply to delete the old OpenSearch domain and
    search indexer Lambdas, event source mappings, IAM roles/policies, and any
    managed indexer log groups.

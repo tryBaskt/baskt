@@ -1,49 +1,5 @@
-resource "aws_iam_role" "backend_execution" {
-  name = "${var.environment}-backend-ecs-execution"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "backend_execution" {
-  role       = aws_iam_role.backend_execution.name
-  policy_arn = "arn:${var.aws_partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-resource "aws_iam_role_policy" "backend_execution_secrets" {
-  name = "${var.environment}-backend-ecs-execution-secrets"
-  role = aws_iam_role.backend_execution.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "ReadBackendSecretsForInjection"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = [
-          aws_secretsmanager_secret.sandbox_alpaca_broker_api_key.arn,
-          aws_secretsmanager_secret.sandbox_alpaca_broker_api_secret.arn
-        ]
-      }
-    ]
-  })
-}
-
 resource "aws_iam_role" "backend_task" {
-  name = "${var.environment}-backend-ecs-task"
+  name = "${var.environment}-backend-lambda"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -51,7 +7,7 @@ resource "aws_iam_role" "backend_task" {
       {
         Effect = "Allow"
         Principal = {
-          Service = "ecs-tasks.amazonaws.com"
+          Service = "lambda.amazonaws.com"
         }
         Action = "sts:AssumeRole"
       }
@@ -66,6 +22,12 @@ resource "aws_iam_role_policy" "backend_runtime" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      {
+        Sid      = "WriteBackendLogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.backend_lambda.arn}:*"
+      },
       {
         Sid    = "DynamoDBAccess"
         Effect = "Allow"

@@ -2,16 +2,12 @@ output "backend_ecr_repository_url" {
   value = aws_ecr_repository.backend.repository_url
 }
 
-output "backend_ecs_cluster_name" {
-  value = aws_ecs_cluster.backend.name
+output "backend_lambda_function_name" {
+  value = try(aws_lambda_function.backend[0].function_name, null)
 }
 
-output "backend_ecs_service_name" {
-  value = try(aws_ecs_service.backend[0].name, null)
-}
-
-output "backend_alb_dns_name" {
-  value = aws_lb.backend.dns_name
+output "backend_api_gateway_id" {
+  value = aws_apigatewayv2_api.backend.id
 }
 
 output "backend_custom_domain" {
